@@ -130,6 +130,15 @@ export default function ModuleHomeAudioPlayer({
     onPlayingChange?.(audio.playing);
   }, [audio.playing, onPlayingChange]);
 
+  // Belt-and-suspenders: some pause paths miss the audio element event.
+  const wasPlayingRef = useRef(false);
+  useEffect(() => {
+    if (wasPlayingRef.current && !audio.playing) {
+      onPlaybackPaused(userId);
+    }
+    wasPlayingRef.current = audio.playing;
+  }, [audio.playing, userId]);
+
   useEffect(() => {
     onHasSrcChange?.(Boolean(audio.src));
   }, [audio.src, onHasSrcChange]);

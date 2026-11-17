@@ -14,7 +14,9 @@ type Props = {
 
 function titleCaseWord(word: string): string {
   if (!word) return word;
-  return word[0].toUpperCase() + word.slice(1);
+  const i = word.search(/[A-Za-zÀ-ÿ]/);
+  if (i < 0) return word;
+  return word.slice(0, i) + word.charAt(i).toUpperCase() + word.slice(i + 1);
 }
 
 function titleCaseWords(value: string): string {

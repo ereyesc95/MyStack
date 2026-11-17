@@ -15,15 +15,21 @@ import {
   getCachedListeningWrapped,
   setCachedListeningWrapped,
 } from "../../listeningWrappedCache";
+import { musicStreamUrl } from "../../musicStreamUrl";
 import type { ListeningWrapped } from "../../types";
 import { IconCheck, IconPlus } from "../MenuIcons";
 import ModalPortal, { useModalClose } from "../ModalPortal";
+import {
+  diskCreditFromTitle,
+  trackMainTitle,
+} from "./release/releaseTrackPanelMeta";
 
 type TabId = "tracks" | "artists" | "vibes";
 
 type Props = {
   year: number;
   onClose: () => void;
+  /** @deprecated Preview uses stream URL only (never counts as a play). */
   onPlayTrack?: (
     path: string,
     artistId: number | null,
@@ -34,6 +40,47 @@ type Props = {
   /** Refresh Playlists tab after creating the Wrapped playlist. */
   onPlaylistCreated?: () => void;
 };
+
+type PreviewTrack = {
+  path?: string | null;
+  cover_url?: string | null;
+  title?: string | null;
+  title_full?: string | null;
+  artist_id?: number | null;
+  artist_name?: string | null;
+  play_count?: number | null;
+};
+
+/** Capitalize first letter of each word without lowercasing the rest. */
+function softTitleCase(text: string): string {
+  return text
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => {
+      const i = w.search(/[A-Za-zÀ-ÿ]/);
+      if (i < 0) return w;
+      return w.slice(0, i) + w.charAt(i).toUpperCase() + w.slice(i + 1);
+    })
+    .join(" ");
+}
+
+function capitalizeAfterOpenParen(text: string): string {
+  return text.replace(/\(\s*([a-zà-ÿ])/g, (m, letter: string) =>
+    m.replace(letter, letter.toUpperCase())
+  );
+}
+
+function formatMusicWrappedTrackTitle(t: PreviewTrack): string {
+  const raw = t.title_full || t.title || "";
+  const credit = diskCreditFromTitle(raw, t.artist_name);
+  const stripped =
+    trackMainTitle(credit.title) || credit.title || t.title || "Track";
+  const looksLower =
+    stripped === stripped.toLowerCase() && /[a-z]/.test(stripped);
+  return capitalizeAfterOpenParen(
+    looksLower ? softTitleCase(stripped) : stripped
+  );
+}
 
 function prefersReducedMotion(): boolean {
   return (
@@ -53,7 +100,6 @@ export default function MusicWrapped(props: Props) {
 function MusicWrappedPanel({
   year,
   onClose,
-  onPlayTrack,
   onArtist,
   onGenre,
   onPlaylistCreated,
@@ -66,12 +112,105 @@ function MusicWrappedPanel({
   const [playlistId, setPlaylistId] = useState<number | null>(null);
   const [playlistBusy, setPlaylistBusy] = useState(false);
   const [playlistError, setPlaylistError] = useState<string | null>(null);
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const bodyShellRef = useRef<HTMLDivElement>(null);
   const bodyContentRef = useRef<HTMLDivElement>(null);
   const heightReadyRef = useRef(false);
   const pinnedTopRef = useRef<number | null>(null);
   const requestClose = useModalClose(onClose);
+
+  useEffect(() => {
+    const el = document.createElement("audio");
+    el.preload = "auto";
+    el.setAttribute("playsinline", "");
+    previewAudioRef.current = el;
+    const onPlay = () => setPreviewPlaying(true);
+    const onPause = () => setPreviewPlaying(false);
+    const onEnded = () => {
+      setPreviewPlaying(false);
+      setPreviewPath(null);
+    };
+    el.addEventListener("play", onPlay);
+    el.addEventListener("pause", onPause);
+    el.addEventListener("ended", onEnded);
+    return () => {
+      el.pause();
+      el.removeEventListener("play", onPlay);
+      el.removeEventListener("pause", onPause);
+      el.removeEventListener("ended", onEnded);
+      previewAudioRef.current = null;
+    };
+  }, []);
+
+  function togglePreviewTrack(t: PreviewTrack) {
+    const path = (t.path || "").trim();
+    if (!path) return;
+    const el = previewAudioRef.current;
+    if (!el) return;
+    const url = musicStreamUrl(path);
+    if (previewPath === path) {
+      if (!el.paused) {
+        el.pause();
+        setPreviewPlaying(false);
+      } else {
+        void el.play().catch(() => setPreviewPlaying(false));
+      }
+      return;
+    }
+    el.src = url;
+    setPreviewPath(path);
+    void el.play().catch(() => {
+      setPreviewPlaying(false);
+      setPreviewPath(null);
+    });
+  }
+
+  function renderCoverControl(t: PreviewTrack, size: "feature" | "row") {
+    const path = (t.path || "").trim();
+    const isThis = Boolean(path && previewPath === path && previewPlaying);
+    const squareClass =
+      size === "feature"
+        ? "music-wrapped__feature-art music-wrapped__feature-art--square"
+        : "";
+    return (
+      <span
+        className={`music-wrapped__cover-hit music-wrapped__cover-hit--${size}${
+          isThis ? " is-playing" : ""
+        }`}
+      >
+        {t.cover_url ? (
+          <img className={squareClass || undefined} src={t.cover_url} alt="" />
+        ) : (
+          <span
+            className={`${
+              squareClass || "music-wrapped__art-fallback"
+            }${squareClass ? " music-wrapped__art-fallback" : ""}`}
+          />
+        )}
+        {path ? (
+          <button
+            type="button"
+            className="music-wrapped__cover-play"
+            aria-label={isThis ? "Pause preview" : "Play preview"}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              togglePreviewTrack(t);
+            }}
+          >
+            {isThis ? (
+              <span className="music-wrapped__cover-pause" />
+            ) : (
+              <span className="music-wrapped__cover-triangle" />
+            )}
+          </button>
+        ) : null}
+      </span>
+    );
+  }
 
   const playlistName = `${year} Wrapped`;
 
@@ -321,30 +460,16 @@ function MusicWrappedPanel({
                           <button
                             type="button"
                             className="music-wrapped__feature music-wrapped__feature--track"
-                            onClick={() => {
-                              if (featuredTrack.path) {
-                                onPlayTrack?.(
-                                  featuredTrack.path,
-                                  featuredTrack.artist_id,
-                                  featuredTrack.title
-                                );
-                              }
-                            }}
+                            onClick={() => togglePreviewTrack(featuredTrack)}
                           >
-                            {featuredTrack.cover_url ? (
-                              <img
-                                className="music-wrapped__feature-art music-wrapped__feature-art--square"
-                                src={featuredTrack.cover_url}
-                                alt=""
-                              />
-                            ) : (
-                              <span className="music-wrapped__feature-art music-wrapped__feature-art--square music-wrapped__art-fallback" />
-                            )}
+                            {renderCoverControl(featuredTrack, "feature")}
                             <span className="music-wrapped__feature-meta">
                               <span className="music-wrapped__feature-rank">
                                 #1 On repeat
                               </span>
-                              <strong>{featuredTrack.title}</strong>
+                              <strong>
+                                {formatMusicWrappedTrackTitle(featuredTrack)}
+                              </strong>
                               <em>
                                 {featuredTrack.artist_name}
                                 {featuredTrack.play_count != null
@@ -365,29 +490,19 @@ function MusicWrappedPanel({
                                   className={`music-wrapped__row${
                                     slim ? " music-wrapped__row--slim" : ""
                                   }`}
-                                  onClick={() => {
-                                    if (t.path) {
-                                      onPlayTrack?.(
-                                        t.path,
-                                        t.artist_id,
-                                        t.title
-                                      );
-                                    }
-                                  }}
+                                  onClick={() => togglePreviewTrack(t)}
                                 >
                                   {!slim ? (
-                                    t.cover_url ? (
-                                      <img src={t.cover_url} alt="" />
-                                    ) : (
-                                      <span className="music-wrapped__art-fallback" />
-                                    )
+                                    renderCoverControl(t, "row")
                                   ) : (
                                     <span className="music-wrapped__rank">
                                       {rank}
                                     </span>
                                   )}
                                   <span>
-                                    <strong>{t.title}</strong>
+                                    <strong>
+                                      {formatMusicWrappedTrackTitle(t)}
+                                    </strong>
                                     <em>{t.artist_name}</em>
                                   </span>
                                   <span className="music-wrapped__count">

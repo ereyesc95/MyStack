@@ -15,12 +15,14 @@ import {
   type ExclusiveLinkRecord,
   type PhotosYearBucket,
 } from "../../api";
-import type { SeriesGallerySection } from "../../types";
+import type { ModuleWrappedItem, SeriesGallerySection } from "../../types";
 import {
   defaultSectionForSource,
   saveArtistEntryReferrer,
 } from "../../artistEntry";
 import { withMediaAccess } from "../../mediaFileUrl";
+import { trackModuleActivity } from "../../moduleActivity";
+import { wrappedSeasonYear } from "../../moduleWrappedCache";
 import { seriesLeafFromFolderPath } from "../../openMediaFromPath";
 import {
   consumePhotosExclusiveReturn,
@@ -30,6 +32,9 @@ import { usePhoneLayout } from "../../usePhoneLayout";
 import type { MediaOption } from "../ModuleTopBar";
 import ModuleTopBar from "../ModuleTopBar";
 import AppMenu from "../AppMenu";
+import ModuleWrapped, {
+  type ModuleWrappedBrowseTarget,
+} from "../ModuleWrapped";
 import GalleryViewerModal, {
   type GalleryViewerItem,
 } from "../music/artist/GalleryViewerModal";
@@ -366,7 +371,10 @@ export default function PhotosModule({
   );
   const [revealedLinkId, setRevealedLinkId] = useState<number | null>(null);
   const [yearsReady, setYearsReady] = useState(false);
+  const [wrappedOpen, setWrappedOpen] = useState(false);
+  const wrappedYear = wrappedSeasonYear();
   const isPhone = usePhoneLayout();
+  const showHomeWrapped = viewTab === "home" && wrappedYear != null;
 
   useEffect(() => {
     const ret = consumePhotosExclusiveReturn();
@@ -957,6 +965,17 @@ export default function PhotosModule({
     viewTab === "gallery";
 
   const openGalleryFolder = (year: string) => {
+    trackModuleActivity({
+      module: "photos",
+      entity_kind: "year",
+      entity_id: year,
+      title: year,
+      path: `Photos/${year}`,
+      group_id: year,
+      group_title: year,
+      vibe_key: year,
+      vibe_label: year,
+    });
     setGalleryFolder(year);
     setViewTab("gallery");
     setViewerOpen(false);
@@ -986,6 +1005,17 @@ export default function PhotosModule({
                   setViewerOpen(false);
                 }}
               />
+            ) : null}
+            {showHomeWrapped ? (
+              <button
+                type="button"
+                className="music-home-wrapped-btn"
+                title={`${wrappedYear} Wrapped`}
+                aria-label={`${wrappedYear} Wrapped`}
+                onClick={() => setWrappedOpen(true)}
+              >
+                {`${wrappedYear} Wrapped`}
+              </button>
             ) : null}
             <AppMenu
               onImport={onImport}
@@ -1101,6 +1131,19 @@ export default function PhotosModule({
                     it.title || (it.kind === "video" ? "Video" : "Photo")
                   }
                   onClick={() => {
+                    trackModuleActivity({
+                      module: "photos",
+                      entity_kind: "photo",
+                      entity_id: it.id,
+                      title:
+                        it.title || (it.kind === "video" ? "Video" : "Photo"),
+                      path: galleryFolder
+                        ? `Photos/${galleryFolder}`
+                        : undefined,
+                      group_id: galleryFolder || undefined,
+                      group_title: galleryFolder || undefined,
+                      cover_url: cover || undefined,
+                    });
                     setViewerIndex(idx);
                     setViewerOpen(true);
                   }}
@@ -1296,6 +1339,26 @@ export default function PhotosModule({
                 }
               : undefined
           }
+        />
+      ) : null}
+
+      {wrappedOpen && wrappedYear != null ? (
+        <ModuleWrapped
+          module="photos"
+          year={wrappedYear}
+          onClose={() => setWrappedOpen(false)}
+          onOpenItem={(item: ModuleWrappedItem) => {
+            const year = item.group_id || item.id;
+            if (!year) return;
+            setWrappedOpen(false);
+            openGalleryFolder(String(year));
+          }}
+          onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
+            const year = target.groupId || target.id;
+            if (!year) return;
+            setWrappedOpen(false);
+            openGalleryFolder(String(year));
+          }}
         />
       ) : null}
     </div>

@@ -257,6 +257,21 @@ export default function SeriesOpeningsEndingsPage({
     });
   }, [coverUrl, userId]);
 
+  useEffect(() => {
+    const onPlaybackThemeEnded = () => {
+      if (!coverUrl) {
+        beginArtistPageSession(userId);
+        return;
+      }
+      void colorsFromImageUrl(coverUrl).then((c) => {
+        if (c) applyMediaTheme(c, userId);
+      });
+    };
+    window.addEventListener("playback-theme-ended", onPlaybackThemeEnded);
+    return () =>
+      window.removeEventListener("playback-theme-ended", onPlaybackThemeEnded);
+  }, [coverUrl, userId]);
+
   const playAt = useCallback(
     (i: number) => {
       const t = tracks[i];

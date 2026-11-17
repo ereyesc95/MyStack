@@ -96,7 +96,15 @@ function titleCaseWords(text: string): string {
   return text
     .split(/\s+/)
     .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .map((word) => {
+      const i = word.search(/[A-Za-zÀ-ÿ]/);
+      if (i < 0) return word;
+      return (
+        word.slice(0, i) +
+        word.charAt(i).toUpperCase() +
+        word.slice(i + 1).toLowerCase()
+      );
+    })
     .join(" ");
 }
 

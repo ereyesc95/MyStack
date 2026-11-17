@@ -1966,6 +1966,91 @@ input {
 .music-wrapped__feature-art--square {
   border-radius: 0.45rem;
 }
+.music-wrapped__cover-hit {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+}
+.music-wrapped__cover-hit--row {
+  width: 2.4rem;
+  height: 2.4rem;
+}
+.music-wrapped__cover-hit--row img,
+.music-wrapped__cover-hit--row .music-wrapped__art-fallback {
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 0.3rem;
+  object-fit: cover;
+}
+.music-wrapped__cover-play {
+  position: absolute;
+  inset: 0;
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, #000 48%, transparent);
+  color: #fff;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.music-wrapped__cover-hit:hover .music-wrapped__cover-play,
+.music-wrapped__cover-hit.is-playing .music-wrapped__cover-play,
+.music-wrapped__cover-hit:focus-within .music-wrapped__cover-play {
+  display: flex;
+}
+@media (hover: none) {
+  .music-wrapped__cover-hit .music-wrapped__cover-play {
+    display: flex;
+    background: color-mix(in srgb, #000 28%, transparent);
+  }
+  .music-wrapped__cover-hit.is-playing .music-wrapped__cover-play {
+    background: color-mix(in srgb, #000 48%, transparent);
+  }
+}
+.music-wrapped__cover-triangle {
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0.4rem 0 0.4rem 0.65rem;
+  border-color: transparent transparent transparent currentColor;
+  margin-left: 0.12rem;
+}
+.music-wrapped__cover-hit--feature .music-wrapped__cover-triangle {
+  border-width: 0.55rem 0 0.55rem 0.9rem;
+}
+.music-wrapped__cover-pause {
+  display: flex;
+  gap: 0.18rem;
+  width: 0.7rem;
+  height: 0.7rem;
+}
+.music-wrapped__cover-pause::before,
+.music-wrapped__cover-pause::after {
+  content: "";
+  flex: 1;
+  background: currentColor;
+  border-radius: 1px;
+}
+.music-wrapped__cover-hit--feature .music-wrapped__cover-pause {
+  width: 0.95rem;
+  height: 0.95rem;
+  gap: 0.22rem;
+}
+.music-wrapped__feature .music-wrapped__cover-hit {
+  border-radius: 0.45rem;
+  overflow: hidden;
+}
+.music-wrapped__feature-art--round,
+.music-wrapped__feature-art--genre {
+  border-radius: 50%;
+}
+.music-wrapped__grid-card-art--round {
+  border-radius: 50%;
+}
 .music-wrapped__feature-art--portrait {
   width: 3.75rem;
   height: 5.5rem;

@@ -22,10 +22,29 @@ let artistPageThemePin: ThemeId | null = null;
 let playbackSessionActive = false;
 let playbackIsPlaying = false;
 let themeBeforePlayback: ThemeId | null = null;
+/** Exact CSS palette painted before cover sampling (franchise/home page colors). */
+let colorsBeforePlayback: CustomThemeColors | null = null;
 /** Theme chosen in menu while a playback session is active (shown when paused/stopped). */
 let playbackMenuTheme: ThemeId | null = null;
 /** When true, cover-based colors must not override the current display while playing. */
 let playbackThemeSuppressed = false;
+
+function readLiveThemeColors(): CustomThemeColors {
+  const s = getComputedStyle(document.documentElement);
+  const pick = (name: string, fallback: string) => {
+    const v = s.getPropertyValue(name).trim();
+    return v || fallback;
+  };
+  return {
+    bg: pick("--bg", "#0a0c10"),
+    bgElevated: pick("--bg-elevated", "#12151c"),
+    bgHover: pick("--bg-hover", "#1a1f28"),
+    border: pick("--border", "#2a3042"),
+    text: pick("--text", "#e8eaef"),
+    textMuted: pick("--text-muted", "#8b93a7"),
+    accent: pick("--accent", "#00d4c8"),
+  };
+}
 
 export function pinArtistPageTheme(id: ThemeId) {
   if (id === "artist" || id === "album") {
@@ -183,7 +202,7 @@ function restoreThemeAfterPlayback(userId?: number) {
   if (artistPageActive) {
     if (playbackMenuTheme || playbackThemeSuppressed) {
       if (restore === "artist") {
-        const colors = getArtistThemeColors(userId);
+        const colors = colorsBeforePlayback || getArtistThemeColors(userId);
         if (colors) applyMediaCss(colors);
         else applyTheme("artist", userId);
       } else {
@@ -193,11 +212,30 @@ function restoreThemeAfterPlayback(userId?: number) {
       window.dispatchEvent(new CustomEvent("theme-changed"));
       return;
     }
+    // Prefer the exact pre-play snapshot (Series/Movies/Books/Games home +
+    // franchise pages). Stored artist colors can be stale or from Music.
+    const colors =
+      colorsBeforePlayback || getArtistThemeColors(userId) || null;
+    if (colors) {
+      applyMediaCss(colors, albumPageActive ? "album" : "artist");
+      window.dispatchEvent(new CustomEvent("theme-changed"));
+    } else {
+      clearMediaCss();
+      applyTheme(restore === "artist" || restore === "album" ? "dark" : restore, userId);
+    }
+    window.dispatchEvent(new CustomEvent("playback-theme-ended"));
+    return;
+  }
+  if (colorsBeforePlayback) {
+    // Home chrome may still carry adaptive CSS vars from a prior media page.
+    applyThemeColors(colorsBeforePlayback);
+    window.dispatchEvent(new CustomEvent("theme-changed"));
     window.dispatchEvent(new CustomEvent("playback-theme-ended"));
     return;
   }
   clearMediaCss();
   applyTheme(restore, userId);
+  window.dispatchEvent(new CustomEvent("playback-theme-ended"));
 }
 
 function storedBaseTheme(userId?: number): ThemeId {
@@ -244,8 +282,9 @@ export function beginAdaptivePageSession(userId?: number) {
   beginAlbumPageSession();
 }
 
+/** True while cover sampling is actively painting (playing only — not paused). */
 export function isPlaybackThemeActive() {
-  return playbackSessionActive;
+  return playbackSessionActive && playbackIsPlaying;
 }
 
 export function isPlaybackSessionActive() {
@@ -291,6 +330,7 @@ export function setPlaybackPlaying(playing: boolean) {
 function beginPlaybackThemeSession(userId?: number) {
   if (!playbackSessionActive) {
     themeBeforePlayback = readPersistedTheme(userId);
+    colorsBeforePlayback = readLiveThemeColors();
     playbackMenuTheme = null;
     playbackThemeSuppressed = false;
   }
@@ -371,6 +411,7 @@ export function endPlaybackThemeSession(userId?: number) {
   playbackIsPlaying = false;
   restoreThemeAfterPlayback(userId);
   themeBeforePlayback = null;
+  colorsBeforePlayback = null;
   playbackMenuTheme = null;
   playbackThemeSuppressed = false;
 }

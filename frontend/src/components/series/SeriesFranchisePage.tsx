@@ -1817,6 +1817,22 @@ export default function SeriesFranchisePage({
     });
   }, [coverUrl, bgUrl, userId]);
 
+  useEffect(() => {
+    const sample = coverUrl || bgUrl;
+    const onPlaybackThemeEnded = () => {
+      if (!sample) {
+        beginArtistPageSession(userId);
+        return;
+      }
+      void colorsFromImageUrl(sample).then((c) => {
+        if (c) applyMediaTheme(c, userId);
+      });
+    };
+    window.addEventListener("playback-theme-ended", onPlaybackThemeEnded);
+    return () =>
+      window.removeEventListener("playback-theme-ended", onPlaybackThemeEnded);
+  }, [coverUrl, bgUrl, userId]);
+
   const visibleSections = useMemo(() => {
     if (!data) return navSections.filter((s) => s.id === "overview");
     const media = data.media || ({} as SeriesOverview["media"]);

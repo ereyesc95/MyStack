@@ -1648,12 +1648,17 @@ export default function MoviesModule({
           onClose={() => setWrappedOpen(false)}
           onOpenItem={(item: ModuleWrappedItem) => {
             const fid = item.franchise_id;
-            if (fid && item.id) openFilm(item.id, fid, "home", true, item.title);
+            const leafId = item.leaf_id || item.id;
+            if (fid && leafId)
+              openFilm(leafId, fid, "home", true, item.title);
             else if (fid) openWork(fid, undefined, undefined, "home");
           }}
           onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
             const fid = target.franchiseId || target.id;
-            if (fid) openWork(fid, undefined, undefined, "home");
+            if (!fid) return;
+            if (target.groupId)
+              openFilm(target.groupId, fid, "home", true, target.title);
+            else openWork(fid, undefined, undefined, "home");
           }}
           onOpenVibe={() => {
             setTab("catalog");

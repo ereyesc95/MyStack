@@ -22,7 +22,9 @@ import {
 } from "../../leafOwnership";
 import { clearMediaTheme } from "../../mediaTheme";
 import {
+  getDirectGameFromHome,
   getMediaEntrySource,
+  setDirectGameFromHome,
   setMediaEntrySource,
   takePendingCatalogBrowse,
 } from "../../mediaEntry";
@@ -405,6 +407,12 @@ export default function GamesModule({
       nextSection: GamesSection = "overview",
       from: "home" | "catalog" = "catalog"
     ) => {
+      setMediaEntrySource(from);
+      if (nextGameId) {
+        setDirectGameFromHome(from === "home");
+      } else {
+        setDirectGameFromHome(false);
+      }
       const card = (
         franchises.find((f) => f.id === workId) ||
         dashboard?.top_franchises?.find((f) => f.id === workId)
@@ -473,16 +481,55 @@ export default function GamesModule({
   );
 
   const openGame = useCallback(
-    (id: string, workId?: string) => {
-      const fid = workId || franchises.find((f) =>
-        ((f as SeriesFranchiseCard & { films?: MoviesFilmCard[] }).films || []).some(
-          (g) => g.id === id
-        )
-      )?.id || games.find((g) => g.id === id)?.work_id || "game";
-      openFranchise(fid, id, "overview");
+    (
+      id: string,
+      workId?: string,
+      from: "home" | "catalog" = "catalog"
+    ) => {
+      const fid =
+        workId ||
+        franchises.find((f) =>
+          (
+            (f as SeriesFranchiseCard & { films?: MoviesFilmCard[] }).films ||
+            []
+          ).some((g) => g.id === id)
+        )?.id ||
+        games.find((g) => g.id === id)?.work_id ||
+        "game";
+      openFranchise(fid, id, "overview", from);
     },
     [franchises, games, openFranchise]
   );
+
+  const backToGamesHome = useCallback(() => {
+    clearMediaTheme(userId);
+    setDirectGameFromHome(false);
+    pushGamesRootRoute();
+    onNavigate({
+      franchiseId: undefined,
+      gameId: undefined,
+      section: undefined,
+      overviewTab: undefined,
+      universeId: undefined,
+    });
+    setTab("home");
+  }, [onNavigate, userId]);
+
+  const backToGamesCatalog = useCallback(() => {
+    clearMediaTheme(userId);
+    setDirectGameFromHome(false);
+    pushGamesCatalogRoute();
+    onNavigate({
+      franchiseId: undefined,
+      gameId: undefined,
+      section: undefined,
+      overviewTab: undefined,
+      universeId: undefined,
+    });
+    setTab("catalog");
+    setCatalogScope("shows");
+    setFilterMode("name");
+  }, [onNavigate, userId]);
 
   const browseFranchises = useMemo((): SeriesFranchiseCard[] => {
     const filteredFranchises = platformFilter
@@ -753,25 +800,43 @@ export default function GamesModule({
           onSwitchProfile={onSwitchProfile}
           onEditProfile={onEditProfile}
           backLabelOverride={
-            shouldReturnToPhotosExclusive() ? "EXCLUSIVE" : undefined
+            shouldReturnToPhotosExclusive()
+              ? "EXCLUSIVE"
+              : getDirectGameFromHome() || getMediaEntrySource() === "home"
+                ? "HOME"
+                : undefined
           }
           onBack={() => {
             if (shouldReturnToPhotosExclusive() && onBackToPhotos) {
               onBackToPhotos();
               return;
             }
-            clearMediaTheme(userId);
-            pushGamesCatalogRoute();
-            onNavigate({
-              franchiseId: undefined,
-              gameId: undefined,
-              section: undefined,
-              overviewTab: undefined,
-              universeId: undefined,
-            });
-            setTab("catalog");
-            setCatalogScope("shows");
-            setFilterMode("name");
+            const from = getMediaEntrySource();
+            const fromHome = getDirectGameFromHome() || from === "home";
+            if (fromHome) {
+              backToGamesHome();
+              return;
+            }
+            // Franchise → game drill-down returns to the hub, not catalog.
+            if (franchiseId) {
+              setDirectGameFromHome(false);
+              clearMediaTheme(userId);
+              pushGamesRoute({
+                franchiseId,
+                gameId: undefined,
+                section: "overview",
+                overviewTab: "about",
+              });
+              onNavigate({
+                franchiseId,
+                gameId: undefined,
+                section: "overview",
+                overviewTab: "about",
+                universeId: undefined,
+              });
+              return;
+            }
+            backToGamesCatalog();
           }}
           onBrowseCatalog={(target: SeriesCatalogBrowseTarget) => {
             setTab("catalog");
@@ -928,15 +993,12 @@ export default function GamesModule({
             onBackToPhotos();
             return;
           }
-          clearMediaTheme(userId);
-          pushGamesRootRoute();
-          onNavigate({
-            franchiseId: undefined,
-            gameId: undefined,
-            section: undefined,
-            overviewTab: undefined,
-          });
-          setTab("home");
+          const from = getMediaEntrySource();
+          if (from === "catalog") {
+            backToGamesCatalog();
+            return;
+          }
+          backToGamesHome();
         }}
         onNavigate={(patch) => {
           const nextFid = patch.franchiseId ?? franchiseId;
@@ -1245,8 +1307,10 @@ export default function GamesModule({
               setLetter("A");
               loadCatalog();
             }}
-            onFranchise={(workId) => openFranchise(workId, undefined, "overview", "home")}
-            onGame={openGame}
+            onFranchise={(workId) =>
+              openFranchise(workId, undefined, "overview", "home")
+            }
+            onGame={(gameId, workId) => openGame(gameId, workId, "home")}
             onOpenUniverse={onOpenUniverse}
             onGenre={(id) => {
               setTab("catalog");
@@ -1383,12 +1447,14 @@ export default function GamesModule({
           onClose={() => setWrappedOpen(false)}
           onOpenItem={(item: ModuleWrappedItem) => {
             const fid = item.franchise_id;
-            if (fid && item.id) openGame(item.id, fid);
-            else if (fid) openFranchise(fid);
+            if (fid && item.id) openGame(item.id, fid, "home");
+            else if (fid) openFranchise(fid, undefined, "overview", "home");
           }}
           onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
             const fid = target.franchiseId || target.id;
-            if (fid) openFranchise(fid);
+            if (!fid) return;
+            if (target.groupId) openGame(target.groupId, fid, "home");
+            else openFranchise(fid, undefined, "overview", "home");
           }}
           onOpenVibe={() => {
             setTab("catalog");

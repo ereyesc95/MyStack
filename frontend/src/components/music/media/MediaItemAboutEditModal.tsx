@@ -38,7 +38,11 @@ function titleCaseWords(value: string): string {
   return value
     .split(/\s+/)
     .filter(Boolean)
-    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .map((w) => {
+      const i = w.search(/[A-Za-zÀ-ÿ]/);
+      if (i < 0) return w;
+      return w.slice(0, i) + w.charAt(i).toUpperCase() + w.slice(i + 1);
+    })
     .join(" ");
 }
 

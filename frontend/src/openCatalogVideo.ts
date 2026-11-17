@@ -63,6 +63,15 @@ function openInBrowserTab(url: string): void {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+function seriesLeafFromPath(path: string): { id: string; title: string } | null {
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  if (parts.length < 4 || parts[0].toLowerCase() !== "series") return null;
+  const raw = parts[3];
+  if (!raw) return null;
+  const title = raw.replace(/^\d{4}(?:\.\d{2}(?:\.\d{2})?)?\.\s*/, "").trim() || raw;
+  return { id: raw, title };
+}
+
 function recordCatalogPlayback(
   path: string | null,
   activity?: CatalogVideoActivity | null
@@ -72,6 +81,10 @@ function recordCatalogPlayback(
   if (mod !== "series" && mod !== "movies") return;
   const franchiseTitle =
     activity?.franchiseTitle || franchiseNameFromMediaPath(path);
+  const leaf =
+    mod === "series" && !activity?.groupId && !activity?.groupTitle
+      ? seriesLeafFromPath(path)
+      : null;
   trackModuleActivity({
     module: mod,
     entity_kind: mod === "series" ? "episode" : "film",
@@ -81,8 +94,8 @@ function recordCatalogPlayback(
     franchise_id: activity?.franchiseId || franchiseTitle || undefined,
     franchise_title: franchiseTitle || undefined,
     cover_url: activity?.coverUrl || undefined,
-    group_id: activity?.groupId || undefined,
-    group_title: activity?.groupTitle || undefined,
+    group_id: activity?.groupId || leaf?.id || undefined,
+    group_title: activity?.groupTitle || leaf?.title || undefined,
     vibe_key: activity?.vibeKey || undefined,
     vibe_label: activity?.vibeLabel || undefined,
   });

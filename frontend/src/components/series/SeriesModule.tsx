@@ -1525,16 +1525,32 @@ export default function SeriesModule({
           onOpenItem={(item: ModuleWrappedItem) => {
             const fid = item.franchise_id || undefined;
             if (!fid) return;
-            const leaf =
-              item.leaf_id || item.group_id || undefined;
-            setMediaEntrySource("home");
-            openFranchise(fid, leaf);
+            // Episodes open their show leaf (not franchise hub). Prefer leaf_id
+            // — item.id is often the episode path, not a subseries id.
+            const leaf = item.leaf_id || item.group_id || undefined;
+            // Same as Best Series: leaf opens skip the franchise hub on Back
+            // so Wrapped (still open in state) returns on home.
+            if (leaf) {
+              directLeafFromHomeRef.current = true;
+              setDirectSeriesFromHome(true);
+            } else {
+              directLeafFromHomeRef.current = false;
+              setDirectSeriesFromHome(false);
+            }
+            openFranchise(fid, leaf, undefined, "home");
           }}
           onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
             const fid = target.franchiseId || target.id;
             if (!fid) return;
-            setMediaEntrySource("home");
-            openFranchise(fid, target.groupId || undefined);
+            const leaf = target.groupId || undefined;
+            if (leaf) {
+              directLeafFromHomeRef.current = true;
+              setDirectSeriesFromHome(true);
+            } else {
+              directLeafFromHomeRef.current = false;
+              setDirectSeriesFromHome(false);
+            }
+            openFranchise(fid, leaf, undefined, "home");
           }}
           onOpenVibe={() => {
             setTab("catalog");

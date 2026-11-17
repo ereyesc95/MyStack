@@ -294,6 +294,22 @@ export default function UniversePage({
   }, [bgUrl, userId]);
 
   useEffect(() => {
+    if (!userId) return;
+    const onPlaybackThemeEnded = () => {
+      if (!bgUrl) {
+        beginArtistPageSession(userId);
+        return;
+      }
+      void colorsFromImageUrl(bgUrl).then((colors) => {
+        if (colors) applyMediaTheme(colors, userId);
+      });
+    };
+    window.addEventListener("playback-theme-ended", onPlaybackThemeEnded);
+    return () =>
+      window.removeEventListener("playback-theme-ended", onPlaybackThemeEnded);
+  }, [bgUrl, userId]);
+
+  useEffect(() => {
     pushUniverseRoute(
       {
         universeId,

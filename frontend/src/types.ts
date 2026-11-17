@@ -219,14 +219,15 @@ export type ListeningWrapped = {
   empty: boolean;
 };
 
-/** Non-music module year Wrapped (series/movies/books/games/files/hobbies). */
+/** Non-music module year Wrapped (series/movies/books/games/files/hobbies/photos). */
 export type ModuleWrappedKind =
   | "series"
   | "movies"
   | "books"
   | "games"
   | "files"
-  | "hobbies";
+  | "hobbies"
+  | "photos";
 
 export type ModuleWrappedItem = {
   id: string;
@@ -250,10 +251,15 @@ export type ModuleWrappedTrack = {
   title: string;
   title_full?: string | null;
   artist_name?: string | null;
+  artist_id?: number | null;
   play_count: number;
   path?: string | null;
   release?: string | null;
   cover_url?: string | null;
+  navigate_band_id?: number | null;
+  navigate_release_id?: string | null;
+  /** Franchise / leaf that embeds this soundtrack release. */
+  source_title?: string | null;
 };
 
 export type ModuleWrapped = {

@@ -22,6 +22,7 @@ export function moduleFromMediaPath(
   if (head === "games") return "games";
   if (head === "files") return "files";
   if (head === "hobbies") return "hobbies";
+  if (head === "photos") return "photos";
   return null;
 }
 

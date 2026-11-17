@@ -13,7 +13,7 @@ from app.models import ModuleActivityDay
 from app.profiles import ADMIN_USER_ID
 
 MODULES = frozenset(
-    {"series", "movies", "books", "games", "files", "hobbies"}
+    {"series", "movies", "books", "games", "files", "hobbies", "photos"}
 )
 
 _MODULE_COPY: dict[str, dict[str, str]] = {
@@ -41,18 +41,18 @@ _MODULE_COPY: dict[str, dict[str, str]] = {
     },
     "books": {
         "eyebrow": "Your year in pages",
-        "count_label": "opens",
+        "count_label": "reads",
         "empty_hint": "Open books from today onward — Wrapped fills in as you go.",
         "items_tab": "On repeat",
-        "groups_tab": "Top works",
+        "groups_tab": "Top franchises",
         "vibes_tab": "Vibes",
         "items_rank": "#1 On repeat",
-        "groups_rank": "#1 Work",
-        "browse_label": "Browse top work",
+        "groups_rank": "#1 Franchise",
+        "browse_label": "Browse top franchise",
     },
     "games": {
         "eyebrow": "Your year in play",
-        "count_label": "opens",
+        "count_label": "plays",
         "empty_hint": "Open games from today onward — Wrapped fills in as you go.",
         "items_tab": "On repeat",
         "groups_tab": "Top franchises",
@@ -60,6 +60,17 @@ _MODULE_COPY: dict[str, dict[str, str]] = {
         "items_rank": "#1 On repeat",
         "groups_rank": "#1 Franchise",
         "browse_label": "Browse top franchise",
+    },
+    "photos": {
+        "eyebrow": "Your year in photos",
+        "count_label": "opens",
+        "empty_hint": "Open photo years from today onward — Wrapped fills in as you go.",
+        "items_tab": "Most opened",
+        "groups_tab": "Top years",
+        "vibes_tab": "Only once",
+        "items_rank": "#1 Photo",
+        "groups_rank": "#1 Year",
+        "browse_label": "Browse top year",
     },
     "files": {
         "eyebrow": "Your year in files",
@@ -326,10 +337,24 @@ def _display_title_from_path(path: str | None) -> str | None:
     return name.strip() or None
 
 
+def _strip_dated_folder_label(name: str | None) -> str | None:
+    """``2015.07.05. Dragon Ball Super`` → ``Dragon Ball Super``."""
+    text = (name or "").strip()
+    if not text:
+        return None
+    import re
+
+    m = re.match(r"^\d{4}(?:\.\d{2}(?:\.\d{2})?)?\.\s*(.+)$", text)
+    if m:
+        return m.group(1).strip() or text
+    return text
+
+
 def _pretty_franchise_name(value: str | None) -> str | None:
     text = (value or "").strip()
     if not text:
         return None
+    text = _strip_dated_folder_label(text) or text
     # Slug-like → title case words
     if text == text.casefold() and (" " in text or "-" in text or "_" in text):
         parts = text.replace("-", " ").replace("_", " ").split()
@@ -478,8 +503,44 @@ def _enrich_media_item(
                 found = find_franchise_dir(fid, root)
                 if found:
                     fdir, _letter = found
-                    row["subtitle"] = row.get("subtitle") or fdir.name
                     row["franchise_id"] = _normalize_slugish(fdir.name) or fid
+                    # Subtitle = series/leaf name when known (not the franchise hub).
+                    leaf_label = None
+                    if leaf_id:
+                        want = leaf_id.casefold()
+                        try:
+                            for child in fdir.iterdir():
+                                if (
+                                    child.is_dir()
+                                    and not child.name.startswith(".")
+                                    and child.name.casefold() == want
+                                ):
+                                    leaf_label = child.name
+                                    break
+                        except OSError:
+                            leaf_label = None
+                        if leaf_label is None:
+                            direct = fdir / leaf_id
+                            if direct.is_dir():
+                                leaf_label = direct.name
+                    existing_sub = (row.get("subtitle") or "").strip()
+                    franchise_names = {
+                        (fdir.name or "").casefold(),
+                        (fid or "").casefold(),
+                        (_normalize_slugish(fdir.name) or "").casefold(),
+                    }
+                    if leaf_label:
+                        leaf_display = (
+                            _strip_dated_folder_label(leaf_label) or leaf_label
+                        )
+                        if not existing_sub or existing_sub.casefold() in franchise_names:
+                            row["subtitle"] = leaf_display
+                        if not row.get("group_id"):
+                            row["group_id"] = leaf_id
+                        if not row.get("leaf_id"):
+                            row["leaf_id"] = leaf_id
+                    elif not existing_sub:
+                        row["subtitle"] = fdir.name
                     # Cover: season (file parent chain) → leaf → franchise
                     if not row.get("cover_url") and media_rel:
                         file_parent = root / PurePosixPath(media_rel).parent
@@ -539,21 +600,33 @@ def _module_top_tracks(
     from app.config import settings
     from app.listening import path_play_counts_for_year
     from app.media_paths_util import resolve_media_entry, safe_relative
-    from app.module_home_audio import _cached_audio_owners
+    from app.module_home_audio import _cached_audio_owners, _leaf_meta_by_folder
     from app.series_extras import AUDIO_CATEGORIES, _iter_category_release_entries, _resolve_child_dir
     from app.series_paths import find_audio_bucket
     from app.band_library import cover_url_for_track_path
     from app.music_dashboard import _clean_track_title
+    from app.playlist_tracks import enrich_playlist_tracks
 
     root = Path(settings.media_root) if settings.media_root else None
     if not root or not root.is_dir():
         return []
     owners = _cached_audio_owners(module, db, nsfw_unlocked=True)
+    leaf_meta = _leaf_meta_by_folder(module, db, nsfw_unlocked=True)
+    # release_root → franchise/leaf display title
+    release_source: dict[Path, str] = {}
     release_roots: list[Path] = []
     for folder in owners:
         bucket = find_audio_bucket(folder)
         if not bucket:
             continue
+        owner_rel = (safe_relative(folder, root) or "").replace("\\", "/").strip("/")
+        src_title = None
+        if owner_rel:
+            meta = leaf_meta.get(owner_rel.casefold())
+            if meta:
+                src_title = (meta.get("source_title") or "").strip() or None
+        if not src_title:
+            src_title = folder.name
         for _key, cat_name in AUDIO_CATEGORIES.items():
             cat_dir = _resolve_child_dir(bucket, cat_name)
             if not cat_dir.is_dir():
@@ -562,6 +635,7 @@ def _module_top_tracks(
                 resolved = resolve_media_entry(entry, media_root=root)
                 if resolved and resolved.is_dir():
                     release_roots.append(resolved)
+                    release_source[resolved.resolve()] = src_title
     if not release_roots:
         return []
 
@@ -569,7 +643,7 @@ def _module_top_tracks(
     if not counts:
         return []
 
-    # Map each listening path → owning release root (casefold)
+    # Map each listening path → owning release root
     release_cf = [(p.resolve(), p) for p in release_roots]
     scored: list[tuple[int, str, Path]] = []
     for rel, count in counts.items():
@@ -584,32 +658,60 @@ def _module_top_tracks(
         except ValueError:
             continue
     scored.sort(key=lambda t: (-t[0], t[1].casefold()))
-    out: list[dict[str, Any]] = []
-    for i, (count, rel, _r) in enumerate(scored[:100]):
+    raw_tracks: list[dict[str, Any]] = []
+    for i, (count, rel, r_path) in enumerate(scored[:100]):
         stem = Path(rel).stem
-        out.append(
+        source_title = release_source.get(r_path.resolve()) or None
+        raw_tracks.append(
             {
                 "id": i + 1,
                 "title": _clean_track_title(stem),
                 "title_full": stem,
-                "artist_id": None,
-                "artist_name": None,
-                "play_count": count,
+                "play_path": rel.replace("\\", "/"),
                 "path": rel.replace("\\", "/"),
-                "release": None,
+                "play_count": count,
                 "cover_url": cover_url_for_track_path(rel, root),
+                "source_title": source_title,
             }
         )
-    # Light artist/release labels via band_library when cheap
-    try:
-        from app.playlist_tracks import _resolve_track_source_labels
+    enriched = enrich_playlist_tracks(raw_tracks, root, db=db)
+    band_name_cache: dict[int, str] = {}
+    out: list[dict[str, Any]] = []
+    for i, row in enumerate(enriched):
+        raw = raw_tracks[i] if i < len(raw_tracks) else {}
+        album = (
+            (row.get("album_title") or row.get("release") or "").strip() or None
+        )
+        nav_band = row.get("navigate_band_id")
+        artist = (row.get("artist_name") or "").strip() or None
+        if not artist and nav_band is not None:
+            try:
+                bid = int(nav_band)
+            except (TypeError, ValueError):
+                bid = None
+            if bid is not None:
+                if bid not in band_name_cache:
+                    from app.models import Band
 
-        for row in out:
-            album, _rel = _resolve_track_source_labels(row["path"], root)
-            if album:
-                row["release"] = album
-    except Exception:
-        pass
+                    band = db.get(Band, bid)
+                    band_name_cache[bid] = (band.bnd_name or "").strip() if band else ""
+                artist = band_name_cache[bid] or None
+        out.append(
+            {
+                "id": raw.get("id") or i + 1,
+                "title": raw.get("title") or row.get("title") or "",
+                "title_full": raw.get("title_full") or raw.get("title"),
+                "artist_id": nav_band,
+                "artist_name": artist,
+                "play_count": raw.get("play_count") or 0,
+                "path": raw.get("path") or row.get("play_path"),
+                "release": album,
+                "cover_url": raw.get("cover_url") or row.get("cover_url"),
+                "navigate_band_id": nav_band,
+                "navigate_release_id": row.get("navigate_release_id"),
+                "source_title": raw.get("source_title"),
+            }
+        )
     return out
 
 
@@ -677,8 +779,8 @@ def build_module_wrapped(
             if not prev or n >= int(prev.mad_count or 0):
                 item_meta[eid] = r
 
-        # Groups: franchise for media; group_id for files/hobbies
-        if mod in {"files", "hobbies"}:
+        # Groups: franchise for media; group_id for files/hobbies/photos
+        if mod in {"files", "hobbies", "photos"}:
             gid = (r.mad_group_id or "").strip()
             if gid:
                 group_counts[gid] += n
@@ -706,15 +808,19 @@ def build_module_wrapped(
     top_items: list[dict[str, Any]] = []
     for i, (eid, count) in enumerate(item_counts.most_common(100)):
         meta = item_meta.get(eid)
+        # Episodes/shows: prefer series (group) name over franchise for subtitle.
+        subtitle = None
+        if meta:
+            if mod == "series":
+                subtitle = meta.mad_group_title or meta.mad_franchise_title
+            else:
+                subtitle = meta.mad_franchise_title or meta.mad_group_title
         raw = _item_row(
             id=eid,
             title=(meta.mad_title if meta else None) or eid,
             play_count=count,
             cover_url=meta.mad_cover_url if meta else None,
-            subtitle=(
-                (meta.mad_franchise_title if meta else None)
-                or (meta.mad_group_title if meta else None)
-            ),
+            subtitle=subtitle,
             franchise_id=meta.mad_franchise_id if meta else None,
             entity_kind=meta.mad_entity_kind if meta else None,
             path=meta.mad_path if meta else None,
@@ -733,12 +839,13 @@ def build_module_wrapped(
                 title=pretty,
                 play_count=count,
                 cover_url=cover,
-                franchise_id=fid or (gid if mod not in {"files", "hobbies"} else None),
-                group_id=gid if mod in {"files", "hobbies"} else None,
+                franchise_id=fid
+                or (gid if mod not in {"files", "hobbies", "photos"} else None),
+                group_id=gid if mod in {"files", "hobbies", "photos"} else None,
             )
         )
         # Prefer franchise folder display name + art (module-aware).
-        if mod not in {"files", "hobbies"}:
+        if mod not in {"files", "hobbies", "photos"}:
             try:
                 from pathlib import Path
 
@@ -786,7 +893,7 @@ def build_module_wrapped(
                 pass
 
     top_vibes: list[dict[str, Any]] = []
-    if mod in {"files", "hobbies"}:
+    if mod in {"files", "hobbies", "photos"}:
         once = [
             (eid, 1)
             for eid, total in year_item_totals.items()

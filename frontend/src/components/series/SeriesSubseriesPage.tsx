@@ -1966,6 +1966,21 @@ export default function SeriesSubseriesPage({
   }, [themeSampleUrl, userId]);
 
   useEffect(() => {
+    const onPlaybackThemeEnded = () => {
+      if (!themeSampleUrl) {
+        beginArtistPageSession(userId);
+        return;
+      }
+      void colorsFromImageUrl(themeSampleUrl).then((c) => {
+        if (c) applyMediaTheme(c, userId);
+      });
+    };
+    window.addEventListener("playback-theme-ended", onPlaybackThemeEnded);
+    return () =>
+      window.removeEventListener("playback-theme-ended", onPlaybackThemeEnded);
+  }, [themeSampleUrl, userId]);
+
+  useEffect(() => {
     if (universeId == null) {
       setUniverseInfo(null);
       setUniverseCards([]);

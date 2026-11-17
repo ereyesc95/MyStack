@@ -1541,12 +1541,15 @@ export default function BooksModule({
           onClose={() => setWrappedOpen(false)}
           onOpenItem={(item: ModuleWrappedItem) => {
             const fid = item.franchise_id;
-            if (fid && item.id) openBook(item.id, fid, "home");
+            const leafId = item.leaf_id || item.id;
+            if (fid && leafId) openBook(leafId, fid, "home");
             else if (fid) openWork(fid, undefined, undefined, "home");
           }}
           onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
             const fid = target.franchiseId || target.id;
-            if (fid) openWork(fid, undefined, undefined, "home");
+            if (!fid) return;
+            if (target.groupId) openBook(target.groupId, fid, "home");
+            else openWork(fid, undefined, undefined, "home");
           }}
           onOpenVibe={() => {
             setTab("catalog");
