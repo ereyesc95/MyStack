@@ -39,6 +39,7 @@ import {
   type OwnershipIndex,
 } from "../../leafOwnership";
 import { clearMediaTheme } from "../../mediaTheme";
+import { wrappedSeasonYear } from "../../moduleWrappedCache";
 import {
   clearSeriesEntryReferrer,
   getSeriesEntryReferrer,
@@ -53,6 +54,7 @@ import {
 } from "../../usePlaybackCoverBg";
 import type {
   CardOrientation,
+  ModuleWrappedItem,
   SeriesDashboard,
   SeriesFilterMode,
   SeriesFilterOptions,
@@ -71,6 +73,9 @@ import ManageCatalogModal from "../ManageCatalogModal";
 import CardOrientationPicker from "../CardOrientationPicker";
 import { IconMediaMusic, IconMediaSeries, IconSeriesScope, IconUniverse } from "../MenuIcons";
 import ModuleHomeAudioPlayer from "../ModuleHomeAudioPlayer";
+import ModuleWrapped, {
+  type ModuleWrappedBrowseTarget,
+} from "../ModuleWrapped";
 import ModuleTopBar, { type MediaOption } from "../ModuleTopBar";
 import CatalogScopeToggle from "./CatalogScopeToggle";
 import SeriesBrowse from "./SeriesBrowse";
@@ -343,6 +348,9 @@ export default function SeriesModule({
   const [homeAudioOpen, setHomeAudioOpen] = useState(false);
   const [homeAudioPlaying, setHomeAudioPlaying] = useState(false);
   const [homeAudioHasSrc, setHomeAudioHasSrc] = useState(false);
+  const [wrappedOpen, setWrappedOpen] = useState(false);
+  const wrappedYear = wrappedSeasonYear();
+  const showHomeWrapped = tab === "home" && wrappedYear != null;
   const [homeAudioCover, setHomeAudioCover] = useState<string | null>(null);
 
   const loadCatalog = useCallback(async () => {
@@ -1309,6 +1317,17 @@ export default function SeriesModule({
                 }}
               />
             ) : null}
+            {showHomeWrapped && !portraitMenuChrome ? (
+              <button
+                type="button"
+                className="music-home-wrapped-btn"
+                title={`${wrappedYear} Wrapped`}
+                aria-label={`${wrappedYear} Wrapped`}
+                onClick={() => setWrappedOpen(true)}
+              >
+                {`${wrappedYear} Wrapped`}
+              </button>
+            ) : null}
             <AppMenu
               onImport={onImport}
               onSync={onSync}
@@ -1495,6 +1514,29 @@ export default function SeriesModule({
               setDashboard,
               () => undefined
             );
+          }}
+        />
+      ) : null}
+      {wrappedOpen && wrappedYear != null ? (
+        <ModuleWrapped
+          module="series"
+          year={wrappedYear}
+          onClose={() => setWrappedOpen(false)}
+          onOpenItem={(item: ModuleWrappedItem) => {
+            const fid = item.franchise_id || undefined;
+            if (!fid) return;
+            setMediaEntrySource("home");
+            openFranchise(fid, undefined);
+          }}
+          onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
+            const fid = target.franchiseId || target.id;
+            if (!fid) return;
+            setMediaEntrySource("home");
+            openFranchise(fid, undefined);
+          }}
+          onOpenVibe={() => {
+            setTab("catalog");
+            pushSeriesCatalogRoute(true);
           }}
         />
       ) : null}

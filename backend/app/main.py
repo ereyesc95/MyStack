@@ -11,6 +11,7 @@ from app.frontend_static import mount_frontend
 from app.models import Band, Book, Game, Movie, Release, Series, Track
 from app.paths import database_file, resolve_frontend_dist
 from app.routers import (
+    activity,
     assets,
     auth,
     books,
@@ -76,6 +77,7 @@ app.add_middleware(
 )
 
 app.include_router(assets.router)
+app.include_router(activity.router)
 app.include_router(auth.router)
 app.include_router(metadata.router)
 app.include_router(music.router)

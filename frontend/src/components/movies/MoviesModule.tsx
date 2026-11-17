@@ -45,6 +45,7 @@ import {
   type OwnershipIndex,
 } from "../../leafOwnership";
 import { clearMediaTheme } from "../../mediaTheme";
+import { wrappedSeasonYear } from "../../moduleWrappedCache";
 import {
   pushMoviesCatalogRoute,
   pushMoviesRootRoute,
@@ -58,6 +59,7 @@ import {
 } from "../../usePlaybackCoverBg";
 import type {
   CardOrientation,
+  ModuleWrappedItem,
   MoviesFilmCard,
   SeriesDashboard,
   SeriesFilterMode,
@@ -75,6 +77,9 @@ import ManageCatalogModal from "../ManageCatalogModal";
 import CardOrientationPicker from "../CardOrientationPicker";
 import { IconMediaMusic, IconUniverse } from "../MenuIcons";
 import ModuleHomeAudioPlayer from "../ModuleHomeAudioPlayer";
+import ModuleWrapped, {
+  type ModuleWrappedBrowseTarget,
+} from "../ModuleWrapped";
 import ModuleTopBar, { type MediaOption } from "../ModuleTopBar";
 import CatalogScopeToggle from "../series/CatalogScopeToggle";
 import SeriesBrowse, {
@@ -208,11 +213,14 @@ export default function MoviesModule({
     isMobilePortraitLayout(deviceLayout) ||
     deviceLayout === "tablet-portrait";
   const [homeAudioOpen, setHomeAudioOpen] = useState(false);
+  const [wrappedOpen, setWrappedOpen] = useState(false);
+  const wrappedYear = wrappedSeasonYear();
   const [homeAudioPlaying, setHomeAudioPlaying] = useState(false);
   const [homeAudioHasSrc, setHomeAudioHasSrc] = useState(false);
   const [homeAudioCover, setHomeAudioCover] = useState<string | null>(null);
 
   const [tab, setTab] = useState<MoviesTab>("home");
+  const showHomeWrapped = tab === "home" && wrappedYear != null;
   const [franchises, setFranchises] = useState<SeriesFranchiseCard[]>([]);
   const [catalogLetters, setCatalogLetters] = useState<string[]>([]);
   const [filmLetters, setFilmLetters] = useState<string[]>([]);
@@ -1358,6 +1366,17 @@ export default function MoviesModule({
                 });
               }}
             />
+            {showHomeWrapped && !portraitMenuChrome ? (
+              <button
+                type="button"
+                className="music-home-wrapped-btn"
+                title={`${wrappedYear} Wrapped`}
+                aria-label={`${wrappedYear} Wrapped`}
+                onClick={() => setWrappedOpen(true)}
+              >
+                {`${wrappedYear} Wrapped`}
+              </button>
+            ) : null}
             <AppMenu
               onImport={onImport}
               onSync={onSync}
@@ -1619,6 +1638,26 @@ export default function MoviesModule({
               (next) => setDashboard(next as never),
               () => undefined
             );
+          }}
+        />
+      ) : null}
+      {wrappedOpen && wrappedYear != null ? (
+        <ModuleWrapped
+          module="movies"
+          year={wrappedYear}
+          onClose={() => setWrappedOpen(false)}
+          onOpenItem={(item: ModuleWrappedItem) => {
+            const fid = item.franchise_id;
+            if (fid && item.id) openFilm(item.id, fid, "home", true, item.title);
+            else if (fid) openWork(fid, undefined, undefined, "home");
+          }}
+          onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
+            const fid = target.franchiseId || target.id;
+            if (fid) openWork(fid, undefined, undefined, "home");
+          }}
+          onOpenVibe={() => {
+            setTab("catalog");
+            pushMoviesCatalogRoute();
           }}
         />
       ) : null}

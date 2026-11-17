@@ -23,6 +23,12 @@ import {
   pushFilesTabRoute,
 } from "../../filesRoute";
 import { withMediaAccess } from "../../mediaFileUrl";
+import { trackModuleActivity } from "../../moduleActivity";
+import { wrappedSeasonYear } from "../../moduleWrappedCache";
+import ModuleWrapped, {
+  type ModuleWrappedBrowseTarget,
+} from "../ModuleWrapped";
+import type { ModuleWrappedItem } from "../../types";
 import type { MediaOption } from "../ModuleTopBar";
 import ModuleTopBar from "../ModuleTopBar";
 import AppMenu from "../AppMenu";
@@ -69,7 +75,21 @@ async function openLocal(url: string) {
   }
 }
 
-function openFile(item: FilesItem) {
+function openFile(
+  item: FilesItem,
+  ctx?: { tabId?: string; tabLabel?: string }
+) {
+  trackModuleActivity({
+    module: "files",
+    entity_kind: "file",
+    entity_id: item.id,
+    title: item.name,
+    path: item.id.startsWith("Files/") ? item.id : `Files/${item.id}`,
+    group_id: ctx?.tabId || undefined,
+    group_title: ctx?.tabLabel || ctx?.tabId || undefined,
+    vibe_key: item.ext || undefined,
+    vibe_label: item.ext || undefined,
+  });
   if (item.previewable && item.url) {
     window.open(withMediaAccess(item.url), "_blank", "noopener,noreferrer");
     return;
@@ -114,6 +134,8 @@ export default function FilesModule({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [rowActionsId, setRowActionsId] = useState<string | null>(null);
+  const [wrappedOpen, setWrappedOpen] = useState(false);
+  const wrappedYear = wrappedSeasonYear();
   const searchRef = useRef<HTMLInputElement>(null);
   const searchRootRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -446,6 +468,17 @@ export default function FilesModule({
                 onChange={(e) => void handleUpload(e.target.files)}
               />
             ) : null}
+            {wrappedYear != null ? (
+              <button
+                type="button"
+                className="music-home-wrapped-btn"
+                title={`${wrappedYear} Wrapped`}
+                aria-label={`${wrappedYear} Wrapped`}
+                onClick={() => setWrappedOpen(true)}
+              >
+                {`${wrappedYear} Wrapped`}
+              </button>
+            ) : null}
             <AppMenu
               isAdmin={isAdmin}
               onSwitchProfile={onSwitchProfile}
@@ -595,7 +628,14 @@ export default function FilesModule({
                   <button
                     type="button"
                     className="files-module__file"
-                    onClick={() => openFile(item)}
+                    onClick={() =>
+                      openFile(item, {
+                        tabId: activeTab,
+                        tabLabel:
+                          tabs.find((t) => t.id === activeTab)?.name ||
+                          activeTab,
+                      })
+                    }
                     title={item.name}
                   >
                     <span className="files-module__file-name">{item.name}</span>
@@ -1004,6 +1044,38 @@ export default function FilesModule({
                 setFileBusy(false);
               }
             })();
+          }}
+        />
+      ) : null}
+
+      {wrappedOpen && wrappedYear != null ? (
+        <ModuleWrapped
+          module="files"
+          year={wrappedYear}
+          onClose={() => setWrappedOpen(false)}
+          onOpenItem={(item: ModuleWrappedItem) => {
+            const tabId = item.group_id || activeTab;
+            if (tabId) {
+              setActiveTab(tabId);
+              pushFilesTabRoute(tabId);
+              void reloadFiles(tabId).then((data) => {
+                const hit = (data.files || []).find((f) => f.id === item.id);
+                if (hit) {
+                  openFile(hit, {
+                    tabId,
+                    tabLabel:
+                      tabs.find((t) => t.id === tabId)?.name || tabId,
+                  });
+                }
+              });
+            }
+          }}
+          onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
+            const tabId = target.groupId || target.id;
+            if (!tabId) return;
+            setActiveTab(tabId);
+            pushFilesTabRoute(tabId);
+            void reloadFiles(tabId);
           }}
         />
       ) : null}

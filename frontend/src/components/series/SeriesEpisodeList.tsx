@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SeriesEpisodeItem } from "../../types";
 import { formatTrackDate } from "../../formatDate";
-import { openCatalogVideo } from "../../openCatalogVideo";
+import {
+  openCatalogVideo,
+  type CatalogVideoActivity,
+} from "../../openCatalogVideo";
 import { usePlayVideosPreference } from "../../playVideosPreference";
 
 type Props = {
@@ -20,6 +23,8 @@ type Props = {
   suggestedTags?: string[];
   isAdmin?: boolean;
   onTagsChange?: (episodeId: string, tags: string[]) => void;
+  /** Franchise context for Series/Movies Wrapped activity. */
+  activityContext?: Omit<CatalogVideoActivity, "title" | "entityId" | "coverUrl"> | null;
 };
 
 const MAX_TAGS = 3;
@@ -39,6 +44,7 @@ export default function SeriesEpisodeList({
   suggestedTags = [],
   isAdmin = false,
   onTagsChange,
+  activityContext = null,
 }: Props) {
   const { playLocally } = usePlayVideosPreference();
   const [addingFor, setAddingFor] = useState<string | null>(null);
@@ -50,6 +56,12 @@ export default function SeriesEpisodeList({
       openUrl: ep.open_url,
       playPath: ep.play_path,
       playLocally,
+      activity: {
+        ...(activityContext || {}),
+        title: ep.title,
+        entityId: ep.id || ep.play_path,
+        coverUrl: ep.cover_url,
+      },
     });
   }
 

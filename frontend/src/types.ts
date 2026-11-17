@@ -219,6 +219,60 @@ export type ListeningWrapped = {
   empty: boolean;
 };
 
+/** Non-music module year Wrapped (series/movies/books/games/files/hobbies). */
+export type ModuleWrappedKind =
+  | "series"
+  | "movies"
+  | "books"
+  | "games"
+  | "files"
+  | "hobbies";
+
+export type ModuleWrappedItem = {
+  id: string;
+  title: string;
+  name?: string;
+  play_count: number;
+  cover_url?: string | null;
+  photo_url?: string | null;
+  image_url?: string | null;
+  subtitle?: string | null;
+  franchise_id?: string | null;
+  entity_kind?: string | null;
+  path?: string | null;
+  group_id?: string | null;
+  vibe_key?: string | null;
+};
+
+export type ModuleWrapped = {
+  year: number;
+  module: ModuleWrappedKind | string;
+  empty: boolean;
+  total_plays: number;
+  active_days: number;
+  current_streak: number;
+  longest_streak: number;
+  eyebrow: string;
+  count_label: string;
+  empty_hint: string;
+  items_tab: string;
+  groups_tab: string;
+  vibes_tab: string;
+  items_rank: string;
+  groups_rank: string;
+  browse_label: string;
+  top_items: ModuleWrappedItem[];
+  top_groups: ModuleWrappedItem[];
+  top_vibes: ModuleWrappedItem[];
+  browse_top: {
+    id: string;
+    title: string;
+    franchise_id?: string | null;
+    group_id?: string | null;
+    label: string;
+  } | null;
+};
+
 export type UserPlaylist = {
   id: number;
   name: string | null;

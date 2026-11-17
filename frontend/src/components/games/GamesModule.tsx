@@ -49,8 +49,10 @@ import {
   preferredSectionForSource,
   saveFranchiseHomeReferrer,
 } from "../../franchiseHome";
+import { wrappedSeasonYear } from "../../moduleWrappedCache";
 import type {
   CardOrientation,
+  ModuleWrappedItem,
   MoviesFilmCard,
   SeriesDashboard,
   SeriesFilterMode,
@@ -64,6 +66,9 @@ import ManageCatalogModal from "../ManageCatalogModal";
 import OrganizeLooseRomsModal from "./OrganizeLooseRomsModal";
 import { IconMediaGames } from "../MenuIcons";
 import ModuleHomeAudioPlayer from "../ModuleHomeAudioPlayer";
+import ModuleWrapped, {
+  type ModuleWrappedBrowseTarget,
+} from "../ModuleWrapped";
 import ModuleTopBar, { type MediaOption } from "../ModuleTopBar";
 import CatalogScopeToggle from "../series/CatalogScopeToggle";
 import SeriesBrowse, {
@@ -176,9 +181,12 @@ export default function GamesModule({
   const [homeAudioPlaying, setHomeAudioPlaying] = useState(false);
   const [homeAudioHasSrc, setHomeAudioHasSrc] = useState(false);
   const [homeAudioCover, setHomeAudioCover] = useState<string | null>(null);
+  const [wrappedOpen, setWrappedOpen] = useState(false);
+  const wrappedYear = wrappedSeasonYear();
   const [tab, setTab] = useState<GamesTab>(
     franchiseId || gameId ? "catalog" : "home"
   );
+  const showHomeWrapped = tab === "home" && wrappedYear != null;
   const [manageCatalogOpen, setManageCatalogOpen] = useState(false);
   const [organizeRomsOpen, setOrganizeRomsOpen] = useState(false);
   const [catalogScope, setCatalogScope] =
@@ -1172,6 +1180,17 @@ export default function GamesModule({
                 });
               }}
             />
+            {showHomeWrapped ? (
+              <button
+                type="button"
+                className="music-home-wrapped-btn"
+                title={`${wrappedYear} Wrapped`}
+                aria-label={`${wrappedYear} Wrapped`}
+                onClick={() => setWrappedOpen(true)}
+              >
+                {`${wrappedYear} Wrapped`}
+              </button>
+            ) : null}
             <AppMenu
               onImport={onImport}
               onSync={onSync}
@@ -1354,6 +1373,27 @@ export default function GamesModule({
           onDone={() => {
             loadCatalog();
             loadDashboard();
+          }}
+        />
+      ) : null}
+      {wrappedOpen && wrappedYear != null ? (
+        <ModuleWrapped
+          module="games"
+          year={wrappedYear}
+          onClose={() => setWrappedOpen(false)}
+          onOpenItem={(item: ModuleWrappedItem) => {
+            const fid = item.franchise_id;
+            if (fid && item.id) openGame(item.id, fid);
+            else if (fid) openFranchise(fid);
+          }}
+          onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
+            const fid = target.franchiseId || target.id;
+            if (fid) openFranchise(fid);
+          }}
+          onOpenVibe={() => {
+            setTab("catalog");
+            setCatalogScope("platforms");
+            pushGamesCatalogRoute();
           }}
         />
       ) : null}

@@ -887,6 +887,59 @@ def migrate_schema(eng: Engine) -> None:
                 )
             )
 
+        if "module_activity_days" not in tables:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE module_activity_days (
+                        "madID" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        "madUserID" INTEGER NOT NULL,
+                        "madDate" TEXT NOT NULL,
+                        "madModule" TEXT NOT NULL,
+                        "madEntityKind" TEXT NOT NULL,
+                        "madEntityID" TEXT NOT NULL,
+                        "madPath" TEXT,
+                        "madTitle" TEXT,
+                        "madFranchiseID" TEXT,
+                        "madFranchiseTitle" TEXT,
+                        "madCoverUrl" TEXT,
+                        "madGroupID" TEXT,
+                        "madGroupTitle" TEXT,
+                        "madVibeKey" TEXT,
+                        "madVibeLabel" TEXT,
+                        "madCount" INTEGER NOT NULL DEFAULT 1
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    'CREATE INDEX IF NOT EXISTS "ix_module_activity_days_user" '
+                    'ON module_activity_days ("madUserID")'
+                )
+            )
+            conn.execute(
+                text(
+                    'CREATE INDEX IF NOT EXISTS "ix_module_activity_days_date" '
+                    'ON module_activity_days ("madDate")'
+                )
+            )
+            conn.execute(
+                text(
+                    'CREATE INDEX IF NOT EXISTS "ix_module_activity_days_module" '
+                    'ON module_activity_days ("madModule")'
+                )
+            )
+            conn.execute(
+                text(
+                    'CREATE UNIQUE INDEX IF NOT EXISTS '
+                    '"ux_module_activity_days_user_date_mod_kind_id" '
+                    'ON module_activity_days ('
+                    '"madUserID", "madDate", "madModule", '
+                    '"madEntityKind", "madEntityID")'
+                )
+            )
+
         if "subgenres" in tables:
             # Hentai belongs under Anime (not Adult); still NSFW via adult_content.py.
             conn.execute(

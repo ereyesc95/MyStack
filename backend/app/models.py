@@ -305,6 +305,33 @@ class ListeningDayPlay(Base):
     ldp_count: Mapped[int] = mapped_column("ldpCount", Integer, default=1)
 
 
+class ModuleActivityDay(Base):
+    """Per-profile, per-day activity for non-music module Wrapped."""
+
+    __tablename__ = "module_activity_days"
+
+    mad_id: Mapped[int] = mapped_column(
+        "madID", Integer, primary_key=True, autoincrement=True
+    )
+    mad_user_id: Mapped[int] = mapped_column("madUserID", Integer, index=True)
+    mad_date: Mapped[str] = mapped_column("madDate", String(10), index=True)
+    mad_module: Mapped[str] = mapped_column("madModule", String(32), index=True)
+    mad_entity_kind: Mapped[str] = mapped_column("madEntityKind", String(32))
+    mad_entity_id: Mapped[str] = mapped_column("madEntityID", Text)
+    mad_path: Mapped[str | None] = mapped_column("madPath", Text)
+    mad_title: Mapped[str | None] = mapped_column("madTitle", Text)
+    mad_franchise_id: Mapped[str | None] = mapped_column("madFranchiseID", Text)
+    mad_franchise_title: Mapped[str | None] = mapped_column(
+        "madFranchiseTitle", Text
+    )
+    mad_cover_url: Mapped[str | None] = mapped_column("madCoverUrl", Text)
+    mad_group_id: Mapped[str | None] = mapped_column("madGroupID", Text)
+    mad_group_title: Mapped[str | None] = mapped_column("madGroupTitle", Text)
+    mad_vibe_key: Mapped[str | None] = mapped_column("madVibeKey", Text)
+    mad_vibe_label: Mapped[str | None] = mapped_column("madVibeLabel", Text)
+    mad_count: Mapped[int] = mapped_column("madCount", Integer, default=1)
+
+
 class Movie(Base):
     __tablename__ = "movies"
 

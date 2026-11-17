@@ -39,6 +39,7 @@ import {
 } from "../../leafOwnership";
 import { getRecentBookIds } from "../../booksRecent";
 import { clearMediaTheme } from "../../mediaTheme";
+import { wrappedSeasonYear } from "../../moduleWrappedCache";
 import {
   pushBooksCatalogRoute,
   pushBooksRootRoute,
@@ -52,6 +53,7 @@ import {
 } from "../../usePlaybackCoverBg";
 import type {
   CardOrientation,
+  ModuleWrappedItem,
   MoviesFilmCard as BooksBookCard,
   SeriesDashboard,
   SeriesFilterMode,
@@ -74,6 +76,9 @@ import {
   IconUniverse,
 } from "../MenuIcons";
 import ModuleHomeAudioPlayer from "../ModuleHomeAudioPlayer";
+import ModuleWrapped, {
+  type ModuleWrappedBrowseTarget,
+} from "../ModuleWrapped";
 import ModuleTopBar, { type MediaOption } from "../ModuleTopBar";
 import CatalogScopeToggle from "../series/CatalogScopeToggle";
 import SeriesBrowse, {
@@ -211,8 +216,11 @@ export default function BooksModule({
   const [homeAudioPlaying, setHomeAudioPlaying] = useState(false);
   const [homeAudioHasSrc, setHomeAudioHasSrc] = useState(false);
   const [homeAudioCover, setHomeAudioCover] = useState<string | null>(null);
+  const [wrappedOpen, setWrappedOpen] = useState(false);
+  const wrappedYear = wrappedSeasonYear();
 
   const [tab, setTab] = useState<BooksTab>("home");
+  const showHomeWrapped = tab === "home" && wrappedYear != null;
   const [franchises, setFranchises] = useState<SeriesFranchiseCard[]>([]);
   const [catalogLetters, setCatalogLetters] = useState<string[]>([]);
   const [films, setFilms] = useState<BooksBookCard[]>([]);
@@ -1246,6 +1254,17 @@ export default function BooksModule({
                 });
               }}
             />
+            {showHomeWrapped && !portraitMenuChrome ? (
+              <button
+                type="button"
+                className="music-home-wrapped-btn"
+                title={`${wrappedYear} Wrapped`}
+                aria-label={`${wrappedYear} Wrapped`}
+                onClick={() => setWrappedOpen(true)}
+              >
+                {`${wrappedYear} Wrapped`}
+              </button>
+            ) : null}
             <AppMenu
               onImport={onImport}
               onSync={onSync}
@@ -1510,6 +1529,26 @@ export default function BooksModule({
               (next) => setDashboard(next as never),
               () => undefined
             );
+          }}
+        />
+      ) : null}
+      {wrappedOpen && wrappedYear != null ? (
+        <ModuleWrapped
+          module="books"
+          year={wrappedYear}
+          onClose={() => setWrappedOpen(false)}
+          onOpenItem={(item: ModuleWrappedItem) => {
+            const fid = item.franchise_id;
+            if (fid && item.id) openBook(item.id, fid, "home");
+            else if (fid) openWork(fid, undefined, undefined, "home");
+          }}
+          onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
+            const fid = target.franchiseId || target.id;
+            if (fid) openWork(fid, undefined, undefined, "home");
+          }}
+          onOpenVibe={() => {
+            setTab("catalog");
+            pushBooksCatalogRoute();
           }}
         />
       ) : null}

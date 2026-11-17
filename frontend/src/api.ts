@@ -247,6 +247,38 @@ export async function fetchListeningWrapped(year?: number) {
   );
 }
 
+export type ModuleActivityRecordIn = {
+  module: string;
+  entity_kind: string;
+  entity_id: string;
+  title?: string | null;
+  path?: string | null;
+  franchise_id?: string | null;
+  franchise_title?: string | null;
+  cover_url?: string | null;
+  group_id?: string | null;
+  group_title?: string | null;
+  vibe_key?: string | null;
+  vibe_label?: string | null;
+};
+
+export async function recordModuleActivity(body: ModuleActivityRecordIn) {
+  return request<{ ok: boolean; count: number }>(`${API}/activity/record`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function fetchModuleWrapped(module: string, year?: number) {
+  const params = new URLSearchParams();
+  params.set("module", module);
+  if (year != null) params.set("year", String(year));
+  return request<import("./types").ModuleWrapped>(
+    `${API}/activity/wrapped?${params}`
+  );
+}
+
 export async function fetchArtistCards(
   params: URLSearchParams
 ): Promise<{ items: ArtistCard[]; total: number; page: number }> {

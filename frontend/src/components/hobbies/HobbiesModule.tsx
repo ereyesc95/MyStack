@@ -51,7 +51,9 @@ import {
 } from "../../hobbiesRoute";
 import { prefetchCollectionPresenceDetail } from "../../collectionPresenceCache";
 import { withMediaAccess } from "../../mediaFileUrl";
-import type { CardOrientation } from "../../types";
+import { trackModuleActivity } from "../../moduleActivity";
+import { wrappedSeasonYear } from "../../moduleWrappedCache";
+import type { CardOrientation, ModuleWrappedItem } from "../../types";
 import {
   getStoredHobbiesOrientation,
   saveHobbiesOrientation,
@@ -62,6 +64,9 @@ import AppMenu from "../AppMenu";
 import CardOrientationPicker from "../CardOrientationPicker";
 import ModalPortal from "../ModalPortal";
 import ConfirmDialog from "../ConfirmDialog";
+import ModuleWrapped, {
+  type ModuleWrappedBrowseTarget,
+} from "../ModuleWrapped";
 import GalleryViewerModal, {
   type GalleryViewerItem,
 } from "../music/artist/GalleryViewerModal";
@@ -71,6 +76,23 @@ import {
   IconStar,
   IconTrash,
 } from "../MenuIcons";
+
+function trackHobbyItemActivity(
+  collection: { id: number; name?: string | null },
+  item: { id: number; title?: string | null; image_url?: string | null; theme?: string | null }
+) {
+  trackModuleActivity({
+    module: "hobbies",
+    entity_kind: "hobby_item",
+    entity_id: String(item.id),
+    title: item.title || `Item ${item.id}`,
+    cover_url: item.image_url || undefined,
+    group_id: String(collection.id),
+    group_title: collection.name || undefined,
+    vibe_key: item.theme || undefined,
+    vibe_label: item.theme || undefined,
+  });
+}
 
 /** Module default art — treat as “no artwork” for empty placeholders. */
 function isHobbyPlaceholderArt(url: string | null | undefined): boolean {
@@ -395,6 +417,8 @@ export default function HobbiesModule({
   /** Stays after leaving a collection for Home/Franchises; replaced only by another open. */
   const [pinnedId, setPinnedId] = useState<number | undefined>(collectionId);
   const [activeHubTab, setActiveHubTab] = useState<HobbiesHubTab>(hubTab);
+  const [wrappedOpen, setWrappedOpen] = useState(false);
+  const wrappedYear = wrappedSeasonYear();
   const [collectionMenu, setCollectionMenu] =
     useState<HobbyCollectionMenu | null>(null);
   const [editorOpen, setEditorOpen] = useState<
@@ -702,6 +726,17 @@ export default function HobbiesModule({
                 onChange={setHubOrientation}
               />
             ) : null}
+            {wrappedYear != null && activeId == null && activeHubTab === "home" ? (
+              <button
+                type="button"
+                className="music-home-wrapped-btn"
+                title={`${wrappedYear} Wrapped`}
+                aria-label={`${wrappedYear} Wrapped`}
+                onClick={() => setWrappedOpen(true)}
+              >
+                {`${wrappedYear} Wrapped`}
+              </button>
+            ) : null}
             <AppMenu
               isAdmin={isAdmin}
               onSwitchProfile={onSwitchProfile}
@@ -959,6 +994,22 @@ export default function HobbiesModule({
             if (activeId != null && deletedId === activeId) {
               goHome();
             }
+          }}
+        />
+      ) : null}
+
+      {wrappedOpen && wrappedYear != null ? (
+        <ModuleWrapped
+          module="hobbies"
+          year={wrappedYear}
+          onClose={() => setWrappedOpen(false)}
+          onOpenItem={(item: ModuleWrappedItem) => {
+            const cid = Number(item.group_id);
+            if (Number.isFinite(cid) && cid > 0) openCollection(cid);
+          }}
+          onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
+            const cid = Number(target.groupId || target.id);
+            if (Number.isFinite(cid) && cid > 0) openCollection(cid);
           }}
         />
       ) : null}
@@ -3229,6 +3280,7 @@ function HobbyCollectionView({
                     <td key={col}>
                       {renderCell(it, col, collection, {
                         onMissingMore: () => {
+                          trackHobbyItemActivity(collection, it);
                           setEditFocusField("missing");
                           setEditItem(it);
                         },
@@ -3244,6 +3296,7 @@ function HobbyCollectionView({
                             className="hobbies-collection__icon-action"
                             title="Decrease qty"
                             onClick={() => {
+                              trackHobbyItemActivity(collection, it);
                               void adjustHobbyItemQuantity(
                                 collection.id,
                                 it.id,
@@ -3261,6 +3314,7 @@ function HobbyCollectionView({
                             className="hobbies-collection__icon-action"
                             title="Increase qty"
                             onClick={() => {
+                              trackHobbyItemActivity(collection, it);
                               void adjustHobbyItemQuantity(
                                 collection.id,
                                 it.id,
@@ -3281,6 +3335,7 @@ function HobbyCollectionView({
                         title="Edit"
                         aria-label="Edit"
                         onClick={() => {
+                          trackHobbyItemActivity(collection, it);
                           setEditFocusField(null);
                           setEditItem(it);
                         }}
@@ -3768,6 +3823,9 @@ function HobbyItemModal({
         if (v) {
           void addHobbyFieldOption(collection.id, f, v).catch(() => {});
         }
+      }
+      if (saved.id && !saved.deleted) {
+        trackHobbyItemActivity(collection, saved);
       }
       onSaved();
     } catch (e) {

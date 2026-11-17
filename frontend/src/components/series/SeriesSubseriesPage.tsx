@@ -67,6 +67,7 @@ import {
   playGameClient,
 } from "../../gamesMobile";
 import { openCatalogVideo } from "../../openCatalogVideo";
+import { trackModuleActivity } from "../../moduleActivity";
 import { usePlayVideosPreference } from "../../playVideosPreference";
 import OfficialUnofficialBar from "../OfficialUnofficialBar";
 import {
@@ -1028,6 +1029,11 @@ export default function SeriesSubseriesPage({
     if (isBook) pushRecentBookId(id);
     if (isGame) pushRecentGameId(id);
   }, [subseriesId, isBook, isGame]);
+
+  const leafActivityRef = useRef<string | null>(null);
+  useEffect(() => {
+    leafActivityRef.current = null;
+  }, [subseriesId]);
 
   useLayoutEffect(() => {
     if (tab !== "overview") return;
@@ -2290,6 +2296,69 @@ export default function SeriesSubseriesPage({
     : genresRaw.filter(
         (g) => !isAdultGenreName(typeof g === "string" ? g : g?.name)
       );
+  const primaryGenreName = useMemo(() => {
+    const g0 = genres[0];
+    if (!g0) return null;
+    return typeof g0 === "string" ? g0 : g0?.name || null;
+  }, [genres]);
+  const wrappedActivityContext = useMemo(
+    () => ({
+      franchiseId: franchiseId || undefined,
+      franchiseTitle: franchiseName || undefined,
+      vibeKey: primaryGenreName || undefined,
+      vibeLabel: primaryGenreName || undefined,
+    }),
+    [franchiseId, franchiseName, primaryGenreName]
+  );
+
+  // Books/Games Wrapped: one dated open per leaf visit (after title resolves).
+  useEffect(() => {
+    const id = (subseriesId || "").trim();
+    if (!id || (!isBook && !isGame)) return;
+    const title =
+      overview?.name ||
+      detail?.title ||
+      card?.title ||
+      franchiseName ||
+      id;
+    if (!title) return;
+    const stamp = `${isBook ? "books" : "games"}:${id}`;
+    if (leafActivityRef.current === stamp) return;
+    leafActivityRef.current = stamp;
+    const platform =
+      isGame
+        ? String(
+            (overview as { platform?: string | null } | null)?.platform ||
+              (detail as { platform?: string | null } | null)?.platform ||
+              ""
+          ).trim() || null
+        : null;
+    trackModuleActivity({
+      module: isBook ? "books" : "games",
+      entity_kind: isBook ? "book" : "game",
+      entity_id: id,
+      title,
+      franchise_id: franchiseId || undefined,
+      franchise_title: franchiseName || undefined,
+      cover_url: baseCoverFront || undefined,
+      vibe_key: isGame ? platform || primaryGenreName || undefined : primaryGenreName || undefined,
+      vibe_label: isGame ? platform || primaryGenreName || undefined : primaryGenreName || undefined,
+    });
+  }, [
+    subseriesId,
+    isBook,
+    isGame,
+    overview?.name,
+    detail?.title,
+    card?.title,
+    franchiseName,
+    franchiseId,
+    baseCoverFront,
+    primaryGenreName,
+    overview,
+    detail,
+  ]);
+
   const publishers = scopedMeta?.publishers ?? overview?.publishers ?? [];
   const publisherFallback = publishers[0] || "";
   const country = scopedMeta?.country ?? overview?.country;
@@ -3724,6 +3793,7 @@ export default function SeriesSubseriesPage({
     suggestedTags: leafTagSuggestions,
     isAdmin,
     onTagsChange: isAdmin ? handleEpisodeTagsChange : undefined,
+    activityContext: wrappedActivityContext,
   };
 
   const showMediaLayoutPicker =
@@ -4178,7 +4248,16 @@ export default function SeriesSubseriesPage({
       window.open(url, "_blank", "noopener,noreferrer");
       return;
     }
-    void openCatalogVideo({ openUrl: url, playLocally });
+    void openCatalogVideo({
+      openUrl: url,
+      playLocally,
+      activity: {
+        ...wrappedActivityContext,
+        title: detail?.title || card?.title || overview?.name || undefined,
+        entityId: subseriesId || undefined,
+        coverUrl: baseCoverFront || undefined,
+      },
+    });
   };
 
   const gameRomBytes =
@@ -4478,6 +4557,20 @@ export default function SeriesSubseriesPage({
     const url = item.open_url?.trim();
     if (!url) return;
     if (item.open_mode === "local") {
+      if (!isBook && !isGame) {
+        void openCatalogVideo({
+          openUrl: url,
+          playPath: item.path,
+          playLocally: true,
+          activity: {
+            ...wrappedActivityContext,
+            title: item.title || undefined,
+            entityId: item.id || item.path || undefined,
+            coverUrl: item.cover_url || baseCoverFront || undefined,
+          },
+        });
+        return;
+      }
       void fetch(url, { method: "POST" }).catch(() => {});
       return;
     }
@@ -4485,7 +4578,16 @@ export default function SeriesSubseriesPage({
       window.open(url, "_blank", "noopener,noreferrer");
       return;
     }
-    void openCatalogVideo({ openUrl: url, playLocally });
+    void openCatalogVideo({
+      openUrl: url,
+      playLocally,
+      activity: {
+        ...wrappedActivityContext,
+        title: item.title || undefined,
+        entityId: item.id || item.path || undefined,
+        coverUrl: item.cover_url || baseCoverFront || undefined,
+      },
+    });
   };
 
   useEffect(() => {
@@ -6663,6 +6765,7 @@ export default function SeriesSubseriesPage({
                   emptyLabel="No videos linked for this film."
                   activeId={activeEpisodeId}
                   onSelect={(ep) => setActiveEpisodeId(ep.id)}
+                  activityContext={wrappedActivityContext}
                 />
               </div>
             </div>

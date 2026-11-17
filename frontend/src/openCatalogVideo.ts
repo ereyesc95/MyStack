@@ -1,4 +1,19 @@
 import { openLocalMediaFile } from "./api";
+import {
+  franchiseNameFromMediaPath,
+  moduleFromMediaPath,
+  trackModuleActivity,
+} from "./moduleActivity";
+
+export type CatalogVideoActivity = {
+  title?: string | null;
+  entityId?: string | null;
+  franchiseId?: string | null;
+  franchiseTitle?: string | null;
+  coverUrl?: string | null;
+  vibeKey?: string | null;
+  vibeLabel?: string | null;
+};
 
 /** Extract media-root-relative path from /api/media/file or open-local URLs. */
 export function mediaPathFromOpenUrl(url: string): string | null {
@@ -45,16 +60,41 @@ function openInBrowserTab(url: string): void {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+function recordCatalogPlayback(
+  path: string | null,
+  activity?: CatalogVideoActivity | null
+): void {
+  if (!path) return;
+  const mod = moduleFromMediaPath(path);
+  if (mod !== "series" && mod !== "movies") return;
+  const franchiseTitle =
+    activity?.franchiseTitle || franchiseNameFromMediaPath(path);
+  trackModuleActivity({
+    module: mod,
+    entity_kind: mod === "series" ? "episode" : "film",
+    entity_id: (activity?.entityId || path).trim(),
+    title: activity?.title || undefined,
+    path,
+    franchise_id: activity?.franchiseId || franchiseTitle || undefined,
+    franchise_title: franchiseTitle || undefined,
+    cover_url: activity?.coverUrl || undefined,
+    vibe_key: activity?.vibeKey || undefined,
+    vibe_label: activity?.vibeLabel || undefined,
+  });
+}
+
 /**
  * Open a Movies/Series catalog video.
  * - External http(s) links always open in a tab.
  * - When playLocally: OS associated app via open-local; fall back to browser tab.
  * - When not: browser tab (file stream URL).
+ * Records Series/Movies Wrapped activity on local playback start.
  */
 export async function openCatalogVideo(opts: {
   openUrl?: string | null;
   playPath?: string | null;
   playLocally: boolean;
+  activity?: CatalogVideoActivity | null;
 }): Promise<void> {
   const url = (opts.openUrl || "").trim();
   const playPath = (opts.playPath || "").trim() || null;
@@ -66,6 +106,7 @@ export async function openCatalogVideo(opts: {
   }
 
   const path = playPath || (url ? mediaPathFromOpenUrl(url) : null);
+  recordCatalogPlayback(path, opts.activity);
 
   if (opts.playLocally && path) {
     try {
