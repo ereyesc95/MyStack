@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from app.config import settings
 from app.database import get_db
@@ -274,6 +275,109 @@ def exclusive_hub(
     from app.exclusive_hub import build_exclusive_hub
 
     return build_exclusive_hub(ensure_photos_exclusive=True)
+
+
+@router.get("/exclusive-hub/people")
+def exclusive_hub_people(
+    module: str = Query(..., min_length=1),
+    path: str = Query(..., min_length=1),
+    _user: User = Depends(get_current_user),
+    nsfw_unlocked: bool = Depends(get_nsfw_unlocked),
+    db: Session = Depends(get_db),
+):
+    """Person tabs for a selected Exclusive hub source (NSFW session required)."""
+    if not nsfw_unlocked:
+        return {"people": [], "exclusive": None}
+    from pathlib import Path
+
+    from app.config import settings
+    from app.exclusive_people import (
+        build_exclusive_with_people,
+        collect_exclusive_dirs_for_person,
+        exclusive_people_for_leaf,
+        exclusive_people_for_music_band,
+        resolve_leaf_about_context,
+    )
+    from app.exclusive_gallery import find_exclusive_dir
+
+    root = Path(settings.media_root or "")
+    if not root.is_dir():
+        return {"people": [], "exclusive": None}
+    mod = (module or "").strip().casefold()
+    rel = (path or "").replace("\\", "/").strip("/")
+    folder = root / rel
+    if not folder.is_dir():
+        return {"people": [], "exclusive": None}
+
+    people_tuples: list = []
+    if mod == "music":
+        # path is Music/{L}/{Artist}
+        from app.models import Band
+
+        name = folder.name
+        band = db.scalars(select(Band).where(Band.bnd_name == name)).first()
+        if band is None:
+            want = name.casefold()
+            for row in db.scalars(select(Band)).all():
+                if (row.bnd_name or "").casefold() == want:
+                    band = row
+                    break
+        if band is not None:
+            people_tuples = exclusive_people_for_music_band(db, band, root)
+        else:
+            leaf_ex = find_exclusive_dir(folder, layout="music")
+            people_tuples = [
+                (
+                    name,
+                    collect_exclusive_dirs_for_person(
+                        root, name, leaf_exclusive=leaf_ex
+                    ),
+                )
+            ]
+    elif mod in {"series", "movies", "books", "games"}:
+        ctx = resolve_leaf_about_context(db, folder, root)
+        people_tuples = exclusive_people_for_leaf(
+            root,
+            leaf_dir=folder,
+            leaf_title=ctx.get("title") or folder.name,
+            cast=ctx.get("cast"),
+            writers=ctx.get("writers"),
+            directors=ctx.get("directors"),
+            authors=ctx.get("authors"),
+        )
+    else:
+        # Photos person folder itself
+        people_tuples = [
+            (folder.name, collect_exclusive_dirs_for_person(root, folder.name))
+        ]
+
+    exclusive = build_exclusive_with_people(people_tuples, root)
+    if exclusive:
+        from app.exclusive_links import merge_exclusive_links_into_gallery
+
+        primary = people_tuples[0][0] if people_tuples else folder.name
+        media_type = (
+            mod
+            if mod in {"photos", "music", "series", "movies", "books", "games"}
+            else "photos"
+        )
+        payload = {"exclusive": exclusive}
+        merge_exclusive_links_into_gallery(
+            payload,
+            db,
+            media_type=media_type,
+            entity_name=primary,
+        )
+        exclusive = payload.get("exclusive") or exclusive
+    people_out = []
+    if exclusive and exclusive.get("people"):
+        people_out = [
+            {"key": p["key"], "label": p["label"]} for p in exclusive["people"]
+        ]
+    elif exclusive:
+        # Single person — no subbar, but return flattened exclusive for convenience
+        people_out = []
+    return {"people": people_out, "exclusive": exclusive}
 
 
 class ExclusiveLinkIn(BaseModel):

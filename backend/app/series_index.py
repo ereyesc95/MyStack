@@ -1107,6 +1107,12 @@ def iter_franchise_dirs(media_root: Path | None = None) -> list[tuple[Path, str]
     return out
 
 
+def _canon_franchise_key(value: str) -> str:
+    """Match URL/slug variants: ``dragon-ball`` ↔ ``dragon ball``."""
+    text = (value or "").casefold().strip().replace("_", " ").replace("-", " ")
+    return " ".join(text.split())
+
+
 def find_franchise_dir(
     franchise_id: str, media_root: Path | None = None
 ) -> tuple[Path, str] | None:
@@ -1114,9 +1120,16 @@ def find_franchise_dir(
     want = (franchise_id or "").casefold().strip()
     if not want:
         return None
+    want_canon = _canon_franchise_key(want)
     for franchise_dir, letter in iter_franchise_dirs(root):
         slug = normalize_franchise_slug(franchise_dir.name) or franchise_dir.name.casefold()
-        if slug == want or franchise_dir.name.casefold() == want:
+        name = franchise_dir.name.casefold()
+        if (
+            slug == want
+            or name == want
+            or _canon_franchise_key(slug) == want_canon
+            or _canon_franchise_key(name) == want_canon
+        ):
             return franchise_dir, letter
     return None
 
@@ -1394,8 +1407,13 @@ def build_series_gallery(
     media_root: Path | None = None,
     *,
     nsfw_unlocked: bool = False,
+    db=None,
 ) -> dict:
-    from app.exclusive_gallery import build_exclusive_section, find_exclusive_dir
+    from app.exclusive_people import (
+        build_exclusive_with_people,
+        exclusive_people_for_leaf,
+        resolve_leaf_about_context,
+    )
     from app.series_paths import gallery_sections
 
     root = _resolve_media_root(media_root)
@@ -1430,16 +1448,28 @@ def build_series_gallery(
 
     sections = gallery_sections(folder, root)
     if nsfw_unlocked:
-        ex_dir = find_exclusive_dir(folder, layout="franchise")
-        if ex_dir:
-            ex_sec = build_exclusive_section(ex_dir, root)
-            if ex_sec:
-                sections.append(ex_sec)
+        ctx = resolve_leaf_about_context(db, folder, root)
+        people = exclusive_people_for_leaf(
+            root,
+            leaf_dir=folder,
+            leaf_title=ctx.get("title") or folder.name,
+            cast=ctx.get("cast"),
+            writers=ctx.get("writers"),
+            directors=ctx.get("directors"),
+            authors=ctx.get("authors"),
+        )
+        ex_sec = build_exclusive_with_people(people, root)
+        if ex_sec:
+            sections.append(ex_sec)
     items: list[dict] = []
     for sec in sections:
         items.extend(sec.get("items") or [])
         for sub in sec.get("subsections") or []:
             items.extend(sub.get("items") or [])
+        for person in sec.get("people") or []:
+            items.extend(person.get("items") or [])
+            for sub in person.get("subsections") or []:
+                items.extend(sub.get("items") or [])
     return {
         "folder_path": folder.relative_to(root).as_posix(),
         "items": items,

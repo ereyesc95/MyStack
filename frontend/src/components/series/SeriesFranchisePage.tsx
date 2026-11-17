@@ -546,6 +546,10 @@ export default function SeriesFranchisePage({
   const [gallerySections, setGallerySections] = useState<
     { key: string; label: string }[]
   >([]);
+  const [galleryPersonKey, setGalleryPersonKey] = useState("");
+  const [galleryPeople, setGalleryPeople] = useState<
+    { key: string; label: string }[]
+  >([]);
   const [gallerySubsectionKey, setGallerySubsectionKey] = useState("");
   const [gallerySubsections, setGallerySubsections] = useState<
     { key: string; label: string }[]
@@ -2824,6 +2828,28 @@ export default function SeriesFranchisePage({
           </div>
         ) : null}
 
+        {section === "gallery" && galleryPeople.length > 1 ? (
+          <div
+            className="series-section-subbar"
+            role="tablist"
+            aria-label="Exclusive people"
+          >
+            {galleryPeople.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                className={galleryPersonKey === s.key ? "active" : ""}
+                onClick={() => {
+                  setGalleryPersonKey(s.key);
+                  setGallerySubsectionKey("");
+                }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         {section === "gallery" && gallerySubsections.length > 1 ? (
           <div
             className="series-section-subbar"
@@ -3483,6 +3509,9 @@ export default function SeriesFranchisePage({
             sectionKey={gallerySectionKey}
             onSectionKeyChange={setGallerySectionKey}
             onSectionsChange={(secs) => setGallerySections(secs)}
+            personKey={galleryPersonKey}
+            onPersonKeyChange={setGalleryPersonKey}
+            onPeopleChange={setGalleryPeople}
             subsectionKey={gallerySubsectionKey}
             onSubsectionKeyChange={setGallerySubsectionKey}
             onSubsectionsChange={setGallerySubsections}

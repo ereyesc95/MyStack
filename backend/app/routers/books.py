@@ -365,7 +365,9 @@ def books_gallery(
     db: Session = Depends(get_db),
 ):
     try:
-        payload = build_books_gallery(path)
+        payload = build_books_gallery(
+            path, nsfw_unlocked=nsfw_unlocked, db=db
+        )
     except Exception as exc:
         raise HTTPException(400, str(exc)) from exc
     if nsfw_unlocked:

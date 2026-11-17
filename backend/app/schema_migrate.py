@@ -193,6 +193,7 @@ def migrate_schema(eng: Engine) -> None:
                 ("pldYear", "TEXT"),
                 ("pldSortOrder", "INTEGER"),
                 ("pldUnavailable", "INTEGER"),
+                ("pldModule", "TEXT"),
             ):
                 if col not in cols:
                     conn.execute(text(f'ALTER TABLE playlistdata ADD COLUMN "{col}" {typ}'))

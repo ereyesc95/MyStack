@@ -802,7 +802,9 @@ export default function BooksModule({
             | (SeriesFranchiseCard & { is_standalone?: boolean })
             | undefined;
           const isStandalone = Boolean(work?.is_standalone);
-          if (isStandalone) {
+          // Prefer catalog/home when the franchise card is missing (failed load)
+          // so Back does not dump into a broken franchise hub.
+          if (isStandalone || !work) {
             if (from === "home") backToBooksHome();
             else backToBooksCatalog();
             return;

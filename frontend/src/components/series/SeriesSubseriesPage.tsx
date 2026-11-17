@@ -908,6 +908,10 @@ export default function SeriesSubseriesPage({
   const [gallerySections, setGallerySections] = useState<
     { key: string; label: string }[]
   >([]);
+  const [galleryPersonKey, setGalleryPersonKey] = useState("");
+  const [galleryPeople, setGalleryPeople] = useState<
+    { key: string; label: string }[]
+  >([]);
   const [gallerySubsectionKey, setGallerySubsectionKey] = useState("");
   const [gallerySubsections, setGallerySubsections] = useState<
     { key: string; label: string }[]
@@ -2305,10 +2309,25 @@ export default function SeriesSubseriesPage({
     () => ({
       franchiseId: franchiseId || undefined,
       franchiseTitle: franchiseName || undefined,
+      groupId: subseriesId || undefined,
+      groupTitle:
+        overview?.name ||
+        detail?.title ||
+        card?.title ||
+        franchiseName ||
+        undefined,
       vibeKey: primaryGenreName || undefined,
       vibeLabel: primaryGenreName || undefined,
     }),
-    [franchiseId, franchiseName, primaryGenreName]
+    [
+      franchiseId,
+      franchiseName,
+      subseriesId,
+      overview?.name,
+      detail?.title,
+      card?.title,
+      primaryGenreName,
+    ]
   );
 
   // Books/Games Wrapped: one dated open per leaf visit (after title resolves).
@@ -5374,6 +5393,28 @@ export default function SeriesSubseriesPage({
           </div>
         ) : null}
 
+        {tab === "gallery" && galleryPeople.length > 1 ? (
+          <div
+            className="series-section-subbar"
+            role="tablist"
+            aria-label="Exclusive people"
+          >
+            {galleryPeople.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                className={galleryPersonKey === s.key ? "active" : ""}
+                onClick={() => {
+                  setGalleryPersonKey(s.key);
+                  setGallerySubsectionKey("");
+                }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         {tab === "gallery" && gallerySubsections.length > 1 ? (
           <div
             className="series-section-subbar"
@@ -7240,6 +7281,9 @@ export default function SeriesSubseriesPage({
               sectionKey={gallerySectionKey}
               onSectionKeyChange={setGallerySectionKey}
               onSectionsChange={(secs) => setGallerySections(secs)}
+              personKey={galleryPersonKey}
+              onPersonKeyChange={setGalleryPersonKey}
+              onPeopleChange={setGalleryPeople}
               subsectionKey={gallerySubsectionKey}
               onSubsectionKeyChange={setGallerySubsectionKey}
               onSubsectionsChange={setGallerySubsections}

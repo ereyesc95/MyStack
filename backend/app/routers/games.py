@@ -844,7 +844,7 @@ def games_game_gallery(
     if not detail:
         raise HTTPException(404, "Game not found")
     path = detail.get("folder_path") or ""
-    payload = build_games_gallery(path, nsfw_unlocked=nsfw_unlocked)
+    payload = build_games_gallery(path, nsfw_unlocked=nsfw_unlocked, db=db)
     if nsfw_unlocked:
         from app.exclusive_links import merge_exclusive_links_into_sections_gallery
 
@@ -865,7 +865,7 @@ def games_franchise_gallery(
     if not detail:
         raise HTTPException(404, "Games franchise not found")
     path = detail.get("folder_path") or ""
-    payload = build_games_gallery(path, nsfw_unlocked=nsfw_unlocked)
+    payload = build_games_gallery(path, nsfw_unlocked=nsfw_unlocked, db=db)
     if nsfw_unlocked:
         from app.exclusive_links import merge_exclusive_links_into_sections_gallery
 

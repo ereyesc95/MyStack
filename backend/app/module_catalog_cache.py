@@ -72,6 +72,41 @@ def _listing_implies_content(listing: str) -> bool:
         return bool(listing) and listing != "0:"
 
 
+def peek_catalog_payload(
+    module: str, *, media_root: Path | None = None
+) -> dict | None:
+    """Return cached raw catalog payload without rebuilding (None if cold/stale)."""
+    mod = (module or "").strip().casefold()
+    if mod not in ("series", "movies", "books", "games"):
+        return None
+    root = media_root
+    listing = None
+    if root is not None and root.is_dir():
+        listing = _listing_sig_cached(root, mod)
+    mem = _raw_payload_mem.get(mod)
+    if mem and isinstance(mem[1], dict):
+        if listing is None or mem[0] == listing:
+            return copy.deepcopy(mem[1])
+    path = _cache_path(mod)
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if (
+            isinstance(raw, dict)
+            and raw.get("cache_version") == CATALOG_CACHE_VERSION
+            and isinstance(raw.get("payload"), dict)
+        ):
+            if listing is not None and raw.get("disk_listing") != listing:
+                return None
+            payload = raw["payload"]
+            _raw_payload_mem[mod] = (raw.get("disk_listing") or listing or "", payload)
+            return copy.deepcopy(payload)
+    except (json.JSONDecodeError, OSError, TypeError):
+        return None
+    return None
+
+
 def get_or_build_catalog(
     module: str,
     *,

@@ -818,6 +818,8 @@ def build_gallery_index(
     media_root: Path,
     *,
     include_exclusive: bool = False,
+    db=None,
+    band=None,
 ) -> dict:
     """Gallery tabs: promo (release Photo - *), branding, gallery dump, animations."""
     from app.release_photo_art import collect_gallery_dump, collect_promo_photos
@@ -839,10 +841,10 @@ def build_gallery_index(
     if not artist_dir:
         return empty
 
-    from app.exclusive_gallery import (
-        build_exclusive_section,
-        find_exclusive_dir,
-        has_exclusive_content,
+    from app.exclusive_gallery import has_exclusive_content
+    from app.exclusive_people import (
+        build_exclusive_with_people,
+        exclusive_people_for_music_band,
     )
 
     has_exclusive = has_exclusive_content(artist_dir, layout="music")
@@ -886,12 +888,32 @@ def build_gallery_index(
         "animations": {"covers": covers_out, "canvas": canvas_out},
         "has_exclusive_gallery": has_exclusive,
     }
-    if include_exclusive and has_exclusive:
-        ex_dir = find_exclusive_dir(artist_dir, layout="music")
-        if ex_dir:
-            ex_sec = build_exclusive_section(ex_dir, media_root)
-            if ex_sec:
-                payload["exclusive"] = ex_sec
+    if include_exclusive:
+        people: list[tuple[str, list]] = []
+        if db is not None and band is not None:
+            try:
+                people = exclusive_people_for_music_band(db, band, media_root)
+            except Exception:
+                people = []
+        if not people:
+            from app.exclusive_people import collect_exclusive_dirs_for_person
+            from app.exclusive_gallery import find_exclusive_dir
+
+            leaf_ex = find_exclusive_dir(artist_dir, layout="music")
+            people = [
+                (
+                    artist_name,
+                    collect_exclusive_dirs_for_person(
+                        media_root, artist_name, leaf_exclusive=leaf_ex
+                    ),
+                )
+            ]
+        ex_sec = build_exclusive_with_people(people, media_root)
+        if ex_sec:
+            payload["exclusive"] = ex_sec
+            payload["has_exclusive_gallery"] = True
+        elif has_exclusive:
+            payload["has_exclusive_gallery"] = True
     return payload
 
 

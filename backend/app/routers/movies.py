@@ -465,7 +465,7 @@ def movies_gallery(
     nsfw_unlocked: bool = Depends(get_nsfw_unlocked),
     db: Session = Depends(get_db),
 ):
-    payload = build_movies_gallery(path, nsfw_unlocked=nsfw_unlocked)
+    payload = build_movies_gallery(path, nsfw_unlocked=nsfw_unlocked, db=db)
     if nsfw_unlocked:
         from app.exclusive_links import merge_exclusive_links_into_sections_gallery
 

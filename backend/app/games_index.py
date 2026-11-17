@@ -649,11 +649,23 @@ def find_franchise_dirs(
     if not want:
         return []
     want_slug = normalize_franchise_slug(work_id) or want
+    want_canon = " ".join(
+        want.replace("-", " ").replace("_", " ").split()
+    )
     hits: list[tuple[Path, str, str]] = []
     for work_dir, platform, letter in iter_franchise_dirs(media_root):
         slug = normalize_franchise_slug(work_dir.name) or work_dir.name.casefold()
         name = work_dir.name.casefold()
-        if slug == want_slug or name == want or slug == want or name == want_slug:
+        name_canon = " ".join(name.replace("-", " ").replace("_", " ").split())
+        slug_canon = " ".join(slug.replace("-", " ").replace("_", " ").split())
+        if (
+            slug == want_slug
+            or name == want
+            or slug == want
+            or name == want_slug
+            or name_canon == want_canon
+            or slug_canon == want_canon
+        ):
             hits.append((work_dir, platform, letter))
     return hits
 
@@ -676,6 +688,33 @@ def find_game_dir(
     want_cf = want.casefold()
     want_slug = normalize_franchise_slug(want)
     root = _resolve_media_root(media_root)
+    # Fast path via catalog cache (avoid full Games tree walk).
+    try:
+        from app.module_catalog_cache import peek_catalog_payload
+
+        payload = peek_catalog_payload("games", media_root=root)
+        for game in (payload or {}).get("games") or (payload or {}).get("films") or []:
+            if not isinstance(game, dict):
+                continue
+            gid = (game.get("id") or "").strip()
+            if gid != want and (game.get("title") or "").casefold() != want_cf:
+                continue
+            folder = (game.get("folder_path") or "").replace("\\", "/").strip("/")
+            if not folder:
+                continue
+            game_dir = root / folder
+            if not game_dir.is_dir():
+                continue
+            # Games/{Platform}/{Letter}/{Franchise}/{leaf}
+            parts = Path(folder).parts
+            platform = str(game.get("platform") or (parts[1] if len(parts) > 1 else "") or "")
+            letter = str(game.get("letter") or (parts[2] if len(parts) > 2 else "") or "?")
+            work_dir = game_dir.parent
+            if len(parts) >= 4:
+                work_dir = root.joinpath(*parts[:4])
+            return game_dir, work_dir, platform, letter
+    except Exception:
+        pass
     for work_dir, platform, letter in iter_franchise_dirs(root):
         for item_dir, _d, title, _h in _iter_work_leaf_items(work_dir):
             rel = item_dir.relative_to(root).as_posix()

@@ -210,6 +210,7 @@ function MusicWrappedPanel({
           release: t.release || "",
           path: t.path,
           allow_wrapped_fill: true,
+          module: "music",
         });
       }
       setPlaylistId(id);

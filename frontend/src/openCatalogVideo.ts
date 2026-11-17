@@ -11,6 +11,9 @@ export type CatalogVideoActivity = {
   franchiseId?: string | null;
   franchiseTitle?: string | null;
   coverUrl?: string | null;
+  /** Series leaf / subseries folder id for Wrapped → leaf navigation. */
+  groupId?: string | null;
+  groupTitle?: string | null;
   vibeKey?: string | null;
   vibeLabel?: string | null;
 };
@@ -78,6 +81,8 @@ function recordCatalogPlayback(
     franchise_id: activity?.franchiseId || franchiseTitle || undefined,
     franchise_title: franchiseTitle || undefined,
     cover_url: activity?.coverUrl || undefined,
+    group_id: activity?.groupId || undefined,
+    group_title: activity?.groupTitle || undefined,
     vibe_key: activity?.vibeKey || undefined,
     vibe_label: activity?.vibeLabel || undefined,
   });

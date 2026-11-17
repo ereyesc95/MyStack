@@ -38,6 +38,9 @@ export type ArtistGalleryState = {
   animationCovers: GalleryAnimationItem[];
   animationCanvas: GalleryAnimationItem[];
   exclusiveItems: SeriesGalleryItem[];
+  exclusivePeople: { key: string; label: string }[];
+  exclusivePersonKey: string;
+  setExclusivePersonKey: (key: string) => void;
   exclusiveSubsections: { key: string; label: string; items: SeriesGalleryItem[] }[];
   showPromo: boolean;
   showGalleryDump: boolean;
@@ -102,7 +105,14 @@ function hasExclusive(index: GalleryIndexPayload | null): boolean {
   if (!index?.exclusive) return false;
   const sec = index.exclusive;
   if (sec.items?.length) return true;
-  return Boolean(sec.subsections?.some((s) => s.items.length > 0));
+  if (sec.subsections?.some((s) => s.items.length > 0)) return true;
+  return Boolean(
+    sec.people?.some(
+      (p) =>
+        (p.items?.length ?? 0) > 0 ||
+        (p.subsections?.some((s) => s.items.length > 0) ?? false)
+    )
+  );
 }
 
 function pickInitialTab(index: GalleryIndexPayload | null): GalleryTab {
@@ -133,9 +143,25 @@ function pickInitialAnimationSubtab(
   return "covers";
 }
 
-function pickInitialExclusiveSubtab(index: GalleryIndexPayload | null): string {
+function pickInitialExclusivePerson(index: GalleryIndexPayload | null): string {
+  const people = index?.exclusive?.people;
+  if (people && people.length > 1) return people[0].key;
+  return "";
+}
+
+function pickInitialExclusiveSubtab(
+  index: GalleryIndexPayload | null,
+  personKey = ""
+): string {
   const sec = index?.exclusive;
   if (!sec) return "";
+  const people = sec.people;
+  if (people && people.length > 1) {
+    const person =
+      people.find((p) => p.key === personKey) || people[0];
+    const subs = person?.subsections?.filter((s) => s.items.length > 0) ?? [];
+    return subs[0]?.key ?? "";
+  }
   if (sec.subsections?.length) return sec.subsections[0].key;
   return "";
 }
@@ -170,8 +196,14 @@ export function useArtistGallery(
   const [animationSubtab, setAnimationSubtab] = useState<AnimationSubtab>(() =>
     pickInitialAnimationSubtab(getCachedArtistGallery(bandId))
   );
+  const [exclusivePersonKey, setExclusivePersonKey] = useState<string>(() =>
+    pickInitialExclusivePerson(getCachedArtistGallery(bandId))
+  );
   const [exclusiveSubtab, setExclusiveSubtab] = useState<string>(() =>
-    pickInitialExclusiveSubtab(getCachedArtistGallery(bandId))
+    pickInitialExclusiveSubtab(
+      getCachedArtistGallery(bandId),
+      pickInitialExclusivePerson(getCachedArtistGallery(bandId))
+    )
   );
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
 
@@ -196,7 +228,9 @@ export function useArtistGallery(
           setIndex(payload);
           setTab(pickInitialTab(payload));
           setAnimationSubtab(pickInitialAnimationSubtab(payload));
-          setExclusiveSubtab(pickInitialExclusiveSubtab(payload));
+          const person = pickInitialExclusivePerson(payload);
+          setExclusivePersonKey(person);
+          setExclusiveSubtab(pickInitialExclusiveSubtab(payload, person));
         })
         .catch(() => {});
       return () => {
@@ -211,7 +245,9 @@ export function useArtistGallery(
         setIndex(payload);
         setTab(pickInitialTab(payload));
         setAnimationSubtab(pickInitialAnimationSubtab(payload));
-        setExclusiveSubtab(pickInitialExclusiveSubtab(payload));
+        const person = pickInitialExclusivePerson(payload);
+        setExclusivePersonKey(person);
+        setExclusiveSubtab(pickInitialExclusiveSubtab(payload, person));
       })
       .catch((e) => {
         if (!cancelled) {
@@ -252,18 +288,48 @@ export function useArtistGallery(
   const showAnimations =
     animationCovers.length > 0 || animationCanvas.length > 0;
   const exclusiveSection = index?.exclusive;
-  const exclusiveSubsections = exclusiveSection?.subsections ?? [];
+  const exclusivePeople = useMemo(() => {
+    const people = exclusiveSection?.people ?? [];
+    return people.length > 1
+      ? people.map((p) => ({ key: p.key, label: p.label }))
+      : [];
+  }, [exclusiveSection]);
+  const activeExclusivePerson = useMemo(() => {
+    const people = exclusiveSection?.people ?? [];
+    if (people.length > 1) {
+      return (
+        people.find((p) => p.key === exclusivePersonKey) || people[0] || null
+      );
+    }
+    return null;
+  }, [exclusiveSection, exclusivePersonKey]);
+  const exclusiveSubsections = useMemo(() => {
+    if (activeExclusivePerson) {
+      return (activeExclusivePerson.subsections ?? []).filter(
+        (s) => s.items.length > 0
+      );
+    }
+    return exclusiveSection?.subsections ?? [];
+  }, [activeExclusivePerson, exclusiveSection]);
   const showExclusive = hasExclusive(index);
   const exclusiveItems = useMemo(() => {
     if (!exclusiveSection) return [] as SeriesGalleryItem[];
-    if (exclusiveSubsections.length) {
+    const bucket = activeExclusivePerson || exclusiveSection;
+    const subs = activeExclusivePerson
+      ? exclusiveSubsections
+      : exclusiveSection.subsections ?? [];
+    if (subs.length) {
       const sub =
-        exclusiveSubsections.find((s) => s.key === exclusiveSubtab) ||
-        exclusiveSubsections[0];
+        subs.find((s) => s.key === exclusiveSubtab) || subs[0];
       return sub?.items ?? [];
     }
-    return exclusiveSection.items ?? [];
-  }, [exclusiveSection, exclusiveSubsections, exclusiveSubtab]);
+    return bucket.items ?? [];
+  }, [
+    exclusiveSection,
+    activeExclusivePerson,
+    exclusiveSubsections,
+    exclusiveSubtab,
+  ]);
 
   const viewerItems: GalleryViewerItem[] = useMemo(() => {
     if (!index) return [];
@@ -345,7 +411,21 @@ export function useArtistGallery(
 
   useEffect(() => {
     setViewerIndex(null);
-  }, [tab, animationSubtab, exclusiveSubtab]);
+  }, [tab, animationSubtab, exclusiveSubtab, exclusivePersonKey]);
+
+  useEffect(() => {
+    if (!exclusivePeople.length) return;
+    if (!exclusivePeople.some((p) => p.key === exclusivePersonKey)) {
+      setExclusivePersonKey(exclusivePeople[0].key);
+    }
+  }, [exclusivePeople, exclusivePersonKey]);
+
+  useEffect(() => {
+    if (exclusiveSubsections.length <= 1) return;
+    if (!exclusiveSubsections.some((s) => s.key === exclusiveSubtab)) {
+      setExclusiveSubtab(exclusiveSubsections[0].key);
+    }
+  }, [exclusiveSubsections, exclusiveSubtab]);
 
   useEffect(() => {
     if (tab !== "animations") return;
@@ -370,6 +450,8 @@ export function useArtistGallery(
     setAnimationSubtab,
     exclusiveSubtab,
     setExclusiveSubtab,
+    exclusivePersonKey,
+    setExclusivePersonKey,
     photos,
     promo,
     galleryDump,
@@ -377,6 +459,7 @@ export function useArtistGallery(
     animationCovers,
     animationCanvas,
     exclusiveItems,
+    exclusivePeople,
     exclusiveSubsections,
     showPromo,
     showGalleryDump,
@@ -412,6 +495,9 @@ export function ArtistGalleryBars({ state, mobilePortrait }: BarsProps) {
     exclusiveSubsections,
     exclusiveSubtab,
     setExclusiveSubtab,
+    exclusivePeople,
+    exclusivePersonKey,
+    setExclusivePersonKey,
   } = state;
   if (
     !showPromo &&
@@ -490,6 +576,23 @@ export function ArtistGalleryBars({ state, mobilePortrait }: BarsProps) {
               <span>CANVAS</span>
             </button>
           )}
+        </nav>
+      ) : null}
+      {tab === "exclusive" && showExclusive && exclusivePeople.length > 1 ? (
+        <nav className="artist-page__subtabs artist-gallery__animation-subtabs">
+          {exclusivePeople.map((person) => (
+            <button
+              key={person.key}
+              type="button"
+              className={exclusivePersonKey === person.key ? "active" : ""}
+              onClick={() => {
+                setExclusivePersonKey(person.key);
+                setExclusiveSubtab("");
+              }}
+            >
+              <span>{person.label.toUpperCase()}</span>
+            </button>
+          ))}
         </nav>
       ) : null}
       {tab === "exclusive" && showExclusive && exclusiveSubsections.length > 1 ? (

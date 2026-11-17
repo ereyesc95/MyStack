@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   deleteExclusiveLink,
   fetchExclusiveHub,
+  fetchExclusiveHubPeople,
   fetchExclusiveLinks,
   fetchPhotoYear,
   fetchPhotoYears,
@@ -14,6 +15,7 @@ import {
   type ExclusiveLinkRecord,
   type PhotosYearBucket,
 } from "../../api";
+import type { SeriesGallerySection } from "../../types";
 import {
   defaultSectionForSource,
   saveArtistEntryReferrer,
@@ -347,6 +349,13 @@ export default function PhotosModule({
   const [exclusiveModule, setExclusiveModule] =
     useState<ExclusiveModule>("photos");
   const [exclusiveSourceId, setExclusiveSourceId] = useState<string>("__all__");
+  const [exclusivePersonKey, setExclusivePersonKey] = useState("");
+  const [exclusivePeople, setExclusivePeople] = useState<
+    { key: string; label: string }[]
+  >([]);
+  const [exclusivePersonPayload, setExclusivePersonPayload] =
+    useState<SeriesGallerySection | null>(null);
+  const [exclusiveFolderKey, setExclusiveFolderKey] = useState("");
   const [homeFadeTick, setHomeFadeTick] = useState(0);
   const [exclusiveLinks, setExclusiveLinks] = useState<ExclusiveLinkRecord[]>(
     []
@@ -501,7 +510,12 @@ export default function PhotosModule({
         .catch(() => setExclusiveLinks([]));
       return;
     }
-    const entityName = selectedExclusiveSource?.title;
+    const personLabel =
+      exclusivePeople.length > 1
+        ? exclusivePeople.find((p) => p.key === exclusivePersonKey)?.label
+        : undefined;
+    const entityName =
+      personLabel || selectedExclusiveSource?.title;
     if (!entityName) {
       setExclusiveLinks([]);
       return;
@@ -517,6 +531,8 @@ export default function PhotosModule({
     exclusiveModule,
     exclusiveSourceId,
     selectedExclusiveSource?.title,
+    exclusivePeople,
+    exclusivePersonKey,
   ]);
 
   useEffect(() => {
@@ -536,8 +552,128 @@ export default function PhotosModule({
     [moduleSources]
   );
 
+  useEffect(() => {
+    if (
+      viewTab !== "exclusive" ||
+      exclusiveSourceId === "__all__" ||
+      !selectedExclusiveSource?.folder_path
+    ) {
+      setExclusivePeople([]);
+      setExclusivePersonPayload(null);
+      setExclusivePersonKey("");
+      setExclusiveFolderKey("");
+      return;
+    }
+    let cancelled = false;
+    void fetchExclusiveHubPeople(
+      exclusiveModule,
+      selectedExclusiveSource.folder_path
+    )
+      .then((data) => {
+        if (cancelled) return;
+        setExclusivePeople(data.people || []);
+        setExclusivePersonPayload(data.exclusive);
+        const first = data.people?.[0]?.key || "";
+        setExclusivePersonKey(first);
+        setExclusiveFolderKey("");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setExclusivePeople([]);
+          setExclusivePersonPayload(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    viewTab,
+    exclusiveSourceId,
+    exclusiveModule,
+    selectedExclusiveSource?.folder_path,
+  ]);
+
+  const exclusiveFolderTabs = useMemo(() => {
+    const sec = exclusivePersonPayload;
+    if (!sec) return [] as { key: string; label: string }[];
+    const people = sec.people || [];
+    const person =
+      people.length > 1
+        ? people.find((p) => p.key === exclusivePersonKey) || people[0]
+        : null;
+    const subs = person
+      ? person.subsections || []
+      : sec.subsections || [];
+    return subs
+      .filter(
+        (s) =>
+          s.key !== "links" &&
+          (s.items || []).some(
+            (it) => it.media_kind !== "link" && !it.is_external_link
+          )
+      )
+      .map((s) => ({ key: s.key, label: s.label }));
+  }, [exclusivePersonPayload, exclusivePersonKey]);
+
+  useEffect(() => {
+    if (!exclusiveFolderTabs.length) {
+      setExclusiveFolderKey("");
+      return;
+    }
+    if (!exclusiveFolderTabs.some((t) => t.key === exclusiveFolderKey)) {
+      setExclusiveFolderKey(exclusiveFolderTabs[0].key);
+    }
+  }, [exclusiveFolderTabs, exclusiveFolderKey]);
+
   const exclusiveItems = useMemo((): ExclusiveHubItem[] => {
     if (mediaType === "links") return [];
+    // Specific source with person payload → show that Exclusive content
+    if (
+      exclusiveSourceId !== "__all__" &&
+      exclusivePersonPayload &&
+      (exclusivePeople.length > 0 || exclusivePersonPayload.items?.length || exclusivePersonPayload.subsections?.length)
+    ) {
+      const people = exclusivePersonPayload.people || [];
+      const person =
+        people.length > 1
+          ? people.find((p) => p.key === exclusivePersonKey) || people[0]
+          : null;
+      const bucket = person || exclusivePersonPayload;
+      const subs = person
+        ? person.subsections || []
+        : exclusivePersonPayload.subsections || [];
+      let galleryItems =
+        subs.length > 0
+          ? (subs.find((s) => s.key === exclusiveFolderKey) || subs[0])
+              ?.items || []
+          : bucket.items || [];
+      // Links tab is separate; skip external-link tiles here
+      galleryItems = galleryItems.filter(
+        (it) => it.media_kind !== "link" && !it.is_external_link
+      );
+      let list: ExclusiveHubItem[] = galleryItems.map((it) => ({
+        id: it.id,
+        url: it.url,
+        thumb_url: it.media_kind === "video" ? null : it.url,
+        title: it.title,
+        kind: it.media_kind === "video" ? "video" : "image",
+        module: exclusiveModule,
+        source_id: exclusiveSourceId,
+        source_title: person?.label || selectedExclusiveSource?.title || "",
+        franchise_title: selectedExclusiveSource?.franchise_title ?? null,
+        folder_path: selectedExclusiveSource?.folder_path || "",
+        link: selectedExclusiveSource?.link || {
+          type: exclusiveModule,
+          name: person?.label || selectedExclusiveSource?.title || "",
+        },
+      }));
+      if (mediaType === "photos") {
+        list = list.filter((it) => it.kind !== "video");
+      } else if (mediaType === "videos") {
+        list = list.filter((it) => it.kind === "video");
+      }
+      return list;
+    }
     let list =
       exclusiveSourceId === "__all__"
         ? moduleSources.flatMap((s) => s.items)
@@ -555,7 +691,17 @@ export default function PhotosModule({
       const fb = (b.title || "").toLowerCase();
       return fa < fb ? -1 : fa > fb ? 1 : 0;
     });
-  }, [moduleSources, exclusiveSourceId, mediaType]);
+  }, [
+    moduleSources,
+    exclusiveSourceId,
+    mediaType,
+    exclusivePersonPayload,
+    exclusivePeople.length,
+    exclusivePersonKey,
+    exclusiveFolderKey,
+    exclusiveModule,
+    selectedExclusiveSource,
+  ]);
 
   const moduleHasImages = useMemo(() => {
     const pool =
@@ -985,6 +1131,8 @@ export default function PhotosModule({
                     onClick={() => {
                       setExclusiveModule(t.id);
                       setExclusiveSourceId("__all__");
+                      setExclusivePeople([]);
+                      setExclusivePersonPayload(null);
                       setMediaType("all");
                       setViewerOpen(false);
                     }}
@@ -1007,6 +1155,51 @@ export default function PhotosModule({
                 visibleRows={7}
               />
             </div>
+
+            {exclusivePeople.length > 1 ? (
+              <nav
+                className="series-section-subbar"
+                role="tablist"
+                aria-label="Exclusive people"
+              >
+                {exclusivePeople.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    className={exclusivePersonKey === p.key ? "active" : ""}
+                    onClick={() => {
+                      setExclusivePersonKey(p.key);
+                      setExclusiveFolderKey("");
+                      setViewerOpen(false);
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </nav>
+            ) : null}
+
+            {exclusiveFolderTabs.length > 1 ? (
+              <nav
+                className="series-section-subbar"
+                role="tablist"
+                aria-label="Exclusive folders"
+              >
+                {exclusiveFolderTabs.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    className={exclusiveFolderKey === p.key ? "active" : ""}
+                    onClick={() => {
+                      setExclusiveFolderKey(p.key);
+                      setViewerOpen(false);
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </nav>
+            ) : null}
           </div>
 
           <div className="photos-tile-grid">

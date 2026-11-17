@@ -262,6 +262,13 @@ export type ModuleActivityRecordIn = {
   vibe_label?: string | null;
 };
 
+export type WrappedPlaylistModule =
+  | "music"
+  | "series"
+  | "movies"
+  | "books"
+  | "games";
+
 export async function recordModuleActivity(body: ModuleActivityRecordIn) {
   return request<{ ok: boolean; count: number }>(`${API}/activity/record`, {
     method: "POST",
@@ -717,6 +724,20 @@ export async function fetchExclusiveHub(): Promise<{
   return request(`${API}/photos/exclusive-hub`);
 }
 
+export async function fetchExclusiveHubPeople(
+  module: string,
+  path: string
+): Promise<{
+  people: { key: string; label: string }[];
+  exclusive: import("./types").SeriesGallerySection | null;
+}> {
+  const q = new URLSearchParams({
+    module,
+    path,
+  });
+  return request(`${API}/photos/exclusive-hub/people?${q}`);
+}
+
 export type ExclusiveLinkRecord = {
   id: number;
   media_type: string;
@@ -934,6 +955,8 @@ export async function addTrackToPlaylist(
     allow_duplicate?: boolean;
     /** Populate a listening Wrapped playlist at creation time. */
     allow_wrapped_fill?: boolean;
+    /** Module bucket on `{year} Wrapped` playlists. */
+    module?: WrappedPlaylistModule | string | null;
   }
 ) {
   return request<{ ok: boolean; id?: number; duplicate?: boolean }>(

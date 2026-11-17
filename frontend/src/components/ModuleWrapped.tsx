@@ -5,15 +5,26 @@ import {
   useRef,
   useState,
 } from "react";
-import { fetchModuleWrapped } from "../api";
+import {
+  addTrackToPlaylist,
+  createUserPlaylist,
+  fetchModuleWrapped,
+  fetchUserPlaylists,
+} from "../api";
 import {
   getCachedModuleWrapped,
   setCachedModuleWrapped,
 } from "../moduleWrappedCache";
-import type { ModuleWrapped, ModuleWrappedItem, ModuleWrappedKind } from "../types";
+import type {
+  ModuleWrapped,
+  ModuleWrappedItem,
+  ModuleWrappedKind,
+  ModuleWrappedTrack,
+} from "../types";
+import { IconCheck, IconPlus } from "./MenuIcons";
 import ModalPortal, { useModalClose } from "./ModalPortal";
 
-type TabId = "items" | "groups" | "vibes";
+type TabId = "items" | "groups" | "tracks" | "vibes";
 
 export type ModuleWrappedBrowseTarget = {
   module: ModuleWrappedKind;
@@ -32,13 +43,26 @@ type Props = {
   /** Open a franchise / folder / collection from groups (or browse CTA). */
   onBrowseTop?: (target: ModuleWrappedBrowseTarget) => void;
   onOpenVibe?: (item: ModuleWrappedItem) => void;
+  /** Refresh Music playlists after filling `{year} Wrapped`. */
+  onPlaylistCreated?: () => void;
 };
+
+const MEDIA_WITH_TRACKS: ModuleWrappedKind[] = [
+  "series",
+  "movies",
+  "books",
+  "games",
+];
 
 function prefersReducedMotion(): boolean {
   return (
     typeof window !== "undefined" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
+}
+
+function usesPortraitCovers(module: ModuleWrappedKind): boolean {
+  return MEDIA_WITH_TRACKS.includes(module);
 }
 
 export default function ModuleWrapped(props: Props) {
@@ -56,28 +80,29 @@ function ModuleWrappedPanel({
   onOpenItem,
   onBrowseTop,
   onOpenVibe,
+  onPlaylistCreated,
 }: Props) {
   const cached = getCachedModuleWrapped(module, year);
   const [data, setData] = useState<ModuleWrapped | null>(cached);
   const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabId>("items");
+  const [playlistId, setPlaylistId] = useState<number | null>(null);
+  const [playlistBusy, setPlaylistBusy] = useState(false);
+  const [playlistError, setPlaylistError] = useState<string | null>(null);
+  const [playlistFilled, setPlaylistFilled] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const bodyShellRef = useRef<HTMLDivElement>(null);
   const bodyContentRef = useRef<HTMLDivElement>(null);
   const heightReadyRef = useRef(false);
   const pinnedTopRef = useRef<number | null>(null);
   const requestClose = useModalClose(onClose);
+  const playlistName = `${year} Wrapped`;
+  const portrait = usesPortraitCovers(module);
 
   useEffect(() => {
     let cancelled = false;
-    const hit = getCachedModuleWrapped(module, year);
-    if (hit) {
-      setData(hit);
-      setLoading(false);
-      setError(null);
-      return;
-    }
+    // Refresh every open so enrich / top_tracks changes land.
     setLoading(true);
     setError(null);
     void fetchModuleWrapped(module, year)
@@ -99,6 +124,22 @@ function ModuleWrappedPanel({
     };
   }, [module, year]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void fetchUserPlaylists()
+      .then((list) => {
+        if (cancelled) return;
+        const hit = list.find(
+          (p) => (p.name || "").trim().toLowerCase() === playlistName.toLowerCase()
+        );
+        if (hit?.id != null) setPlaylistId(hit.id);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [playlistName]);
+
   const items = useMemo(
     () => (data?.top_items || []).slice(0, 100),
     [data]
@@ -107,11 +148,40 @@ function ModuleWrappedPanel({
     () => (data?.top_groups || []).slice(0, 15),
     [data]
   );
+  const tracks = useMemo(
+    () => (data?.top_tracks || []).slice(0, 100),
+    [data]
+  );
   const vibes = useMemo(
     () => (data?.top_vibes || []).slice(0, 40),
     [data]
   );
   const countLabel = data?.count_label || "plays";
+  const showTracksTab = MEDIA_WITH_TRACKS.includes(module) && tracks.length > 0;
+
+  const tabDefs = useMemo(() => {
+    const defs: [TabId, string][] = [];
+    if (items.length > 0) {
+      defs.push(["items", data?.items_tab || "On repeat"]);
+    }
+    if (groups.length > 0) {
+      defs.push(["groups", data?.groups_tab || "Top"]);
+    }
+    if (showTracksTab) {
+      defs.push(["tracks", data?.tracks_tab || "Top tracks"]);
+    }
+    if (vibes.length > 0) {
+      defs.push(["vibes", data?.vibes_tab || "Vibes"]);
+    }
+    return defs;
+  }, [data, items.length, groups.length, showTracksTab, vibes.length]);
+
+  useEffect(() => {
+    if (!tabDefs.length) return;
+    if (!tabDefs.some(([id]) => id === tab)) {
+      setTab(tabDefs[0][0]);
+    }
+  }, [tabDefs, tab]);
 
   useLayoutEffect(() => {
     const shell = bodyShellRef.current;
@@ -160,21 +230,63 @@ function ModuleWrappedPanel({
     data,
     items.length,
     groups.length,
+    tracks.length,
     vibes.length,
+    playlistId,
+    playlistBusy,
+    playlistError,
   ]);
+
+  async function addWrappedPlaylist() {
+    if (playlistBusy || playlistFilled || !tracks.length) return;
+    setPlaylistBusy(true);
+    setPlaylistError(null);
+    try {
+      let id = playlistId;
+      if (id == null) {
+        const created = await createUserPlaylist({
+          name: playlistName,
+          description: `Your most played tracks in ${year} are here!`,
+        });
+        if (!created.ok || created.id == null) {
+          throw new Error(created.error || "Could not create playlist");
+        }
+        id = created.id;
+        setPlaylistId(id);
+      }
+      for (const t of tracks) {
+        if (!t.path) continue;
+        await addTrackToPlaylist(id, {
+          title: t.title_full || t.title || "Track",
+          artist: t.artist_name || "",
+          release: t.release || "",
+          path: t.path,
+          allow_wrapped_fill: true,
+          module,
+        });
+      }
+      setPlaylistFilled(true);
+      onPlaylistCreated?.();
+    } catch (e) {
+      setPlaylistError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPlaylistBusy(false);
+    }
+  }
 
   const featuredItem = items[0];
   const restItems = items.slice(1);
   const featuredGroup = groups[0];
   const restGroups = groups.slice(1);
+  const featuredTrack = tracks[0];
+  const restTracks = tracks.slice(1);
   const featuredVibe = vibes[0];
   const restVibes = vibes.slice(1);
 
-  const tabDefs: [TabId, string][] = [
-    ["items", data?.items_tab || "On repeat"],
-    ["groups", data?.groups_tab || "Top"],
-    ["vibes", data?.vibes_tab || "Vibes"],
-  ];
+  const artClass = portrait
+    ? "music-wrapped__feature-art music-wrapped__feature-art--portrait"
+    : "music-wrapped__feature-art music-wrapped__feature-art--square";
+  const rowArtClass = portrait ? "music-wrapped__row-art--portrait" : "";
 
   function browseFromGroup(g: ModuleWrappedItem) {
     requestClose(() =>
@@ -185,6 +297,103 @@ function ModuleWrappedPanel({
         franchiseId: g.franchise_id,
         groupId: g.group_id,
       })
+    );
+  }
+
+  function renderTrackList(
+    listFeatured: ModuleWrappedTrack | undefined,
+    listRest: ModuleWrappedTrack[],
+    withPlaylistBar: boolean
+  ) {
+    return (
+      <div className="music-wrapped__pane music-wrapped__pane--tracks">
+        <div className="music-wrapped__pane-scroll">
+          {listFeatured ? (
+            <div className="music-wrapped__feature music-wrapped__feature--track">
+              {listFeatured.cover_url ? (
+                <img
+                  className="music-wrapped__feature-art music-wrapped__feature-art--square"
+                  src={listFeatured.cover_url}
+                  alt=""
+                />
+              ) : (
+                <span className="music-wrapped__feature-art music-wrapped__feature-art--square music-wrapped__art-fallback" />
+              )}
+              <span className="music-wrapped__feature-meta">
+                <span className="music-wrapped__feature-rank">#1 On repeat</span>
+                <strong>{listFeatured.title}</strong>
+                <em>
+                  {listFeatured.artist_name || listFeatured.release || ""}
+                  {listFeatured.play_count != null
+                    ? `${listFeatured.artist_name || listFeatured.release ? " · " : ""}${listFeatured.play_count.toLocaleString()} plays`
+                    : ""}
+                </em>
+              </span>
+            </div>
+          ) : null}
+          <ol className="music-wrapped__list">
+            {listRest.map((t, i) => {
+              const rank = i + 2;
+              const slim = rank > 10;
+              return (
+                <li key={String(t.id || t.path || rank)}>
+                  <div
+                    className={`music-wrapped__row${
+                      slim ? " music-wrapped__row--slim" : ""
+                    }`}
+                  >
+                    {!slim ? (
+                      t.cover_url ? (
+                        <img src={t.cover_url} alt="" />
+                      ) : (
+                        <span className="music-wrapped__art-fallback" />
+                      )
+                    ) : (
+                      <span className="music-wrapped__rank">{rank}</span>
+                    )}
+                    <span>
+                      <strong>{t.title}</strong>
+                      <em>{t.artist_name || t.release}</em>
+                    </span>
+                    <span className="music-wrapped__count">
+                      {t.play_count.toLocaleString()} plays
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+        {withPlaylistBar ? (
+          <div className="music-wrapped__playlist-bar">
+            {playlistError ? (
+              <p className="error music-wrapped__playlist-err">{playlistError}</p>
+            ) : null}
+            <button
+              type="button"
+              className={`btn music-wrapped__playlist-btn${
+                playlistFilled ? " music-wrapped__playlist-btn--done" : ""
+              }`}
+              disabled={playlistBusy || playlistFilled}
+              onClick={() => void addWrappedPlaylist()}
+            >
+              {playlistFilled ? (
+                <>
+                  <IconCheck className="music-wrapped__playlist-icon" />
+                  Added to your playlists
+                </>
+              ) : playlistBusy ? (
+                "Adding…"
+              ) : (
+                <>
+                  <IconPlus className="music-wrapped__playlist-icon" />
+                  Add to your playlists
+                </>
+              )}
+            </button>
+          </div>
+        ) : null}
+      </div>
     );
   }
 
@@ -242,20 +451,22 @@ function ModuleWrappedPanel({
             </div>
           </div>
 
-          <div className="music-wrapped__tabs" role="tablist">
-            {tabDefs.map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                className={tab === id ? "active" : ""}
-                aria-selected={tab === id}
-                onClick={() => setTab(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          {tabDefs.length > 0 ? (
+            <div className="music-wrapped__tabs" role="tablist">
+              {tabDefs.map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  className={tab === id ? "active" : ""}
+                  aria-selected={tab === id}
+                  onClick={() => setTab(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           <div className="music-wrapped__body-shell" ref={bodyShellRef}>
             <div
@@ -263,292 +474,257 @@ function ModuleWrappedPanel({
               ref={bodyContentRef}
               key={tab}
             >
-              {tab === "items" ? (
+              {tab === "items" && items.length > 0 ? (
                 <div className="music-wrapped__pane music-wrapped__pane--tracks">
                   <div className="music-wrapped__pane-scroll">
-                    {items.length === 0 ? (
-                      <p className="muted music-wrapped__status">
-                        Nothing yet.
-                      </p>
-                    ) : (
-                      <>
-                        {featuredItem ? (
+                    {featuredItem ? (
+                      <button
+                        type="button"
+                        className="music-wrapped__feature music-wrapped__feature--track"
+                        onClick={() => onOpenItem?.(featuredItem)}
+                      >
+                        {featuredItem.cover_url ? (
+                          <img
+                            className={artClass}
+                            src={featuredItem.cover_url}
+                            alt=""
+                          />
+                        ) : (
+                          <span
+                            className={`${artClass} music-wrapped__art-fallback`}
+                          />
+                        )}
+                        <span className="music-wrapped__feature-meta">
+                          <span className="music-wrapped__feature-rank">
+                            {data.items_rank}
+                          </span>
+                          <strong>{featuredItem.title}</strong>
+                          <em>
+                            {featuredItem.subtitle}
+                            {featuredItem.play_count != null
+                              ? `${featuredItem.subtitle ? " · " : ""}${featuredItem.play_count.toLocaleString()} ${countLabel}`
+                              : ""}
+                          </em>
+                        </span>
+                      </button>
+                    ) : null}
+                    <ol className="music-wrapped__list">
+                      {restItems.map((t, i) => {
+                        const rank = i + 2;
+                        const slim = rank > 10;
+                        return (
+                          <li key={t.id || t.path || rank}>
+                            <button
+                              type="button"
+                              className={`music-wrapped__row${
+                                slim ? " music-wrapped__row--slim" : ""
+                              }${rowArtClass ? ` ${rowArtClass}` : ""}`}
+                              onClick={() => onOpenItem?.(t)}
+                            >
+                              {!slim ? (
+                                t.cover_url ? (
+                                  <img src={t.cover_url} alt="" />
+                                ) : (
+                                  <span className="music-wrapped__art-fallback" />
+                                )
+                              ) : (
+                                <span className="music-wrapped__rank">
+                                  {rank}
+                                </span>
+                              )}
+                              <span>
+                                <strong>{t.title}</strong>
+                                <em>{t.subtitle}</em>
+                              </span>
+                              <span className="music-wrapped__count">
+                                {t.play_count.toLocaleString()} {countLabel}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </div>
+                </div>
+              ) : null}
+
+              {tab === "groups" && groups.length > 0 ? (
+                <div className="music-wrapped__pane">
+                  {featuredGroup ? (
+                    <button
+                      type="button"
+                      className="music-wrapped__feature"
+                      onClick={() => browseFromGroup(featuredGroup)}
+                    >
+                      {featuredGroup.cover_url || featuredGroup.photo_url ? (
+                        <img
+                          className={artClass}
+                          src={
+                            featuredGroup.cover_url ||
+                            featuredGroup.photo_url ||
+                            ""
+                          }
+                          alt=""
+                        />
+                      ) : (
+                        <span
+                          className={`${artClass} music-wrapped__art-fallback`}
+                        />
+                      )}
+                      <span className="music-wrapped__feature-meta">
+                        <span className="music-wrapped__feature-rank">
+                          {data.groups_rank}
+                        </span>
+                        <strong>{featuredGroup.title}</strong>
+                        <em>
+                          {featuredGroup.play_count} {countLabel}
+                        </em>
+                      </span>
+                    </button>
+                  ) : null}
+                  {restGroups.length > 0 ? (
+                    <ul className="music-wrapped__grid">
+                      {restGroups.map((a, i) => (
+                        <li key={a.id}>
                           <button
                             type="button"
-                            className="music-wrapped__feature music-wrapped__feature--track"
-                            onClick={() => onOpenItem?.(featuredItem)}
+                            className="music-wrapped__grid-card"
+                            onClick={() => browseFromGroup(a)}
                           >
-                            {featuredItem.cover_url ? (
+                            {a.cover_url || a.photo_url ? (
                               <img
-                                className="music-wrapped__feature-art music-wrapped__feature-art--square"
-                                src={featuredItem.cover_url}
+                                src={a.cover_url || a.photo_url || ""}
                                 alt=""
                               />
                             ) : (
-                              <span className="music-wrapped__feature-art music-wrapped__feature-art--square music-wrapped__art-fallback" />
+                              <span className="music-wrapped__art-fallback music-wrapped__art-fallback--round" />
                             )}
-                            <span className="music-wrapped__feature-meta">
-                              <span className="music-wrapped__feature-rank">
-                                {data.items_rank}
-                              </span>
-                              <strong>{featuredItem.title}</strong>
+                            <span>
+                              <strong>
+                                <span className="music-wrapped__grid-rank">
+                                  #{i + 2}
+                                </span>{" "}
+                                {a.title}
+                              </strong>
                               <em>
-                                {featuredItem.subtitle}
-                                {featuredItem.play_count != null
-                                  ? `${featuredItem.subtitle ? " · " : ""}${featuredItem.play_count.toLocaleString()} ${countLabel}`
-                                  : ""}
+                                {a.play_count} {countLabel}
                               </em>
                             </span>
                           </button>
-                        ) : null}
-                        <ol className="music-wrapped__list">
-                          {restItems.map((t, i) => {
-                            const rank = i + 2;
-                            const slim = rank > 10;
-                            return (
-                              <li key={t.id || t.path || rank}>
-                                <button
-                                  type="button"
-                                  className={`music-wrapped__row${
-                                    slim ? " music-wrapped__row--slim" : ""
-                                  }`}
-                                  onClick={() => onOpenItem?.(t)}
-                                >
-                                  {!slim ? (
-                                    t.cover_url ? (
-                                      <img src={t.cover_url} alt="" />
-                                    ) : (
-                                      <span className="music-wrapped__art-fallback" />
-                                    )
-                                  ) : (
-                                    <span className="music-wrapped__rank">
-                                      {rank}
-                                    </span>
-                                  )}
-                                  <span>
-                                    <strong>{t.title}</strong>
-                                    <em>{t.subtitle}</em>
-                                  </span>
-                                  <span className="music-wrapped__count">
-                                    {t.play_count.toLocaleString()} {countLabel}
-                                  </span>
-                                </button>
-                              </li>
-                            );
-                          })}
-                        </ol>
-                      </>
-                    )}
-                  </div>
-                  {data.browse_top ? (
-                    <div className="music-wrapped__playlist-bar">
-                      <button
-                        type="button"
-                        className="btn music-wrapped__playlist-btn"
-                        onClick={() => {
-                          const top = data.browse_top!;
-                          requestClose(() =>
-                            onBrowseTop?.({
-                              module,
-                              id: top.id,
-                              title: top.title,
-                              franchiseId: top.franchise_id,
-                              groupId: top.group_id,
-                            })
-                          );
-                        }}
-                      >
-                        {data.browse_label}
-                        {data.browse_top.title
-                          ? ` · ${data.browse_top.title}`
-                          : ""}
-                      </button>
-                    </div>
+                        </li>
+                      ))}
+                    </ul>
                   ) : null}
                 </div>
               ) : null}
 
-              {tab === "groups" ? (
-                <div className="music-wrapped__pane">
-                  {groups.length === 0 ? (
-                    <p className="muted music-wrapped__status">Nothing yet.</p>
-                  ) : (
-                    <>
-                      {featuredGroup ? (
-                        <button
-                          type="button"
-                          className="music-wrapped__feature"
-                          onClick={() => browseFromGroup(featuredGroup)}
-                        >
-                          {featuredGroup.cover_url || featuredGroup.photo_url ? (
-                            <img
-                              className="music-wrapped__feature-art"
-                              src={
-                                featuredGroup.cover_url ||
-                                featuredGroup.photo_url ||
-                                ""
-                              }
-                              alt=""
-                            />
-                          ) : (
-                            <span className="music-wrapped__feature-art music-wrapped__art-fallback" />
-                          )}
-                          <span className="music-wrapped__feature-meta">
-                            <span className="music-wrapped__feature-rank">
-                              {data.groups_rank}
-                            </span>
-                            <strong>{featuredGroup.title}</strong>
-                            <em>
-                              {featuredGroup.play_count} {countLabel}
-                            </em>
-                          </span>
-                        </button>
-                      ) : null}
-                      {restGroups.length > 0 ? (
-                        <ul className="music-wrapped__grid">
-                          {restGroups.map((a, i) => (
-                            <li key={a.id}>
-                              <button
-                                type="button"
-                                className="music-wrapped__grid-card"
-                                onClick={() => browseFromGroup(a)}
-                              >
-                                {a.cover_url || a.photo_url ? (
-                                  <img
-                                    src={a.cover_url || a.photo_url || ""}
-                                    alt=""
-                                  />
-                                ) : (
-                                  <span className="music-wrapped__art-fallback music-wrapped__art-fallback--round" />
-                                )}
-                                <span>
-                                  <strong>
-                                    <span className="music-wrapped__grid-rank">
-                                      #{i + 2}
-                                    </span>{" "}
-                                    {a.title}
-                                  </strong>
-                                  <em>
-                                    {a.play_count} {countLabel}
-                                  </em>
-                                </span>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </>
-                  )}
-                </div>
-              ) : null}
+              {tab === "tracks" && showTracksTab
+                ? renderTrackList(featuredTrack, restTracks, true)
+                : null}
 
-              {tab === "vibes" ? (
+              {tab === "vibes" && vibes.length > 0 ? (
                 <div className="music-wrapped__pane">
-                  {vibes.length === 0 ? (
-                    <p className="muted music-wrapped__status">Nothing yet.</p>
-                  ) : (
-                    <>
-                      {featuredVibe ? (
-                        <button
-                          type="button"
-                          className="music-wrapped__feature"
-                          onClick={() => {
-                            if (module === "files" || module === "hobbies") {
-                              onOpenItem?.(featuredVibe);
-                            } else {
-                              requestClose(() => onOpenVibe?.(featuredVibe));
+                  {featuredVibe ? (
+                    <button
+                      type="button"
+                      className="music-wrapped__feature"
+                      onClick={() => {
+                        if (module === "files" || module === "hobbies") {
+                          onOpenItem?.(featuredVibe);
+                        } else {
+                          requestClose(() => onOpenVibe?.(featuredVibe));
+                        }
+                      }}
+                    >
+                      {featuredVibe.image_url || featuredVibe.cover_url ? (
+                        featuredVibe.image_url && !featuredVibe.cover_url ? (
+                          <span
+                            className="music-wrapped__feature-art music-wrapped__feature-art--genre"
+                            style={{
+                              backgroundImage: `url("${featuredVibe.image_url}")`,
+                            }}
+                          />
+                        ) : (
+                          <img
+                            className={artClass}
+                            src={
+                              featuredVibe.cover_url ||
+                              featuredVibe.image_url ||
+                              ""
                             }
-                          }}
-                        >
-                          {featuredVibe.image_url || featuredVibe.cover_url ? (
-                            featuredVibe.image_url && !featuredVibe.cover_url ? (
+                            alt=""
+                          />
+                        )
+                      ) : (
+                        <span
+                          className={`${artClass} music-wrapped__art-fallback`}
+                        />
+                      )}
+                      <span className="music-wrapped__feature-meta">
+                        <span className="music-wrapped__feature-rank">
+                          {module === "files" || module === "hobbies"
+                            ? "#1 Only once"
+                            : "#1 Vibe"}
+                        </span>
+                        <strong>{featuredVibe.title}</strong>
+                        <em>
+                          {featuredVibe.subtitle
+                            ? `${featuredVibe.subtitle} · `
+                            : ""}
+                          {featuredVibe.play_count} {countLabel}
+                        </em>
+                      </span>
+                    </button>
+                  ) : null}
+                  {restVibes.length > 0 ? (
+                    <ul className="music-wrapped__grid">
+                      {restVibes.map((g, i) => (
+                        <li key={String(g.id)}>
+                          <button
+                            type="button"
+                            className="music-wrapped__grid-card"
+                            onClick={() => {
+                              if (
+                                module === "files" ||
+                                module === "hobbies"
+                              ) {
+                                onOpenItem?.(g);
+                              } else {
+                                requestClose(() => onOpenVibe?.(g));
+                              }
+                            }}
+                          >
+                            {g.image_url && !g.cover_url ? (
                               <span
-                                className="music-wrapped__feature-art music-wrapped__feature-art--genre"
+                                className="music-wrapped__grid-genre"
                                 style={{
-                                  backgroundImage: `url("${featuredVibe.image_url}")`,
+                                  backgroundImage: `url("${g.image_url}")`,
                                 }}
                               />
-                            ) : (
+                            ) : g.cover_url || g.photo_url ? (
                               <img
-                                className="music-wrapped__feature-art music-wrapped__feature-art--square"
-                                src={
-                                  featuredVibe.cover_url ||
-                                  featuredVibe.image_url ||
-                                  ""
-                                }
+                                src={g.cover_url || g.photo_url || ""}
                                 alt=""
                               />
-                            )
-                          ) : (
-                            <span className="music-wrapped__feature-art music-wrapped__art-fallback" />
-                          )}
-                          <span className="music-wrapped__feature-meta">
-                            <span className="music-wrapped__feature-rank">
-                              {module === "files" || module === "hobbies"
-                                ? "#1 Only once"
-                                : "#1 Vibe"}
+                            ) : (
+                              <span className="music-wrapped__art-fallback music-wrapped__art-fallback--round" />
+                            )}
+                            <span>
+                              <strong>
+                                <span className="music-wrapped__grid-rank">
+                                  #{i + 2}
+                                </span>{" "}
+                                {g.title}
+                              </strong>
+                              <em>
+                                {g.play_count} {countLabel}
+                              </em>
                             </span>
-                            <strong>{featuredVibe.title}</strong>
-                            <em>
-                              {featuredVibe.subtitle
-                                ? `${featuredVibe.subtitle} · `
-                                : ""}
-                              {featuredVibe.play_count} {countLabel}
-                            </em>
-                          </span>
-                        </button>
-                      ) : null}
-                      {restVibes.length > 0 ? (
-                        <ul className="music-wrapped__grid">
-                          {restVibes.map((g, i) => (
-                            <li key={String(g.id)}>
-                              <button
-                                type="button"
-                                className="music-wrapped__grid-card"
-                                onClick={() => {
-                                  if (
-                                    module === "files" ||
-                                    module === "hobbies"
-                                  ) {
-                                    onOpenItem?.(g);
-                                  } else {
-                                    requestClose(() => onOpenVibe?.(g));
-                                  }
-                                }}
-                              >
-                                {g.image_url && !g.cover_url ? (
-                                  <span
-                                    className="music-wrapped__grid-genre"
-                                    style={{
-                                      backgroundImage: `url("${g.image_url}")`,
-                                    }}
-                                  />
-                                ) : g.cover_url || g.photo_url ? (
-                                  <img
-                                    src={g.cover_url || g.photo_url || ""}
-                                    alt=""
-                                  />
-                                ) : (
-                                  <span className="music-wrapped__art-fallback music-wrapped__art-fallback--round" />
-                                )}
-                                <span>
-                                  <strong>
-                                    <span className="music-wrapped__grid-rank">
-                                      #{i + 2}
-                                    </span>{" "}
-                                    {g.title}
-                                  </strong>
-                                  <em>
-                                    {g.play_count} {countLabel}
-                                  </em>
-                                </span>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </>
-                  )}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
               ) : null}
             </div>

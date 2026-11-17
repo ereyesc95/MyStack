@@ -3,6 +3,7 @@ import { fetchSeriesGallery } from "../../api";
 import { withMediaAccess } from "../../mediaFileUrl";
 import type {
   SeriesGalleryItem,
+  SeriesGalleryPerson,
   SeriesGallerySection,
   SeriesGallerySubsection,
 } from "../../types";
@@ -24,11 +25,62 @@ type Props = {
   sectionKey?: string;
   onSectionKeyChange?: (key: string) => void;
   onSectionsChange?: (sections: SectionMeta[], hasMultiple: boolean) => void;
+  personKey?: string;
+  onPersonKeyChange?: (key: string) => void;
+  onPeopleChange?: (people: SectionMeta[]) => void;
   subsectionKey?: string;
   onSubsectionKeyChange?: (key: string) => void;
   onSubsectionsChange?: (sections: SectionMeta[]) => void;
   hideSubbar?: boolean;
 };
+
+function mergePeople(
+  a: SeriesGalleryPerson[] | undefined,
+  b: SeriesGalleryPerson[] | undefined,
+  seenIds: Set<string>
+): SeriesGalleryPerson[] | undefined {
+  if (!a?.length && !b?.length) return undefined;
+  const byKey = new Map<string, SeriesGalleryPerson>();
+  for (const src of [a || [], b || []]) {
+    for (const person of src) {
+      const freshItems = (person.items || []).filter((it) => {
+        if (seenIds.has(it.id)) return false;
+        seenIds.add(it.id);
+        return true;
+      });
+      const freshSubs = (person.subsections || []).map((sub) => ({
+        ...sub,
+        items: sub.items.filter((it) => {
+          if (seenIds.has(it.id)) return false;
+          seenIds.add(it.id);
+          return true;
+        }),
+      }));
+      const existing = byKey.get(person.key);
+      if (existing) {
+        existing.items = [...existing.items, ...freshItems];
+        if (freshSubs.length) {
+          const subsByKey = new Map(
+            (existing.subsections || []).map((s) => [s.key, s])
+          );
+          for (const sub of freshSubs) {
+            const prev = subsByKey.get(sub.key);
+            if (prev) prev.items = [...prev.items, ...sub.items];
+            else subsByKey.set(sub.key, sub);
+          }
+          existing.subsections = [...subsByKey.values()];
+        }
+      } else {
+        byKey.set(person.key, {
+          ...person,
+          items: [...freshItems],
+          subsections: freshSubs.length ? freshSubs : person.subsections,
+        });
+      }
+    }
+  }
+  return [...byKey.values()];
+}
 
 function mergeSections(
   batches: SeriesGallerySection[][]
@@ -52,6 +104,7 @@ function mergeSections(
           return true;
         }),
       }));
+      const people = mergePeople(undefined, sec.people, seenIds);
       if (existing) {
         existing.items = [...existing.items, ...freshItems];
         if (freshSubs.length) {
@@ -65,15 +118,22 @@ function mergeSections(
           }
           existing.subsections = [...subsByKey.values()];
         }
+        const mergedPeople = mergePeople(existing.people, people, seenIds);
+        if (mergedPeople?.length) existing.people = mergedPeople;
       } else {
         byKey.set(sec.key, {
           ...sec,
           items: [...freshItems],
           subsections: freshSubs.length ? freshSubs : sec.subsections,
+          people: people?.length ? people : sec.people,
         });
       }
       items.push(...freshItems);
       for (const sub of freshSubs) items.push(...sub.items);
+      for (const person of people || sec.people || []) {
+        items.push(...(person.items || []));
+        for (const sub of person.subsections || []) items.push(...sub.items);
+      }
     }
   }
   return { sections: [...byKey.values()], items };
@@ -102,6 +162,9 @@ export default function SeriesGalleryPanel({
   sectionKey: controlledKey,
   onSectionKeyChange,
   onSectionsChange,
+  personKey: controlledPersonKey,
+  onPersonKeyChange,
+  onPeopleChange,
   subsectionKey: controlledSubKey,
   onSubsectionKeyChange,
   onSubsectionsChange,
@@ -110,6 +173,7 @@ export default function SeriesGalleryPanel({
   const [sections, setSections] = useState<SeriesGallerySection[]>([]);
   const [items, setItems] = useState<SeriesGalleryItem[]>([]);
   const [internalKey, setInternalKey] = useState<string>("");
+  const [internalPersonKey, setInternalPersonKey] = useState<string>("");
   const [internalSubKey, setInternalSubKey] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -117,10 +181,14 @@ export default function SeriesGalleryPanel({
 
   const onSectionsChangeRef = useRef(onSectionsChange);
   const onSectionKeyChangeRef = useRef(onSectionKeyChange);
+  const onPeopleChangeRef = useRef(onPeopleChange);
+  const onPersonKeyChangeRef = useRef(onPersonKeyChange);
   const onSubsectionsChangeRef = useRef(onSubsectionsChange);
   const onSubsectionKeyChangeRef = useRef(onSubsectionKeyChange);
   onSectionsChangeRef.current = onSectionsChange;
   onSectionKeyChangeRef.current = onSectionKeyChange;
+  onPeopleChangeRef.current = onPeopleChange;
+  onPersonKeyChangeRef.current = onPersonKeyChange;
   onSubsectionsChangeRef.current = onSubsectionsChange;
   onSubsectionKeyChangeRef.current = onSubsectionKeyChange;
 
@@ -143,6 +211,11 @@ export default function SeriesGalleryPanel({
   const setSectionKey = (key: string) => {
     if (onSectionKeyChangeRef.current) onSectionKeyChangeRef.current(key);
     else setInternalKey(key);
+  };
+  const personKey = controlledPersonKey ?? internalPersonKey;
+  const setPersonKey = (key: string) => {
+    if (onPersonKeyChangeRef.current) onPersonKeyChangeRef.current(key);
+    else setInternalPersonKey(key);
   };
   const subsectionKey = controlledSubKey ?? internalSubKey;
   const setSubsectionKey = (key: string) => {
@@ -226,10 +299,35 @@ export default function SeriesGalleryPanel({
     [sections, sectionKey]
   );
 
-  const subsections = useMemo(
-    () => activeSubsections(activeSection),
-    [activeSection]
-  );
+  const people = useMemo(() => {
+    const list = activeSection?.people ?? [];
+    return list.length > 1 ? list : [];
+  }, [activeSection]);
+
+  const activePerson = useMemo(() => {
+    if (!people.length) return null;
+    return people.find((p) => p.key === personKey) || people[0] || null;
+  }, [people, personKey]);
+
+  useEffect(() => {
+    if (!people.length) {
+      onPeopleChangeRef.current?.([]);
+      return;
+    }
+    onPeopleChangeRef.current?.(
+      people.map((p) => ({ key: p.key, label: p.label }))
+    );
+    if (!people.some((p) => p.key === personKey)) {
+      setPersonKey(people[0].key);
+    }
+  }, [people, personKey]);
+
+  const subsections = useMemo(() => {
+    if (activePerson) {
+      return (activePerson.subsections ?? []).filter((s) => s.items.length > 0);
+    }
+    return activeSubsections(activeSection);
+  }, [activePerson, activeSection]);
 
   useEffect(() => {
     if (!subsections.length) {
@@ -247,16 +345,28 @@ export default function SeriesGalleryPanel({
 
   const visible = useMemo(() => {
     if (!activeSection) return items;
+    const bucket = activePerson || activeSection;
     if (subsections.length) {
       const sub =
         subsections.find((s) => s.key === subsectionKey) || subsections[0];
       return sub?.items ?? [];
     }
+    if (activePerson) {
+      return activePerson.items || [];
+    }
     if (sectionKey && sectionKey !== "all") {
-      return activeSection.items || [];
+      return bucket.items || [];
     }
     return sections[0]?.items || items;
-  }, [activeSection, items, sectionKey, subsections, subsectionKey, sections]);
+  }, [
+    activeSection,
+    activePerson,
+    items,
+    sectionKey,
+    subsections,
+    subsectionKey,
+    sections,
+  ]);
 
   const viewerItems: GalleryViewerItem[] = useMemo(
     () =>
@@ -297,6 +407,24 @@ export default function SeriesGalleryPanel({
               onClick={() => setSectionKey(s.key)}
             >
               {s.label}
+            </button>
+          ))}
+        </nav>
+      ) : null}
+      {people.length > 1 && !(hideSubbar && onPeopleChange) ? (
+        <nav
+          className="series-section-subbar"
+          role="tablist"
+          aria-label="Exclusive people"
+        >
+          {people.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              className={personKey === p.key ? "active" : ""}
+              onClick={() => setPersonKey(p.key)}
+            >
+              {p.label}
             </button>
           ))}
         </nav>

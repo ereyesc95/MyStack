@@ -174,9 +174,14 @@ def build_movies_gallery(
     media_root: Path | None = None,
     *,
     nsfw_unlocked: bool = False,
+    db: Session | None = None,
 ) -> dict:
     """Gallery for a Movies work/film folder (mirrors Series gallery_sections)."""
-    from app.exclusive_gallery import build_exclusive_section, find_exclusive_dir
+    from app.exclusive_people import (
+        build_exclusive_with_people,
+        exclusive_people_for_leaf,
+        resolve_leaf_about_context,
+    )
 
     root = Path(media_root or settings.media_root or "")
     if not root.is_dir():
@@ -191,16 +196,28 @@ def build_movies_gallery(
         return {"folder_path": rel_path, "items": [], "sections": []}
     sections = gallery_sections(folder, root)
     if nsfw_unlocked:
-        ex_dir = find_exclusive_dir(folder, layout="franchise")
-        if ex_dir:
-            ex_sec = build_exclusive_section(ex_dir, root)
-            if ex_sec:
-                sections.append(ex_sec)
+        ctx = resolve_leaf_about_context(db, folder, root)
+        people = exclusive_people_for_leaf(
+            root,
+            leaf_dir=folder,
+            leaf_title=ctx.get("title") or folder.name,
+            cast=ctx.get("cast"),
+            writers=ctx.get("writers"),
+            directors=ctx.get("directors"),
+            authors=ctx.get("authors"),
+        )
+        ex_sec = build_exclusive_with_people(people, root)
+        if ex_sec:
+            sections.append(ex_sec)
     items: list[dict] = []
     for sec in sections:
         items.extend(sec.get("items") or [])
         for sub in sec.get("subsections") or []:
             items.extend(sub.get("items") or [])
+        for person in sec.get("people") or []:
+            items.extend(person.get("items") or [])
+            for sub in person.get("subsections") or []:
+                items.extend(sub.get("items") or [])
     return {
         "folder_path": folder.relative_to(root).as_posix(),
         "items": items,

@@ -393,27 +393,8 @@ def entity_name_from_folder_path(rel_path: str) -> str:
     return _strip_date(leaf)
 
 
-def merge_exclusive_links_into_sections_gallery(
-    payload: dict,
-    db: Session,
-    *,
-    media_type: str,
-    entity_name: str | None = None,
-    entity_id: str | None = None,
-) -> None:
-    """Mutate Series/Movies/Books/Games gallery {sections, items} payloads."""
-    name = entity_name or entity_name_from_folder_path(
-        str(payload.get("folder_path") or "")
-    )
-    items = gallery_link_items(
-        db,
-        media_type=media_type,
-        entity_name=name,
-        entity_id=entity_id,
-    )
-    if not items:
-        return
-    shaped = [
+def _shape_exclusive_link_items(items: list[dict]) -> list[dict]:
+    return [
         {
             "id": it["id"],
             "url": it["url"],
@@ -428,33 +409,130 @@ def merge_exclusive_links_into_sections_gallery(
         }
         for it in items
     ]
+
+
+def _merge_shaped_links_into_bucket(bucket: dict, shaped: list[dict]) -> None:
+    if not shaped:
+        return
+    subs = list(bucket.get("subsections") or [])
+    if subs:
+        existing = next((s for s in subs if s.get("key") == "links"), None)
+        if existing:
+            existing["items"] = list(existing.get("items") or []) + shaped
+        else:
+            subs.append({"key": "links", "label": "Links", "items": shaped})
+        bucket["subsections"] = subs
+        bucket["items"] = []
+    else:
+        bucket["items"] = list(bucket.get("items") or []) + shaped
+
+
+def _merge_links_for_people(
+    people: list[dict],
+    db: Session,
+    *,
+    media_type: str,
+    primary_name: str | None,
+    primary_id: str | None = None,
+) -> bool:
+    """Attach DB links onto matching people tabs. Returns True if any merged."""
+    merged = False
+    primary = (primary_name or "").strip()
+    primary_cf = primary.casefold()
+    for person in people:
+        label = (person.get("label") or "").strip()
+        if not label:
+            continue
+        use_id = (
+            primary_id
+            if primary_cf and label.casefold() == primary_cf
+            else None
+        )
+        items = gallery_link_items(
+            db,
+            media_type=media_type,
+            entity_name=label,
+            entity_id=use_id,
+        )
+        if not items:
+            continue
+        _merge_shaped_links_into_bucket(person, _shape_exclusive_link_items(items))
+        merged = True
+    # Primary leaf name not among people labels — put on first person
+    if primary and not any(
+        (p.get("label") or "").strip().casefold() == primary_cf for p in people
+    ):
+        items = gallery_link_items(
+            db,
+            media_type=media_type,
+            entity_name=primary,
+            entity_id=primary_id,
+        )
+        if items:
+            _merge_shaped_links_into_bucket(
+                people[0], _shape_exclusive_link_items(items)
+            )
+            merged = True
+    return merged
+
+
+def merge_exclusive_links_into_sections_gallery(
+    payload: dict,
+    db: Session,
+    *,
+    media_type: str,
+    entity_name: str | None = None,
+    entity_id: str | None = None,
+) -> None:
+    """Mutate Series/Movies/Books/Games gallery {sections, items} payloads."""
+    name = entity_name or entity_name_from_folder_path(
+        str(payload.get("folder_path") or "")
+    )
     sections = list(payload.get("sections") or [])
     ex = next((s for s in sections if s.get("key") == "exclusive"), None)
-    if not ex:
-        sections.append(
-            {
-                "key": "exclusive",
-                "label": "Exclusive",
-                "items": shaped,
-            }
-        )
+    people = list((ex or {}).get("people") or [])
+
+    if people:
+        if not _merge_links_for_people(
+            people,
+            db,
+            media_type=media_type,
+            primary_name=name,
+            primary_id=entity_id,
+        ):
+            return
+        if ex is not None:
+            ex["people"] = people
     else:
-        subs = list(ex.get("subsections") or [])
-        if subs:
-            existing = next((s for s in subs if s.get("key") == "links"), None)
-            if existing:
-                existing["items"] = list(existing.get("items") or []) + shaped
-            else:
-                subs.append({"key": "links", "label": "Links", "items": shaped})
-            ex["subsections"] = subs
-            ex["items"] = []
+        items = gallery_link_items(
+            db,
+            media_type=media_type,
+            entity_name=name,
+            entity_id=entity_id,
+        )
+        if not items:
+            return
+        shaped = _shape_exclusive_link_items(items)
+        if not ex:
+            sections.append(
+                {
+                    "key": "exclusive",
+                    "label": "Exclusive",
+                    "items": shaped,
+                }
+            )
         else:
-            ex["items"] = list(ex.get("items") or []) + shaped
+            _merge_shaped_links_into_bucket(ex, shaped)
+
     all_items: list[dict] = []
     for sec in sections:
         all_items.extend(sec.get("items") or [])
         for sub in sec.get("subsections") or []:
             all_items.extend(sub.get("items") or [])
+        for person in sec.get("people") or []:
+            all_items.extend(person.get("items") or [])
+            for sub in person.get("subsections") or []:
+                all_items.extend(sub.get("items") or [])
     payload["sections"] = sections
     payload["items"] = all_items
 
@@ -468,6 +546,24 @@ def merge_exclusive_links_into_gallery(
     entity_id: str | None = None,
 ) -> None:
     """Mutate a gallery index payload to include Exclusive DB links."""
+    ex = payload.get("exclusive")
+    people = list((ex or {}).get("people") or [])
+
+    if people:
+        if not _merge_links_for_people(
+            people,
+            db,
+            media_type=media_type,
+            primary_name=entity_name,
+            primary_id=entity_id,
+        ):
+            return
+        payload["has_exclusive_gallery"] = True
+        if ex is not None:
+            ex["people"] = people
+            payload["exclusive"] = ex
+        return
+
     items = gallery_link_items(
         db,
         media_type=media_type,
@@ -476,23 +572,8 @@ def merge_exclusive_links_into_gallery(
     )
     if not items:
         return
-    shaped = [
-        {
-            "id": it["id"],
-            "url": it["url"],
-            "title": it["title"],
-            "folder_path": None,
-            "section": "exclusive",
-            "subsection": "links",
-            "media_kind": "link",
-            "is_external_link": True,
-            "link_id": it["link_id"],
-            "content_type": it.get("content_type"),
-        }
-        for it in items
-    ]
+    shaped = _shape_exclusive_link_items(items)
     payload["has_exclusive_gallery"] = True
-    ex = payload.get("exclusive")
     if not ex:
         payload["exclusive"] = {
             "key": "exclusive",
@@ -500,19 +581,7 @@ def merge_exclusive_links_into_gallery(
             "items": shaped,
         }
         return
-    subs = list(ex.get("subsections") or [])
-    root_items = list(ex.get("items") or [])
-    if subs:
-        # Prefer a dedicated Links subsection when folders already exist
-        existing = next((s for s in subs if s.get("key") == "links"), None)
-        if existing:
-            existing["items"] = list(existing.get("items") or []) + shaped
-        else:
-            subs.append({"key": "links", "label": "Links", "items": shaped})
-        ex["subsections"] = subs
-        ex["items"] = []
-    else:
-        ex["items"] = root_items + shaped
+    _merge_shaped_links_into_bucket(ex, shaped)
     payload["exclusive"] = ex
 
 

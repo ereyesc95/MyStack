@@ -1966,6 +1966,17 @@ input {
 .music-wrapped__feature-art--square {
   border-radius: 0.45rem;
 }
+.music-wrapped__feature-art--portrait {
+  width: 3.75rem;
+  height: 5.5rem;
+  border-radius: 0.35rem;
+}
+.music-wrapped__row-art--portrait img,
+.music-wrapped__row-art--portrait .music-wrapped__art-fallback {
+  width: 2.35rem;
+  height: 3.5rem;
+  border-radius: 0.28rem;
+}
 .music-wrapped__feature--track {
   margin-bottom: 0.85rem;
 }

@@ -273,6 +273,8 @@ class PlaylistData(Base):
     pld_year: Mapped[str | None] = mapped_column("pldYear", Text)
     pld_sort_order: Mapped[int | None] = mapped_column("pldSortOrder", Integer)
     pld_unavailable: Mapped[int | None] = mapped_column("pldUnavailable", Integer)
+    # Listening Wrapped module bucket: music (default) / series / movies / books / games
+    pld_module: Mapped[str | None] = mapped_column("pldModule", Text)
 
 
 class Reproduction(Base):

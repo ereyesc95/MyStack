@@ -171,6 +171,13 @@ def _tracks_editable(playlist: Playlist) -> bool:
     return (playlist.pla_kind or PLA_KIND_LOCAL) != PLA_KIND_SNAPSHOT
 
 
+def _norm_pld_module(module: str | None) -> str:
+    mod = (module or "music").strip().casefold() or "music"
+    if mod not in {"music", "series", "movies", "books", "games"}:
+        return "music"
+    return mod
+
+
 def add_track_to_playlist(
     db: Session,
     playlist_id: int,
@@ -185,6 +192,7 @@ def add_track_to_playlist(
     allow_duplicate: bool = False,
     sort_order: int | None = None,
     allow_wrapped_fill: bool = False,
+    module: str | None = None,
 ) -> dict:
     playlist = db.get(Playlist, playlist_id)
     if not playlist:
@@ -201,27 +209,32 @@ def add_track_to_playlist(
     if not unavailable and not clean_path:
         return {"ok": False, "error": "Missing track path"}
 
+    pld_mod = _norm_pld_module(module)
+
     if clean_path:
-        existing = db.scalars(
+        candidates = db.scalars(
             select(PlaylistData).where(
                 PlaylistData.pld_playlist == playlist_id,
                 PlaylistData.pld_path == clean_path,
             )
-        ).first()
-        if existing and not allow_duplicate:
-            return {"ok": True, "duplicate": True, "id": existing.pld_id}
+        ).all()
+        for existing in candidates:
+            existing_mod = _norm_pld_module(getattr(existing, "pld_module", None))
+            if existing_mod == pld_mod and not allow_duplicate:
+                return {"ok": True, "duplicate": True, "id": existing.pld_id}
 
     if not allow_duplicate and not clean_path:
-        existing = db.scalars(
+        candidates = db.scalars(
             select(PlaylistData).where(
                 PlaylistData.pld_playlist == playlist_id,
                 PlaylistData.pld_title == title.strip(),
                 PlaylistData.pld_artist == artist.strip(),
                 PlaylistData.pld_unavailable == (1 if unavailable else 0),
             )
-        ).first()
-        if existing:
-            return {"ok": True, "duplicate": True, "id": existing.pld_id}
+        ).all()
+        for existing in candidates:
+            if _norm_pld_module(getattr(existing, "pld_module", None)) == pld_mod:
+                return {"ok": True, "duplicate": True, "id": existing.pld_id}
 
     album_val = (album or "").strip() or None
     year_val = (year or "").strip() or None
@@ -247,6 +260,7 @@ def add_track_to_playlist(
         pld_year=year_val,
         pld_sort_order=order,
         pld_unavailable=1 if unavailable else 0,
+        pld_module=None if pld_mod == "music" else pld_mod,
     )
     db.add(row)
     db.commit()

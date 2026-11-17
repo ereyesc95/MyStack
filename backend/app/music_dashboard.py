@@ -1223,6 +1223,9 @@ def get_user_playlist_detail(
             release_date = snap.pts_release_date
         elif r.pld_year and r.pld_year.isdigit():
             release_date = f"{r.pld_year}-01-01"
+        from app.user_playlist import _norm_pld_module
+
+        track_module = _norm_pld_module(getattr(r, "pld_module", None))
         if unavailable:
             snap_title = (snap.pts_snapshot_title if snap else None) or ""
             raw_tracks.append(
@@ -1249,6 +1252,7 @@ def get_user_playlist_detail(
                         (snap.pts_snapshot_album if snap else None) or r.pld_album or r.pld_release,
                     ),
                     "snapshot": snap_api,
+                    "module": track_module,
                 }
             )
             continue
@@ -1264,6 +1268,7 @@ def get_user_playlist_detail(
                 "cover_url": cover,
                 "unavailable": False,
                 "snapshot": snap_api,
+                "module": track_module,
             }
         )
 
@@ -1283,6 +1288,8 @@ def get_user_playlist_detail(
         merged["unavailable"] = False
         if raw.get("artist_name"):
             merged["artist_name"] = raw["artist_name"]
+        if raw.get("module"):
+            merged["module"] = raw["module"]
         # Prefer disk-resolved edition album label over snapshot/DB album.
         if not merged.get("album_title") and raw.get("album_title"):
             merged["album_title"] = raw["album_title"]
@@ -1355,6 +1362,19 @@ def get_user_playlist_detail(
         if not cover:
             cover = DEFAULT_USER_PLAYLIST_COVER
 
+    wrapped_modules: list[str] = []
+    if wrapped_year is not None:
+        from app.user_playlist import _norm_pld_module as _pld_mod
+
+        order = ("music", "series", "movies", "books", "games")
+        present = {
+            _pld_mod(t.get("module"))
+            for t in tracks
+            if t.get("play_path") or t.get("unavailable")
+        }
+        # Always offer Music first; other modules appear once they have tracks.
+        wrapped_modules = ["music"] + [m for m in order if m != "music" and m in present]
+
     return {
         "id": playlist.pla_id,
         "slug": str(playlist.pla_id),
@@ -1368,6 +1388,7 @@ def get_user_playlist_detail(
         "editable": True,
         "tracks_editable": _tracks_editable(playlist),
         "listening_wrapped_year": wrapped_year,
+        "wrapped_modules": wrapped_modules or None,
         "snapshot_filters": is_snapshot,
         "tracks": tracks,
         "prev": prev,

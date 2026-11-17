@@ -106,7 +106,27 @@ import {
 import MediaBeatFrame from "../MediaBeatFrame";
 import AppMenu from "../../AppMenu";
 import MediaInlineSearch from "../MediaInlineSearch";
-import { IconByArtist, IconByShow, IconList } from "../../MenuIcons";
+import {
+  IconByArtist,
+  IconByShow,
+  IconList,
+  IconMediaBooks,
+  IconMediaGames,
+  IconMediaMovies,
+  IconMediaMusic,
+  IconMediaSeries,
+} from "../../MenuIcons";
+
+const WRAPPED_MODULE_META: Record<
+  string,
+  { label: string; Icon: typeof IconMediaMusic }
+> = {
+  music: { label: "Music", Icon: IconMediaMusic },
+  series: { label: "Series", Icon: IconMediaSeries },
+  movies: { label: "Movies", Icon: IconMediaMovies },
+  books: { label: "Books", Icon: IconMediaBooks },
+  games: { label: "Games", Icon: IconMediaGames },
+};
 
 type PanelBrand = {
   bandId: number;
@@ -622,12 +642,46 @@ export default function SystemPlaylistPage({
 
   useEffect(() => () => miniAudio.clear(), [miniAudio.clear]);
 
-  const tracks = detail?.tracks ?? [];
+  const allTracks = detail?.tracks ?? [];
   const isSnapshotPlaylist = detail?.snapshot_filters === true;
   const isListeningWrapped =
     isUserPlaylist &&
     (detail?.listening_wrapped_year != null ||
       /^\d{4}\s+Wrapped$/i.test((detail?.name || "").trim()));
+  const wrappedModules = useMemo(() => {
+    if (!isListeningWrapped) return [] as string[];
+    const fromApi = (detail?.wrapped_modules || []).filter(Boolean);
+    if (fromApi.length) return fromApi;
+    return ["music"];
+  }, [isListeningWrapped, detail?.wrapped_modules]);
+  const [wrappedModule, setWrappedModule] = useState("music");
+  const [wrappedModuleOpen, setWrappedModuleOpen] = useState(false);
+  const wrappedModuleRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!wrappedModules.length) return;
+    if (!wrappedModules.includes(wrappedModule)) {
+      setWrappedModule(wrappedModules[0]);
+    }
+  }, [wrappedModules, wrappedModule]);
+
+  useEffect(() => {
+    if (!wrappedModuleOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrappedModuleRef.current?.contains(e.target as Node)) {
+        setWrappedModuleOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [wrappedModuleOpen]);
+
+  const tracks = useMemo(() => {
+    if (!isListeningWrapped) return allTracks;
+    return allTracks.filter(
+      (t) => (t.module || "music").toLowerCase() === wrappedModule
+    );
+  }, [allTracks, isListeningWrapped, wrappedModule]);
   const canReimportCsv =
     isUserPlaylist &&
     isSnapshotPlaylist &&
@@ -1638,6 +1692,70 @@ export default function SystemPlaylistPage({
                 }}
               />
             )}
+            {isListeningWrapped && wrappedModules.length > 0 ? (
+              <div
+                className="module-top-bar__media wrapped-playlist-module"
+                ref={wrappedModuleRef}
+              >
+                <button
+                  type="button"
+                  className="module-top-bar__media-btn"
+                  onClick={() => setWrappedModuleOpen((o) => !o)}
+                  aria-expanded={wrappedModuleOpen}
+                  aria-label={`Wrapped module: ${
+                    WRAPPED_MODULE_META[wrappedModule]?.label || wrappedModule
+                  }`}
+                >
+                  <span className="module-top-bar__media-icon" aria-hidden>
+                    {(() => {
+                      const Icon =
+                        WRAPPED_MODULE_META[wrappedModule]?.Icon ||
+                        IconMediaMusic;
+                      return <Icon />;
+                    })()}
+                  </span>
+                  <span className="module-top-bar__media-label">
+                    <span className="module-top-bar__media-module">
+                      {WRAPPED_MODULE_META[wrappedModule]?.label || "Music"}
+                    </span>
+                  </span>
+                  <span className="module-top-bar__chevron" aria-hidden>
+                    ▾
+                  </span>
+                </button>
+                {wrappedModuleOpen ? (
+                  <ul className="module-top-bar__media-menu ms-menu-pop is-open">
+                    {wrappedModules.map((mod) => {
+                      const meta = WRAPPED_MODULE_META[mod] || {
+                        label: mod,
+                        Icon: IconMediaMusic,
+                      };
+                      const Icon = meta.Icon;
+                      return (
+                        <li key={mod}>
+                          <button
+                            type="button"
+                            className={mod === wrappedModule ? "active" : ""}
+                            onClick={() => {
+                              setWrappedModule(mod);
+                              setWrappedModuleOpen(false);
+                            }}
+                          >
+                            <span
+                              className="module-top-bar__media-icon"
+                              aria-hidden
+                            >
+                              <Icon />
+                            </span>
+                            {meta.label}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
             <AppMenu
               onImport={onImport}
               onSync={onSync}

@@ -137,15 +137,32 @@ def record_module_activity(
             ModuleActivityDay.mad_entity_id == eid,
         )
     )
+    def _title_looks_raw(value: str | None) -> bool:
+        t = (value or "").strip()
+        if not t:
+            return True
+        low = t.casefold()
+        if low == eid.casefold():
+            return True
+        if "/" in t or "\\" in t:
+            return True
+        if low.startswith(("book_", "game_", "ep_", "film_")):
+            return True
+        return False
+
     if row:
         row.mad_count = int(row.mad_count or 0) + 1
-        if title and not row.mad_title:
+        if title and (_title_looks_raw(row.mad_title) or not row.mad_title):
             row.mad_title = title
         if path and not row.mad_path:
             row.mad_path = path
         if franchise_id and not row.mad_franchise_id:
             row.mad_franchise_id = franchise_id
-        if franchise_title and not row.mad_franchise_title:
+        if franchise_title and (
+            not row.mad_franchise_title
+            or (row.mad_franchise_title or "").casefold()
+            == (row.mad_franchise_id or "").casefold()
+        ):
             row.mad_franchise_title = franchise_title
         if cover_url and not row.mad_cover_url:
             row.mad_cover_url = cover_url
@@ -263,6 +280,7 @@ def _item_row(
     group_id: str | None = None,
     vibe_key: str | None = None,
     image_url: str | None = None,
+    leaf_id: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": id,
@@ -277,8 +295,322 @@ def _item_row(
         "entity_kind": entity_kind,
         "path": path,
         "group_id": group_id,
+        "leaf_id": leaf_id or group_id,
         "vibe_key": vibe_key,
     }
+
+
+def _display_title_from_path(path: str | None) -> str | None:
+    """Human title from a media-relative path (never return the raw path)."""
+    from pathlib import PurePosixPath
+
+    rel = (path or "").replace("\\", "/").strip("/")
+    if not rel:
+        return None
+    name = PurePosixPath(rel).name
+    if "." in name and name.rsplit(".", 1)[-1].casefold() in {
+        "mp4",
+        "mkv",
+        "avi",
+        "m4v",
+        "webm",
+        "mov",
+    }:
+        name = PurePosixPath(rel).stem
+    # Dated folder / file: ``YYYY.MM.DD. Title`` or ``YYYY. Title``
+    import re
+
+    m = re.match(r"^\d{4}(?:\.\d{2}(?:\.\d{2})?)?\.\s*(.+)$", name.strip())
+    if m:
+        return m.group(1).strip() or None
+    return name.strip() or None
+
+
+def _pretty_franchise_name(value: str | None) -> str | None:
+    text = (value or "").strip()
+    if not text:
+        return None
+    # Slug-like → title case words
+    if text == text.casefold() and (" " in text or "-" in text or "_" in text):
+        parts = text.replace("-", " ").replace("_", " ").split()
+        return " ".join(p[:1].upper() + p[1:] if p else "" for p in parts)
+    return text
+
+
+def _enrich_media_item(
+    db: Session,
+    module: str,
+    row: dict[str, Any],
+) -> dict[str, Any]:
+    """Fill missing titles / covers / franchise labels from catalog when possible."""
+    mod = module.casefold()
+    title = (row.get("title") or "").strip()
+    path = (row.get("path") or "").strip()
+    eid = (row.get("id") or "").strip()
+    kind = (row.get("entity_kind") or "").casefold()
+
+    if not title or title == eid or "/" in title or "\\" in title:
+        from_path = _display_title_from_path(path or eid if "/" in eid else path)
+        if from_path:
+            row["title"] = from_path
+            row["name"] = from_path
+            title = from_path
+
+    fid = (row.get("franchise_id") or "").strip()
+    ftitle = _pretty_franchise_name(row.get("subtitle") or row.get("franchise_title"))
+    if ftitle:
+        row["subtitle"] = ftitle
+
+    # Catalog lookups for leaf covers / titles
+    try:
+        if mod == "movies" and (kind in {"film", ""} or eid):
+            from pathlib import PurePosixPath
+
+            from app.movies_index import _film_id, build_film_detail
+
+            detail = None
+            look = eid if eid.startswith("film_") else None
+            if not look and (path or eid.startswith("Movies/")):
+                media_rel = (path or eid).replace("\\", "/").strip("/")
+                parent = PurePosixPath(media_rel).parent.as_posix()
+                if parent and parent.lower().startswith("movies/"):
+                    look = _film_id(parent)
+            if look:
+                try:
+                    detail = build_film_detail(look)
+                except Exception:
+                    detail = None
+            if not detail and (path or "/" in eid):
+                from_path = _display_title_from_path(path or eid)
+                if from_path:
+                    row["title"] = from_path
+                    row["name"] = from_path
+            if detail:
+                if detail.get("title"):
+                    row["title"] = detail["title"]
+                    row["name"] = detail["title"]
+                cover = (
+                    detail.get("portrait_url")
+                    or detail.get("cover_url")
+                    or detail.get("banner_url")
+                )
+                if cover:
+                    row["cover_url"] = cover
+                    row["photo_url"] = cover
+                wid = detail.get("work_id") or detail.get("work_name")
+                wname = detail.get("work_name")
+                if wid:
+                    row["franchise_id"] = wid
+                if wname:
+                    row["subtitle"] = wname
+                if detail.get("id"):
+                    row["leaf_id"] = detail["id"]
+                    row["id"] = detail["id"]
+        elif mod in {"books", "games"}:
+            # Prefer catalog-cache card (fast) before full detail build.
+            detail = None
+            try:
+                from app.module_catalog_cache import peek_catalog_payload
+                from app.config import settings
+                from pathlib import Path
+
+                root = Path(settings.media_root) if settings.media_root else None
+                payload = (
+                    peek_catalog_payload(mod, media_root=root) if root else None
+                ) or {}
+                key = "books" if mod == "books" else "games"
+                for card in payload.get(key) or payload.get("films") or []:
+                    if isinstance(card, dict) and card.get("id") == eid:
+                        detail = card
+                        break
+            except Exception:
+                detail = None
+            if not detail:
+                if mod == "books" and eid.startswith("book_"):
+                    from app.books_index import build_book_detail as build_leaf
+
+                    detail = build_leaf(eid)
+                elif mod == "games" and eid.startswith("game_"):
+                    from app.games_index import build_game_detail as build_leaf
+
+                    detail = build_leaf(eid)
+            if detail:
+                if detail.get("title"):
+                    row["title"] = detail["title"]
+                    row["name"] = detail["title"]
+                cover = (
+                    detail.get("portrait_url")
+                    or detail.get("cover_url")
+                    or detail.get("banner_url")
+                )
+                if cover:
+                    row["cover_url"] = cover
+                    row["photo_url"] = cover
+                wid = detail.get("work_id") or detail.get("franchise_id")
+                wname = detail.get("work_name") or detail.get("franchise_name")
+                if wid:
+                    row["franchise_id"] = wid
+                if wname:
+                    row["subtitle"] = wname
+        elif mod == "series":
+            from pathlib import Path, PurePosixPath
+
+            from app.config import settings
+            from app.series_index import _series_folder_cover, find_franchise_dir
+
+            root = Path(settings.media_root) if settings.media_root else None
+            media_rel = (path or "").replace("\\", "/").strip("/")
+            leaf_id = (row.get("leaf_id") or row.get("group_id") or "").strip()
+            # Infer leaf (subseries folder name) from episode path:
+            # Series/{Letter}/{Franchise}/{Leaf}/…
+            if not leaf_id and media_rel.lower().startswith("series/"):
+                parts = PurePosixPath(media_rel).parts
+                if len(parts) >= 4:
+                    leaf_id = parts[3]
+                    row["leaf_id"] = leaf_id
+                    row["group_id"] = leaf_id
+            if not fid and media_rel.lower().startswith("series/"):
+                parts = PurePosixPath(media_rel).parts
+                if len(parts) >= 3:
+                    fid = parts[2]
+                    row["franchise_id"] = fid
+            if fid and root:
+                found = find_franchise_dir(fid, root)
+                if found:
+                    fdir, _letter = found
+                    row["subtitle"] = row.get("subtitle") or fdir.name
+                    row["franchise_id"] = _normalize_slugish(fdir.name) or fid
+                    # Cover: season (file parent chain) → leaf → franchise
+                    if not row.get("cover_url") and media_rel:
+                        file_parent = root / PurePosixPath(media_rel).parent
+                        candidates: list[Path] = []
+                        cur = file_parent
+                        try:
+                            while cur != fdir and fdir in cur.parents:
+                                candidates.append(cur)
+                                cur = cur.parent
+                        except Exception:
+                            candidates = [file_parent]
+                        if leaf_id:
+                            leaf_dir = fdir / leaf_id
+                            if leaf_dir.is_dir():
+                                candidates.append(leaf_dir)
+                        candidates.append(fdir)
+                        for cand in candidates:
+                            art = _series_folder_cover(cand, root)
+                            if art:
+                                row["cover_url"] = art
+                                row["photo_url"] = art
+                                break
+                    elif not row.get("cover_url"):
+                        leaf_dir = (fdir / leaf_id) if leaf_id else None
+                        if leaf_dir and leaf_dir.is_dir():
+                            row["cover_url"] = _series_folder_cover(leaf_dir, root)
+                        if not row.get("cover_url"):
+                            row["cover_url"] = _series_folder_cover(fdir, root)
+                        if row.get("cover_url"):
+                            row["photo_url"] = row["cover_url"]
+    except Exception:
+        pass
+
+    if row.get("subtitle"):
+        row["subtitle"] = _pretty_franchise_name(row["subtitle"]) or row["subtitle"]
+    return row
+
+
+def _normalize_slugish(name: str | None) -> str | None:
+    text = (name or "").strip()
+    if not text:
+        return None
+    try:
+        from app.franchise_index import normalize_franchise_slug
+
+        return normalize_franchise_slug(text) or text
+    except Exception:
+        return text
+
+
+def _module_top_tracks(
+    db: Session, user_id: int, module: str, year: int
+) -> list[dict[str, Any]]:
+    """Music listening plays whose files live under releases linked from the module."""
+    from pathlib import Path
+
+    from app.config import settings
+    from app.listening import path_play_counts_for_year
+    from app.media_paths_util import resolve_media_entry, safe_relative
+    from app.module_home_audio import _cached_audio_owners
+    from app.series_extras import AUDIO_CATEGORIES, _iter_category_release_entries, _resolve_child_dir
+    from app.series_paths import find_audio_bucket
+    from app.band_library import cover_url_for_track_path
+    from app.music_dashboard import _clean_track_title
+
+    root = Path(settings.media_root) if settings.media_root else None
+    if not root or not root.is_dir():
+        return []
+    owners = _cached_audio_owners(module, db, nsfw_unlocked=True)
+    release_roots: list[Path] = []
+    for folder in owners:
+        bucket = find_audio_bucket(folder)
+        if not bucket:
+            continue
+        for _key, cat_name in AUDIO_CATEGORIES.items():
+            cat_dir = _resolve_child_dir(bucket, cat_name)
+            if not cat_dir.is_dir():
+                continue
+            for entry in _iter_category_release_entries(cat_dir):
+                resolved = resolve_media_entry(entry, media_root=root)
+                if resolved and resolved.is_dir():
+                    release_roots.append(resolved)
+    if not release_roots:
+        return []
+
+    counts = path_play_counts_for_year(db, user_id, year)
+    if not counts:
+        return []
+
+    # Map each listening path → owning release root (casefold)
+    release_cf = [(p.resolve(), p) for p in release_roots]
+    scored: list[tuple[int, str, Path]] = []
+    for rel, count in counts.items():
+        if count <= 0:
+            continue
+        full = (root / rel.replace("\\", "/")).resolve()
+        try:
+            for r_resolved, r_path in release_cf:
+                full.relative_to(r_resolved)
+                scored.append((count, rel, r_path))
+                break
+        except ValueError:
+            continue
+    scored.sort(key=lambda t: (-t[0], t[1].casefold()))
+    out: list[dict[str, Any]] = []
+    for i, (count, rel, _r) in enumerate(scored[:100]):
+        stem = Path(rel).stem
+        out.append(
+            {
+                "id": i + 1,
+                "title": _clean_track_title(stem),
+                "title_full": stem,
+                "artist_id": None,
+                "artist_name": None,
+                "play_count": count,
+                "path": rel.replace("\\", "/"),
+                "release": None,
+                "cover_url": cover_url_for_track_path(rel, root),
+            }
+        )
+    # Light artist/release labels via band_library when cheap
+    try:
+        from app.playlist_tracks import _resolve_track_source_labels
+
+        for row in out:
+            album, _rel = _resolve_track_source_labels(row["path"], root)
+            if album:
+                row["release"] = album
+    except Exception:
+        pass
+    return out
 
 
 def build_module_wrapped(
@@ -374,40 +706,87 @@ def build_module_wrapped(
     top_items: list[dict[str, Any]] = []
     for i, (eid, count) in enumerate(item_counts.most_common(100)):
         meta = item_meta.get(eid)
-        top_items.append(
-            _item_row(
-                id=eid,
-                title=(meta.mad_title if meta else None) or eid,
-                play_count=count,
-                cover_url=meta.mad_cover_url if meta else None,
-                subtitle=(
-                    (meta.mad_franchise_title if meta else None)
-                    or (meta.mad_group_title if meta else None)
-                ),
-                franchise_id=meta.mad_franchise_id if meta else None,
-                entity_kind=meta.mad_entity_kind if meta else None,
-                path=meta.mad_path if meta else None,
-                group_id=meta.mad_group_id if meta else None,
-            )
+        raw = _item_row(
+            id=eid,
+            title=(meta.mad_title if meta else None) or eid,
+            play_count=count,
+            cover_url=meta.mad_cover_url if meta else None,
+            subtitle=(
+                (meta.mad_franchise_title if meta else None)
+                or (meta.mad_group_title if meta else None)
+            ),
+            franchise_id=meta.mad_franchise_id if meta else None,
+            entity_kind=meta.mad_entity_kind if meta else None,
+            path=meta.mad_path if meta else None,
+            group_id=meta.mad_group_id if meta else None,
+            leaf_id=meta.mad_group_id if meta else None,
         )
+        top_items.append(_enrich_media_item(db, mod, raw))
 
     top_groups: list[dict[str, Any]] = []
     for gid, count in group_counts.most_common(15):
         title, cover, fid = group_meta.get(gid) or (gid, None, None)
+        pretty = _pretty_franchise_name(title) or title or gid
         top_groups.append(
             _item_row(
                 id=gid,
-                title=title or gid,
+                title=pretty,
                 play_count=count,
                 cover_url=cover,
                 franchise_id=fid or (gid if mod not in {"files", "hobbies"} else None),
                 group_id=gid if mod in {"files", "hobbies"} else None,
             )
         )
+        # Prefer franchise folder display name + art (module-aware).
+        if mod not in {"files", "hobbies"}:
+            try:
+                from pathlib import Path
+
+                from app.config import settings
+
+                root = Path(settings.media_root) if settings.media_root else None
+                if not root:
+                    raise RuntimeError("no media root")
+                fdir: Path | None = None
+                if mod == "games":
+                    from app.games_index import find_work_dir
+
+                    hit = find_work_dir(gid, root)
+                    if hit:
+                        fdir = hit[0]
+                elif mod == "books":
+                    from app.books_index import find_work_dir
+
+                    hit = find_work_dir(gid, root)
+                    if hit:
+                        fdir = hit[0]
+                elif mod == "movies":
+                    from app.movies_index import find_work_dir
+
+                    hit = find_work_dir(gid, root)
+                    if hit:
+                        fdir = hit[0] if isinstance(hit, tuple) else hit
+                else:
+                    from app.series_index import find_franchise_dir
+
+                    hit = find_franchise_dir(gid, root)
+                    if hit:
+                        fdir = hit[0]
+                if fdir is not None and fdir.is_dir():
+                    top_groups[-1]["title"] = fdir.name
+                    top_groups[-1]["name"] = fdir.name
+                    if not top_groups[-1].get("cover_url"):
+                        from app.series_index import _series_folder_cover
+
+                        art = _series_folder_cover(fdir, root)
+                        if art:
+                            top_groups[-1]["cover_url"] = art
+                            top_groups[-1]["photo_url"] = art
+            except Exception:
+                pass
 
     top_vibes: list[dict[str, Any]] = []
     if mod in {"files", "hobbies"}:
-        # "Only once" — entities with exactly one touch this year.
         once = [
             (eid, 1)
             for eid, total in year_item_totals.items()
@@ -423,19 +802,23 @@ def build_module_wrapped(
         for eid, count in once[:40]:
             meta = item_meta.get(eid)
             top_vibes.append(
-                _item_row(
-                    id=eid,
-                    title=(meta.mad_title if meta else None) or eid,
-                    play_count=count,
-                    cover_url=meta.mad_cover_url if meta else None,
-                    subtitle=(
-                        (meta.mad_group_title if meta else None)
-                        or (meta.mad_franchise_title if meta else None)
+                _enrich_media_item(
+                    db,
+                    mod,
+                    _item_row(
+                        id=eid,
+                        title=(meta.mad_title if meta else None) or eid,
+                        play_count=count,
+                        cover_url=meta.mad_cover_url if meta else None,
+                        subtitle=(
+                            (meta.mad_group_title if meta else None)
+                            or (meta.mad_franchise_title if meta else None)
+                        ),
+                        franchise_id=meta.mad_franchise_id if meta else None,
+                        entity_kind=meta.mad_entity_kind if meta else None,
+                        path=meta.mad_path if meta else None,
+                        group_id=meta.mad_group_id if meta else None,
                     ),
-                    franchise_id=meta.mad_franchise_id if meta else None,
-                    entity_kind=meta.mad_entity_kind if meta else None,
-                    path=meta.mad_path if meta else None,
-                    group_id=meta.mad_group_id if meta else None,
                 )
             )
     else:
@@ -450,24 +833,20 @@ def build_module_wrapped(
                 )
             )
 
+    top_tracks: list[dict[str, Any]] = []
+    if mod in {"series", "movies", "books", "games"}:
+        try:
+            top_tracks = _module_top_tracks(db, user_id, mod, y)
+        except Exception:
+            top_tracks = []
+
     days = _user_days(db, user_id, mod)
     current, longest = _streak_from_days(days)
-
-    browse_top = None
-    if top_groups:
-        g0 = top_groups[0]
-        browse_top = {
-            "id": g0["id"],
-            "title": g0["title"],
-            "franchise_id": g0.get("franchise_id"),
-            "group_id": g0.get("group_id"),
-            "label": copy["browse_label"],
-        }
 
     return {
         "year": y,
         "module": mod,
-        "empty": total_plays == 0,
+        "empty": total_plays == 0 and not top_tracks,
         "total_plays": total_plays,
         "active_days": len(day_set),
         "current_streak": current,
@@ -477,12 +856,14 @@ def build_module_wrapped(
         "empty_hint": copy["empty_hint"],
         "items_tab": copy["items_tab"],
         "groups_tab": copy["groups_tab"],
+        "tracks_tab": "Top tracks",
         "vibes_tab": copy["vibes_tab"],
         "items_rank": copy["items_rank"],
         "groups_rank": copy["groups_rank"],
         "browse_label": copy["browse_label"],
         "top_items": top_items,
         "top_groups": top_groups,
+        "top_tracks": top_tracks,
         "top_vibes": top_vibes,
-        "browse_top": browse_top,
+        "browse_top": None,
     }

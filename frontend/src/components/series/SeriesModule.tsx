@@ -1525,14 +1525,16 @@ export default function SeriesModule({
           onOpenItem={(item: ModuleWrappedItem) => {
             const fid = item.franchise_id || undefined;
             if (!fid) return;
+            const leaf =
+              item.leaf_id || item.group_id || undefined;
             setMediaEntrySource("home");
-            openFranchise(fid, undefined);
+            openFranchise(fid, leaf);
           }}
           onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
             const fid = target.franchiseId || target.id;
             if (!fid) return;
             setMediaEntrySource("home");
-            openFranchise(fid, undefined);
+            openFranchise(fid, target.groupId || undefined);
           }}
           onOpenVibe={() => {
             setTab("catalog");

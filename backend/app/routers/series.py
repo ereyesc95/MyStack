@@ -969,7 +969,7 @@ def series_gallery(
     """Gallery images for a Series franchise / subseries folder (sectioned)."""
     from app.series_index import build_series_gallery
 
-    payload = build_series_gallery(path, nsfw_unlocked=nsfw_unlocked)
+    payload = build_series_gallery(path, nsfw_unlocked=nsfw_unlocked, db=db)
     if nsfw_unlocked:
         from app.exclusive_links import merge_exclusive_links_into_sections_gallery
 

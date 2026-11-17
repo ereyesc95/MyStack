@@ -47,57 +47,65 @@ def _sibling_about_overview(
     artwork_home_module: str | None,
     orientation: str,
 ) -> dict | None:
-    """Pull About art/bio from Series/Movies so Books matches other entry modules."""
-    order: list[str] = []
-    home = (artwork_home_module or "").casefold()
-    if home in {"series", "movies"}:
-        order.append(home)
-    for mod in ("series", "movies"):
-        if mod not in order:
-            order.append(mod)
-    for mod in order:
+    """Pull About art from the cross-module artwork home (no full overview builds)."""
+    del db, artwork_home_module, orientation  # signature kept for callers
+    root = _root()
+    if not root.is_dir():
+        return None
+    name = (work_slug or work_name or "").strip()
+    if not name:
+        return None
+    try:
+        hit = find_artwork_home(name, root)
+    except Exception:
+        hit = None
+    if not hit:
         try:
-            if mod == "series":
-                from app.series_overview import build_series_overview
-
-                ov = build_series_overview(
-                    db, work_slug, orientation=orientation
-                ) or build_series_overview(
-                    db, work_name, orientation=orientation
-                )
-            else:
-                from app.movies_overview import build_work_overview as build_movies_ov
-
-                ov = build_movies_ov(
-                    db, work_slug, orientation=orientation
-                ) or build_movies_ov(db, work_name, orientation=orientation)
+            hit = find_artwork_home(work_name, root) if work_name else None
         except Exception:
-            ov = None
-        if not ov or not isinstance(ov, dict):
-            continue
-        if (
-            ov.get("bio")
-            or ov.get("eras")
-            or ov.get("cover_url")
-            or ov.get("portrait_url")
-        ):
-            return ov
-    return None
+            hit = None
+    if not hit:
+        return None
+    _mod, folder = hit
+    out: dict = {}
+    try:
+        from app.series_index import _series_folder_cover
+
+        cover = _series_folder_cover(folder, root)
+        if cover:
+            out["cover_url"] = cover
+            out["portrait_url"] = cover
+    except Exception:
+        pass
+    try:
+        eras = build_franchise_home_eras(
+            folder,
+            root,
+            franchise_name=work_name or folder.name,
+        ) or build_local_eras(folder, root)
+        if eras:
+            out["eras"] = eras
+    except Exception:
+        pass
+    return out or None
 
 
-def _related_for_work(root: Path, folder_path: str, work_name: str = ""):
-    """Resolve related media; rebuild index once if the first pass is empty."""
+def _related_for_work(
+    root: Path, folder_path: str, work_name: str = "", *, allow_rebuild: bool = False
+):
+    """Resolve related media; optionally rebuild index once if the first pass is empty."""
     index = _ensure_index(root)
     related = related_for_path(index, folder_path) if index else {}
     has_any = any(related.get(k) for k in ("series", "movies", "movie", "games", "music"))
     if has_any or not root.is_dir():
         return related
-    # Stale index (e.g. missing ancestor match / new folders) — rebuild once.
-    index = build_franchise_index(root)
-    save_franchise_index(index)
-    related = related_for_path(index, folder_path) if index else {}
-    if any(related.get(k) for k in ("series", "movies", "movie", "games", "music")):
-        return related
+    if allow_rebuild:
+        # Stale index (e.g. missing ancestor match / new folders) — rebuild once.
+        index = build_franchise_index(root)
+        save_franchise_index(index)
+        related = related_for_path(index, folder_path) if index else {}
+        if any(related.get(k) for k in ("series", "movies", "movie", "games", "music")):
+            return related
     # Last resort: resolve by shared franchise slug from work folder name.
     if work_name and index:
         from app.franchise_index import franchise_slug_for_path, normalize_franchise_slug
@@ -205,11 +213,19 @@ def _hub_scope_for_book(
     return hub_title or title, folder_path
 
 
-def build_books_gallery(folder_path: str, media_root: Path | None = None) -> dict:
+def build_books_gallery(
+    folder_path: str,
+    media_root: Path | None = None,
+    *,
+    nsfw_unlocked: bool = False,
+    db: Session | None = None,
+) -> dict:
     from app.series_index import build_series_gallery
 
     root = media_root or _root()
-    return build_series_gallery(folder_path, root)
+    return build_series_gallery(
+        folder_path, root, nsfw_unlocked=nsfw_unlocked, db=db
+    )
 
 
 def build_work_overview(

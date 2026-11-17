@@ -109,6 +109,8 @@ class AddPlaylistTrackBody(BaseModel):
     path: str
     allow_duplicate: bool = False
     allow_wrapped_fill: bool = False
+    # Module bucket for `{year} Wrapped` playlists (music/series/movies/books/games).
+    module: str | None = None
 
 
 class CreatePlaylistBody(BaseModel):
@@ -541,7 +543,11 @@ def band_gallery_index(
             "has_exclusive_gallery": False,
         }
     payload = build_gallery_index(
-        row.bnd_name, root, include_exclusive=nsfw_unlocked
+        row.bnd_name,
+        root,
+        include_exclusive=nsfw_unlocked,
+        db=db,
+        band=row,
     )
     if nsfw_unlocked:
         from app.exclusive_links import merge_exclusive_links_into_gallery
@@ -2998,6 +3004,7 @@ def add_playlist_track(
         path=body.path,
         allow_duplicate=body.allow_duplicate,
         allow_wrapped_fill=body.allow_wrapped_fill,
+        module=body.module,
     )
     if not result.get("ok"):
         raise HTTPException(404, result.get("error") or "Failed")

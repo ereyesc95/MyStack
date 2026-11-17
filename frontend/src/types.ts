@@ -241,7 +241,19 @@ export type ModuleWrappedItem = {
   entity_kind?: string | null;
   path?: string | null;
   group_id?: string | null;
+  leaf_id?: string | null;
   vibe_key?: string | null;
+};
+
+export type ModuleWrappedTrack = {
+  id: number | string;
+  title: string;
+  title_full?: string | null;
+  artist_name?: string | null;
+  play_count: number;
+  path?: string | null;
+  release?: string | null;
+  cover_url?: string | null;
 };
 
 export type ModuleWrapped = {
@@ -257,12 +269,14 @@ export type ModuleWrapped = {
   empty_hint: string;
   items_tab: string;
   groups_tab: string;
+  tracks_tab?: string;
   vibes_tab: string;
   items_rank: string;
   groups_rank: string;
   browse_label: string;
   top_items: ModuleWrappedItem[];
   top_groups: ModuleWrappedItem[];
+  top_tracks?: ModuleWrappedTrack[];
   top_vibes: ModuleWrappedItem[];
   browse_top: {
     id: string;
@@ -965,6 +979,8 @@ export type ArtistPlaylistTrack = {
   release_date: string | null;
   cover_url: string | null;
   play_path: string | null;
+  /** `{year} Wrapped` module bucket (music/series/movies/books/games). */
+  module?: string | null;
   /** Singles playlist: resolve cover/disc/bg from this path while play_path may be the album cut. */
   art_play_path?: string | null;
   art_navigate_release_id?: string | null;
@@ -1042,6 +1058,8 @@ export type ArtistPlaylistDetail = {
   tracks_editable?: boolean;
   /** Year for listening Wrapped playlists (name like "2026 Wrapped"). */
   listening_wrapped_year?: number | null;
+  /** Module buckets present on a Wrapped playlist (music first). */
+  wrapped_modules?: string[] | null;
   snapshot_filters?: boolean;
   kind?: "local" | "snapshot" | string | null;
   description?: string | null;
@@ -2051,11 +2069,20 @@ export type SeriesGallerySubsection = {
   items: SeriesGalleryItem[];
 };
 
+export type SeriesGalleryPerson = {
+  key: string;
+  label: string;
+  items: SeriesGalleryItem[];
+  subsections?: SeriesGallerySubsection[];
+};
+
 export type SeriesGallerySection = {
   key: string;
   label: string;
   items: SeriesGalleryItem[];
   subsections?: SeriesGallerySubsection[];
+  /** Person tabs (group members / cast) when ≥2 sources have Exclusive content. */
+  people?: SeriesGalleryPerson[];
 };
 
 export type SeriesGalleryPayload = {

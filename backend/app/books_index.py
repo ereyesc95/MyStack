@@ -746,6 +746,28 @@ def find_book_dir(
     if not want:
         return None
     root = _resolve_media_root(media_root)
+    # Fast path: catalog cache avoids a full Books tree walk (~6s+).
+    try:
+        from app.module_catalog_cache import peek_catalog_payload
+
+        payload = peek_catalog_payload("books", media_root=root)
+        want_cf = want.casefold()
+        for book in (payload or {}).get("books") or []:
+            if not isinstance(book, dict):
+                continue
+            if book.get("id") != want and (book.get("folder_name") or "").casefold() != want_cf:
+                continue
+            folder = (book.get("folder_path") or "").replace("\\", "/").strip("/")
+            if not folder:
+                continue
+            book_dir = root / folder
+            if not book_dir.is_dir():
+                continue
+            work_dir = book_dir.parent
+            letter = work_dir.parent.name if work_dir.parent != root else "?"
+            return book_dir, work_dir, letter
+    except Exception:
+        pass
     for work_dir, letter in iter_work_dirs(root):
         for book in _list_books(work_dir, root):
             if book.get("id") == want:
