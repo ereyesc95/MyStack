@@ -5,6 +5,7 @@ export type UniverseSection =
   | "series"
   | "movies"
   | "books"
+  | "games"
   | "audio"
   | "gallery";
 export type UniverseOverviewTab = "about";
@@ -22,6 +23,7 @@ const SECTIONS: UniverseSection[] = [
   "series",
   "movies",
   "books",
+  "games",
   "audio",
   "gallery",
 ];

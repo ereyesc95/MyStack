@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { mediaTypeIcon, toStackName } from "../mediaStack";
+import { mediaTypeIcon, stackNameParts, toStackName } from "../mediaStack";
 import { useMenuPresence } from "../useMenuPresence";
 import {
   isPhoneLayout,
@@ -114,6 +114,7 @@ export default function ModuleTopBar({
   }, [media.label]);
 
   const stackTitle = toStackName(media.label);
+  const { module: moduleWord, stack: stackWord } = stackNameParts(media.label);
 
   return (
     <header className="module-top-bar">
@@ -128,7 +129,10 @@ export default function ModuleTopBar({
           <span className="module-top-bar__media-icon" aria-hidden>
             {mediaTypeIcon(media.kind)}
           </span>
-          <span className="module-top-bar__media-label">{stackTitle}</span>
+          <span className="module-top-bar__media-label">
+            <span className="module-top-bar__media-module">{moduleWord}</span>
+            <span className="module-top-bar__media-stack">{stackWord}</span>
+          </span>
           <span className="module-top-bar__chevron" aria-hidden>
             ▾
           </span>

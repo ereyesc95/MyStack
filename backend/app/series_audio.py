@@ -29,6 +29,24 @@ from app.series_index import _list_subseries, find_franchise_dir
 
 AUDIO_BUCKETS = ("[audio]", "audio")
 DEFAULT_SOURCE_ARTIST = "Various Artists"
+_AUDIO_LINK_EXTS = {".lnk", ".path", ".url"}
+
+
+def folder_has_audio_links(folder: Path | None) -> bool:
+    """True when ``Audio`` / ``[Audio]`` has at least one shortcut (not empty scaffolding)."""
+    if folder is None or not folder.is_dir():
+        return False
+    for audio_name in ("[Audio]", "Audio", "audio"):
+        d = folder / audio_name
+        if not d.is_dir():
+            continue
+        try:
+            for p in d.rglob("*"):
+                if p.is_file() and p.suffix.casefold() in _AUDIO_LINK_EXTS:
+                    return True
+        except OSError:
+            continue
+    return False
 
 
 def _find_audio_bucket(folder: Path) -> Path | None:

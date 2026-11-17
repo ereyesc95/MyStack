@@ -129,6 +129,66 @@ def read_path_sidecar(entry: Path) -> Path | None:
     return Path(text) if text else None
 
 
+def _with_legacy_music_audio_strip(path: Path) -> list[Path]:
+    """Music/{Letter}/{Artist}/Audio/{Category}/… → Music/…/{Category}/…"""
+    out = [path]
+    parts = list(Path(str(path).replace("\\", "/")).parts)
+    try:
+        i = next(idx for idx, part in enumerate(parts) if part.casefold() == "music")
+    except StopIteration:
+        return out
+    # …/Music/{Letter}/{Artist}/Audio/{Category}/…
+    if i + 4 < len(parts) and parts[i + 3].casefold() == "audio":
+        out.append(Path(*parts[: i + 3], *parts[i + 4 :]))
+    return out
+
+
+def _reroot_lnk_under_media(target: Path, media_root: Path) -> list[Path]:
+    """Map absolute .lnk targets from an old Media tree onto ``media_root``.
+
+    Covers folder renames (e.g. MediaStack → MyStack) while keeping the
+    Music/Movies/… relative layout under the current media root.
+    """
+    parts = list(Path(str(target).replace("\\", "/")).parts)
+    out: list[Path] = []
+    for marker in ("music", "movies", "series", "books", "games"):
+        try:
+            i = next(idx for idx, part in enumerate(parts) if part.casefold() == marker)
+        except StopIteration:
+            continue
+        out.append(media_root / Path(*parts[i:]))
+        return out
+    try:
+        i = next(idx for idx, part in enumerate(parts) if part.casefold() == "media")
+    except StopIteration:
+        return out
+    if i + 1 < len(parts):
+        out.append(media_root / Path(*parts[i + 1 :]))
+    return out
+
+
+def _lnk_candidate_paths(target: Path, media_root: Path | None) -> list[Path]:
+    """Expand a .lnk target into living-path candidates (legacy + re-root)."""
+    ordered: list[Path] = []
+    seen: set[str] = set()
+
+    def add(p: Path) -> None:
+        key = str(p).replace("\\", "/").casefold()
+        if key in seen:
+            return
+        seen.add(key)
+        ordered.append(p)
+
+    for base in (target,):
+        for cand in _with_legacy_music_audio_strip(base):
+            add(cand)
+    if media_root is not None:
+        for rerooted in _reroot_lnk_under_media(target, media_root):
+            for cand in _with_legacy_music_audio_strip(rerooted):
+                add(cand)
+    return ordered
+
+
 def resolve_media_entry(entry: Path, *, media_root: Path | None = None) -> Path | None:
     """Return a directory path for a catalog entry (folder, symlink, .lnk, or .path)."""
     try:
@@ -144,24 +204,7 @@ def resolve_media_entry(entry: Path, *, media_root: Path | None = None) -> Path 
     if entry.suffix.casefold() == ".lnk":
         target = read_windows_lnk_target(entry)
         if target:
-            candidates: list[Path] = [target]
-            # Legacy Music/…/Audio/Albums/… → Music/…/Albums/…
-            parts = list(Path(str(target).replace("\\", "/")).parts)
-            try:
-                i = next(
-                    idx
-                    for idx, part in enumerate(parts)
-                    if part.casefold() == "music"
-                )
-                # …/Music/{Letter}/{Artist}/Audio/{Category}/…
-                if (
-                    i + 4 < len(parts)
-                    and parts[i + 3].casefold() == "audio"
-                ):
-                    candidates.append(Path(*parts[: i + 3], *parts[i + 4 :]))
-            except StopIteration:
-                pass
-            for cand in candidates:
+            for cand in _lnk_candidate_paths(target, media_root):
                 try:
                     resolved = cand.resolve()
                 except OSError:

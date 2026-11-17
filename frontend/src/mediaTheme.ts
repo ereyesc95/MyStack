@@ -445,6 +445,13 @@ export function applySavedArtistTheme(userId?: number) {
 export function clearMediaTheme(userId?: number) {
   albumPageActive = false;
   clearArtistPageThemePin();
+  // Keep cover-based accent while module/home audio is still playing
+  // (e.g. Games/Series home ↔ catalog tab). Same as Music stack browsing.
+  if (playbackSessionActive && playbackIsPlaying) {
+    artistPageActive = false;
+    themeBeforeArtist = null;
+    return;
+  }
   endPlaybackThemeSession(userId);
   if (!artistPageActive && themeBeforeArtist === null) {
     clearMediaCss();

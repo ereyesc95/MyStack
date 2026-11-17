@@ -749,8 +749,20 @@ def _list_subseries(folder: Path, media_root: Path) -> list[dict]:
             "badge_url": find_badge_file(child, media_root),
             "season_count": season_count,
             "has_gallery": _has_gallery(child),
+            "franchise_name": folder.name,
             "official": not is_unofficial_folder(child.name),
         }
+        try:
+            from app.franchise_identity import fill_missing_art_from_franchise_home
+
+            fill_missing_art_from_franchise_home(
+                sub,
+                folder.name,
+                media_root,
+                local_franchise_dir=folder,
+            )
+        except Exception:
+            pass
         _apply_first_episode_play(sub, child, media_root)
         subseries.append(sub)
     return subseries
@@ -984,42 +996,7 @@ def _franchise_card(franchise_dir: Path, letter: str, media_root: Path) -> dict:
         "display_date": display_date,
         "is_standalone": is_standalone,
         "primary_subseries_id": fid if is_standalone else None,
-        "subseries": [
-            {
-                "id": s["id"],
-                "title": s["title"],
-                "date_iso": s["date_iso"],
-                "display_date": s["display_date"],
-                "folder_path": s["folder_path"],
-                "cover_url": s["cover_url"],
-                "portrait_url": _series_folder_cover(
-                    _path_from_rel(s["folder_path"], media_root), media_root
-                )
-                if s.get("folder_path")
-                else s.get("portrait_url"),
-                "landscape_url": _series_folder_landscape(
-                    _path_from_rel(s["folder_path"], media_root), media_root
-                )
-                if s.get("folder_path")
-                else s.get("landscape_url"),
-                "banner_url": _series_folder_banner(
-                    _path_from_rel(s["folder_path"], media_root), media_root
-                )
-                if s.get("folder_path")
-                else s.get("banner_url"),
-                "logo_url": s.get("logo_url"),
-                "icon_url": s.get("icon_url"),
-                "badge_url": s.get("badge_url"),
-                "season_count": s["season_count"],
-                "has_gallery": s.get("has_gallery"),
-                "is_standalone": s.get("is_standalone"),
-                "official": s.get("official", True),
-                "open_url": s.get("open_url"),
-                "open_mode": s.get("open_mode"),
-                "open_label": s.get("open_label"),
-            }
-            for s in subseries
-        ],
+        "subseries": [],
         "season_count": (
             len(seasons)
             if is_standalone
@@ -1028,6 +1005,50 @@ def _franchise_card(franchise_dir: Path, letter: str, media_root: Path) -> dict:
         ),
         "subseries_count": 0 if is_standalone else len(subseries),
     }
+    projected_subs: list[dict] = []
+    for s in subseries:
+        leaf_dir = (
+            _path_from_rel(s["folder_path"], media_root)
+            if s.get("folder_path")
+            else None
+        )
+        leaf_cover = (
+            _series_folder_cover(leaf_dir, media_root) if leaf_dir else None
+        )
+        leaf_landscape = (
+            _series_folder_landscape(leaf_dir, media_root) if leaf_dir else None
+        )
+        leaf_banner = (
+            _series_folder_banner(leaf_dir, media_root) if leaf_dir else None
+        )
+        projected_subs.append(
+            {
+                "id": s["id"],
+                "title": s["title"],
+                "date_iso": s["date_iso"],
+                "display_date": s["display_date"],
+                "folder_path": s["folder_path"],
+                # Prefer leaf art; keep franchise-home fill when leaf is empty.
+                "cover_url": leaf_cover or s.get("cover_url"),
+                "portrait_url": leaf_cover
+                or s.get("portrait_url")
+                or s.get("cover_url"),
+                "landscape_url": leaf_landscape or s.get("landscape_url"),
+                "banner_url": leaf_banner or s.get("banner_url"),
+                "logo_url": s.get("logo_url"),
+                "icon_url": s.get("icon_url"),
+                "badge_url": s.get("badge_url"),
+                "season_count": s["season_count"],
+                "has_gallery": s.get("has_gallery"),
+                "is_standalone": s.get("is_standalone"),
+                "franchise_name": s.get("franchise_name") or franchise_dir.name,
+                "official": s.get("official", True),
+                "open_url": s.get("open_url"),
+                "open_mode": s.get("open_mode"),
+                "open_label": s.get("open_label"),
+            }
+        )
+    card["subseries"] = projected_subs
     # Franchise catalog card: first playable episode (root seasons or earliest show).
     _apply_first_episode_play(card, franchise_dir, media_root)
     if not card.get("open_url"):

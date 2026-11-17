@@ -171,6 +171,8 @@ import {
   type ReleasePhotocardSet,
 } from "../music/release/ReleasePhotocard";
 import { fitOverviewPhotocards } from "../../fitOverviewPhotocards";
+import { pushRecentBookId } from "../../booksRecent";
+import { pushRecentGameId } from "../../gamesRecent";
 import { lineupForReleaseDate } from "../../lineupFilter";
 import {
   DEFAULT_DISC_URL,
@@ -1018,6 +1020,14 @@ export default function SeriesSubseriesPage({
   useEffect(() => {
     setCastGlassMin(0);
   }, [subseriesId]);
+
+  // Rank Best Books / Best Games by leaf visits (MRU), same idea as gamesRecent.
+  useEffect(() => {
+    const id = (subseriesId || "").trim();
+    if (!id) return;
+    if (isBook) pushRecentBookId(id);
+    if (isGame) pushRecentGameId(id);
+  }, [subseriesId, isBook, isGame]);
 
   useLayoutEffect(() => {
     if (tab !== "overview") return;
@@ -3770,14 +3780,9 @@ export default function SeriesSubseriesPage({
     siblingMovieCount > 0 ||
     libraryCards.length > 0 ||
     (!mediaReady && relatedBookCount > 0);
-  // Audio: live cards win. Before the Audio/.lnk scan finishes, allow a
-  // leaf-folder has_audio flag only — never franchise music-band flags.
-  const leafHasAudioFlag = Boolean(
-    detail?.has_audio ||
-      ((isBook || isGame || isFilm) && overview?.media?.has_audio)
-  );
-  const hasAudio =
-    audioCards.length > 0 || (!mediaReady && leafHasAudioFlag);
+  // Audio: wait for media scan, then show only when real release cards exist
+  // (never flash empty Audio/ scaffolding via has_audio).
+  const hasAudio = mediaReady && audioCards.length > 0;
   /** Top-bar player: only when we have real release cards (not empty Audio/ stubs). */
   const showAudioPlayer = audioCards.length > 0;
   const hasLibrary = isFilm

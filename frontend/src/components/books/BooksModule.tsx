@@ -37,6 +37,7 @@ import {
   markLeafCards,
   type OwnershipIndex,
 } from "../../leafOwnership";
+import { getRecentBookIds } from "../../booksRecent";
 import { clearMediaTheme } from "../../mediaTheme";
 import {
   pushBooksCatalogRoute,
@@ -317,7 +318,10 @@ export default function BooksModule({
     void (async () => {
       try {
         const [dash, uni] = await Promise.all([
-          prefetchBooksDashboard({ force: syncTick > 0 }),
+          prefetchBooksDashboard({
+            force: syncTick > 0,
+            recentIds: getRecentBookIds(),
+          }),
           prefetchUniverses("books"),
         ]);
         if (cancelled) return;
@@ -362,9 +366,10 @@ export default function BooksModule({
 
   useEffect(() => {
     if (tab !== "home" || franchiseId) return;
-    void prefetchBooksDashboard({ force: syncTick > 0 }).then((dash) =>
-      setDashboard(dash as never)
-    );
+    void prefetchBooksDashboard({
+      force: syncTick > 0,
+      recentIds: getRecentBookIds(),
+    }).then((dash) => setDashboard(dash as never));
   }, [tab, franchiseId, syncTick]);
 
   useEffect(() => {
@@ -1230,6 +1235,16 @@ export default function BooksModule({
                     }
                   : undefined
               }
+              onOpenSourceLeaf={(src) => {
+                setMediaEntrySource("home");
+                setDirectBookFromHome(true);
+                onNavigate({
+                  franchiseId: src.franchiseId,
+                  bookId: src.leafId || undefined,
+                  section: "overview",
+                  overviewTab: "about",
+                });
+              }}
             />
             <AppMenu
               onImport={onImport}
@@ -1488,7 +1503,10 @@ export default function BooksModule({
           onClose={() => setManageCatalogOpen(false)}
           onChanged={() => {
             loadCatalog();
-            void prefetchBooksDashboard({ force: true }).then(
+            void prefetchBooksDashboard({
+              force: true,
+              recentIds: getRecentBookIds(),
+            }).then(
               (next) => setDashboard(next as never),
               () => undefined
             );

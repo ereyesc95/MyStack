@@ -342,11 +342,16 @@ export default function SeriesGalleryPanel({
           }
           const kind = mediaKind(it);
           const viewerIdx = viewerItems.findIndex((v) => v.id === it.id);
+          const isLogo =
+            (it.title || "").trim().toLowerCase() === "logo" ||
+            (it.id || "").toLowerCase().includes("logo");
           return (
             <button
               key={it.id}
               type="button"
-              className="artist-gallery__photo-card"
+              className={`artist-gallery__photo-card${
+                isLogo ? " artist-gallery__photo-card--logo" : ""
+              }`}
               onClick={() => {
                 if (viewerIdx >= 0) setViewerIndex(viewerIdx);
               }}

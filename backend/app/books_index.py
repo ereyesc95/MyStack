@@ -460,6 +460,7 @@ def _book_card_from_dir(
     title: str | None = None,
     date_iso: str | None = None,
     hub_title: str | None = None,
+    work_dir: Path | None = None,
 ) -> dict:
     from app.series_index import (
         _series_folder_banner,
@@ -485,7 +486,9 @@ def _book_card_from_dir(
         cover = primary["cover_url"]
 
     n = len(volumes)
-    return {
+    franchise_dir = work_dir
+    franchise_name = work_dir.name if work_dir is not None else None
+    card = {
         "id": _book_id(rel),
         "title": title,
         "date_iso": date_iso,
@@ -507,8 +510,22 @@ def _book_card_from_dir(
         "open_label": "Read" if primary else None,
         "volumes": volumes,
         "hub_title": hub_title or title,
+        "work_name": franchise_name,
         "official": not is_unofficial_folder(book_dir.name),
     }
+    if franchise_name:
+        try:
+            from app.franchise_identity import fill_missing_art_from_franchise_home
+
+            fill_missing_art_from_franchise_home(
+                card,
+                franchise_name,
+                media_root,
+                local_franchise_dir=franchise_dir,
+            )
+        except Exception:
+            pass
+    return card
 
 
 _BOOK_LEAF_MARKER_DIRS = (
@@ -584,6 +601,7 @@ def _list_books(work_dir: Path, media_root: Path) -> list[dict]:
                         title=ltitle or parse_folder_bracket_tags(leaf.name)[0],
                         date_iso=_ld,
                         hub_title=hub_title,
+                        work_dir=work_dir,
                     )
                 )
             # Loose PDFs sitting on the hub alongside nested books.
@@ -602,6 +620,7 @@ def _list_books(work_dir: Path, media_root: Path) -> list[dict]:
                     title=hub_title,
                     date_iso=date_iso,
                     hub_title=hub_title,
+                    work_dir=work_dir,
                 )
             )
             continue
@@ -615,6 +634,7 @@ def _list_books(work_dir: Path, media_root: Path) -> list[dict]:
                     title=hub_title,
                     date_iso=date_iso,
                     hub_title=hub_title,
+                    work_dir=work_dir,
                 )
             )
 
@@ -626,6 +646,7 @@ def _list_books(work_dir: Path, media_root: Path) -> list[dict]:
                 title=work_dir.name,
                 date_iso=None,
                 hub_title=work_dir.name,
+                work_dir=work_dir,
             )
         )
 
@@ -642,6 +663,7 @@ def _list_books(work_dir: Path, media_root: Path) -> list[dict]:
                         title=work_dir.name,
                         date_iso=None,
                         hub_title=work_dir.name,
+                        work_dir=work_dir,
                     )
                 )
         except Exception:
@@ -776,7 +798,7 @@ def _counterpart_books_for_module_path(
         return nested
     if _nested_book_leaf_dirs(book_dir):
         return []
-    return [_book_card_from_dir(book_dir, root)]
+    return [_book_card_from_dir(book_dir, root, work_dir=work_dir)]
 
 
 def counterpart_books_for_movies_path(
@@ -969,7 +991,7 @@ def build_book_detail(book_id: str, media_root: Path | None = None) -> dict | No
     from app.series_artwork import resolve_series_photocards
     from app.series_audio import _find_audio_bucket
 
-    card = _book_card_from_dir(book_dir, root)
+    card = _book_card_from_dir(book_dir, root, work_dir=work_dir)
     work_card = _work_card(work_dir, letter, root)
     volumes = list(card.get("volumes") or [])
     try:

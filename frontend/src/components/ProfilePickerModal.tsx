@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type CSSProperties, type KeyboardEvent } from "react";
 import { fetchProfiles, selectProfile } from "../api";
 import type { ProfileUser } from "../auth";
 import AdminPasswordModal from "./AdminPasswordModal";
@@ -8,6 +8,8 @@ import PlaylistBoot from "./PlaylistBoot";
 import ProfileAvatar, { ProfileWelcomeLogo } from "./ProfileAvatar";
 import ProfileEditModal from "./ProfileEditModal";
 import WelcomeAmbient from "./WelcomeAmbient";
+
+const WELCOME_PULSE_MS = 2600;
 
 type Props = {
   onSelected: (user: ProfileUser, token: string) => void;
@@ -29,6 +31,12 @@ export default function ProfilePickerModal({
   const [error, setError] = useState<string | null>(null);
   const [adminPwOpen, setAdminPwOpen] = useState(false);
   const [editProfile, setEditProfile] = useState<ProfileUser | null>(null);
+  // Negative delay locks logo + bg pulses to the same wall-clock phase.
+  const [pulseDelay] = useState(() => {
+    const t =
+      typeof performance !== "undefined" ? performance.now() : 0;
+    return `${-(t % WELCOME_PULSE_MS)}ms`;
+  });
 
   function loadProfiles() {
     setError(null);
@@ -123,6 +131,11 @@ export default function ProfilePickerModal({
         className={`modal-backdrop modal-backdrop--profiles${
           onBack ? " modal-backdrop--profiles-switch" : ""
         }`}
+        style={
+          {
+            ["--welcome-pulse-delay" as string]: pulseDelay,
+          } as CSSProperties
+        }
       >
         <WelcomeAmbient />
 
@@ -239,6 +252,7 @@ export default function ProfilePickerModal({
         <AdminPasswordModal
           busy={busy === 1}
           error={error}
+          layer={2}
           onCancel={() => {
             setAdminPwOpen(false);
             setError(null);

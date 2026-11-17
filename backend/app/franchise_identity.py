@@ -424,6 +424,51 @@ def enrich_catalog_with_music_identity(
     return catalog
 
 
+def _leaf_franchise_name(card: dict) -> str | None:
+    for key in ("work_name", "franchise_name", "work", "name"):
+        raw = card.get(key)
+        if isinstance(raw, dict):
+            raw = raw.get("name")
+        name = (str(raw).strip() if raw else "")
+        if name:
+            return name
+    return None
+
+
+def _enrich_leaf_cards_with_franchise_home(
+    cards: list | None,
+    *,
+    media_root: Path | None,
+) -> None:
+    """If-missing franchise art for film/book/game/subseries leaf cards."""
+    root = _media_root(media_root)
+    if not root or not cards:
+        return
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        name = _leaf_franchise_name(card)
+        if not name:
+            continue
+        local_dir: Path | None = None
+        # Parent of the leaf folder is usually the franchise/work folder.
+        leaf_fp = (card.get("folder_path") or "").replace("\\", "/").strip()
+        if leaf_fp:
+            leaf = root / leaf_fp
+            parent = leaf.parent if leaf != root else None
+            if parent and parent.is_dir() and parent != root:
+                local_dir = parent
+        try:
+            fill_missing_art_from_franchise_home(
+                card,
+                name,
+                root,
+                local_franchise_dir=local_dir,
+            )
+        except Exception:
+            pass
+
+
 def enrich_catalog_with_artwork_home(
     catalog: dict,
     *,
@@ -434,6 +479,9 @@ def enrich_catalog_with_artwork_home(
     Catalog FS cache may still hold local ``Gallery/Covers`` URLs from before
     the home ``[Artwork]`` existed — always re-apply home art so Series/Movies/
     Books cards match Games (or whichever module owns ``[Artwork]``).
+
+    Leaf lists (films / books / games / nested subseries) only fill *missing*
+    covers from the franchise folder / artwork home.
     """
     root = _media_root(media_root)
     franchises = catalog.get("franchises") or []
@@ -466,7 +514,20 @@ def enrich_catalog_with_artwork_home(
             )
         except Exception:
             pass
+        nested = card.get("subseries") or card.get("films") or card.get("books") or card.get("games")
+        if nested:
+            for leaf in nested:
+                if isinstance(leaf, dict) and not leaf.get("work_name") and not leaf.get(
+                    "franchise_name"
+                ):
+                    leaf["work_name"] = name
+            _enrich_leaf_cards_with_franchise_home(nested, media_root=root)
     catalog["franchises"] = franchises
+
+    for key in ("films", "books", "games", "series", "subseries"):
+        leaves = catalog.get(key)
+        if leaves:
+            _enrich_leaf_cards_with_franchise_home(leaves, media_root=root)
     return catalog
 
 
@@ -481,13 +542,143 @@ def enrich_home_cards(
     """Music/artwork enrich for a small home-pane set (not the full catalog)."""
     if not cards:
         return cards
-    mini: dict = {"franchises": cards}
-    if music_identity and db is not None:
-        enrich_catalog_with_music_identity(
-            db, mini, orientation=orientation, media_root=media_root
-        )
-    enrich_catalog_with_artwork_home(mini, media_root=media_root)
-    return list(mini.get("franchises") or cards)
+    # Split franchise-shaped cards (have ``name``) from leaf cards (title + work).
+    franchise_like: list[dict] = []
+    leaf_like: list[dict] = []
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        if card.get("name") and not card.get("work_name") and not card.get(
+            "franchise_name"
+        ):
+            franchise_like.append(card)
+        elif _leaf_franchise_name(card):
+            leaf_like.append(card)
+        else:
+            franchise_like.append(card)
+    if franchise_like:
+        mini: dict = {"franchises": franchise_like}
+        if music_identity and db is not None:
+            enrich_catalog_with_music_identity(
+                db, mini, orientation=orientation, media_root=media_root
+            )
+        enrich_catalog_with_artwork_home(mini, media_root=media_root)
+    if leaf_like:
+        _enrich_leaf_cards_with_franchise_home(leaf_like, media_root=media_root)
+    return cards
+
+
+def fill_missing_art_from_franchise_home(
+    card: dict,
+    franchise_name: str | None,
+    media_root: Path | None = None,
+    *,
+    local_franchise_dir: Path | None = None,
+) -> dict:
+    """Fill empty leaf cover fields from the franchise folder / artwork home.
+
+    Leaf local art always wins. Only when cover/portrait (and optionally
+    landscape/banner/logo) are missing do we borrow from:
+
+    1. the same-module franchise/work folder (``local_franchise_dir``), then
+    2. the cross-module franchise artwork home (``find_artwork_home``).
+    """
+    if not isinstance(card, dict) or card.get("is_music_franchise"):
+        return card
+    root = _media_root(media_root)
+    if not root:
+        return card
+
+    need_cover = not (card.get("cover_url") or card.get("portrait_url"))
+    need_landscape = not card.get("landscape_url")
+    need_banner = not card.get("banner_url")
+    need_logo = not (card.get("logo_url") or card.get("icon_url"))
+    if not (need_cover or need_landscape or need_banner or need_logo):
+        return card
+
+    name = (franchise_name or "").strip()
+    dirs: list[Path] = []
+
+    def _add_dir(path: Path | None) -> None:
+        if path is None:
+            return
+        try:
+            if not path.is_dir():
+                return
+            resolved = path.resolve()
+        except OSError:
+            return
+        for existing in dirs:
+            try:
+                if existing.resolve() == resolved:
+                    return
+            except OSError:
+                continue
+        dirs.append(path)
+
+    _add_dir(local_franchise_dir)
+    if name:
+        home = find_artwork_home(name, root)
+        if home:
+            module, home_dir = home
+            if module == "music":
+                if need_cover or need_landscape or need_banner:
+                    apply_music_artist_card_images(
+                        card, name, orientation="portrait"
+                    )
+                    need_cover = not (
+                        card.get("cover_url") or card.get("portrait_url")
+                    )
+                    need_landscape = not card.get("landscape_url")
+                    need_banner = not card.get("banner_url")
+            else:
+                _add_dir(home_dir)
+                card.setdefault("artwork_home_module", module)
+
+    if not dirs:
+        return card
+
+    from app.series_index import (
+        _series_folder_banner,
+        _series_folder_cover,
+        _series_folder_landscape,
+    )
+    from app.series_paths import find_badge_file, find_logo_file
+
+    for folder in dirs:
+        if need_cover:
+            cover = _series_folder_cover(folder, root)
+            if cover:
+                card["cover_url"] = cover
+                if not card.get("portrait_url"):
+                    card["portrait_url"] = cover
+                if not card.get("photo_url"):
+                    card["photo_url"] = cover
+                need_cover = False
+        if need_landscape:
+            landscape = _series_folder_landscape(folder, root)
+            if landscape:
+                card["landscape_url"] = landscape
+                need_landscape = False
+        if need_banner:
+            banner = _series_folder_banner(folder, root)
+            if banner:
+                card["banner_url"] = banner
+                need_banner = False
+        if need_logo:
+            logo, icon = find_logo_file(folder, root)
+            if logo and not card.get("logo_url"):
+                card["logo_url"] = logo
+            if icon and not card.get("icon_url"):
+                card["icon_url"] = icon
+            if not card.get("badge_url"):
+                badge = find_badge_file(folder, root)
+                if badge:
+                    card["badge_url"] = badge
+            need_logo = not (card.get("logo_url") or card.get("icon_url"))
+        if not (need_cover or need_landscape or need_banner or need_logo):
+            break
+    return card
 
 
 def apply_shared_artwork_to_card(

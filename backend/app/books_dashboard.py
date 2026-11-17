@@ -22,6 +22,7 @@ def build_books_dashboard(
     user_id: int | None = None,
     *,
     nsfw_unlocked: bool = False,
+    recent_book_ids: list[str] | None = None,
 ) -> dict:
     media_root = Path(settings.media_root) if settings.media_root else None
     catalog = (
@@ -71,7 +72,24 @@ def build_books_dashboard(
         key=lambda f: int(f.get("book_count") or f.get("film_count") or 0),
         reverse=True,
     )
-    top_books = [_book_card(b) for b in books[:12]]
+    # Best Books: most-recently opened first, then fill from catalog.
+    top_books: list[dict] = []
+    seen_books: set[str] = set()
+    by_book_id = {(b.get("id") or ""): b for b in books}
+    if recent_book_ids:
+        for bid in recent_book_ids:
+            hit = by_book_id.get(bid)
+            if hit:
+                top_books.append(_book_card(hit))
+                seen_books.add(bid)
+    for b in books:
+        bid = b.get("id") or ""
+        if bid and bid not in seen_books:
+            top_books.append(_book_card(b))
+            seen_books.add(bid)
+        if len(top_books) >= 12:
+            break
+    top_books = top_books[:12]
 
     genre_counts: Counter[int] = Counter()
     country_iso_counts: Counter[str] = Counter()

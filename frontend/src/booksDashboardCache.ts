@@ -53,14 +53,16 @@ export function clearBooksDashboardCache(): void {
 
 export function prefetchBooksDashboard(options?: {
   force?: boolean;
+  recentIds?: string[];
 }): Promise<SeriesDashboard> {
   const force = options?.force ?? false;
-  if (!force) {
+  const recentIds = options?.recentIds ?? [];
+  if (!force && !recentIds.length) {
     const cached = getCachedBooksDashboard();
     if (cached) return Promise.resolve(cached);
   }
-  if (inflight) return inflight;
-  inflight = fetchBooksDashboard()
+  if (inflight && !force && !recentIds.length) return inflight;
+  inflight = fetchBooksDashboard(recentIds)
     .then(rememberIfPopulated)
     .catch(() => getCachedBooksDashboard() ?? EMPTY_SERIES_DASHBOARD)
     .finally(() => {

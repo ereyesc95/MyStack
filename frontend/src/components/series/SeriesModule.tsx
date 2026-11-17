@@ -1297,6 +1297,16 @@ export default function SeriesModule({
                       }
                     : undefined
                 }
+                onOpenSourceLeaf={(src) => {
+                  setMediaEntrySource("home");
+                  setDirectSeriesFromHome(true);
+                  onNavigate({
+                    franchiseId: src.franchiseId,
+                    subseriesId: src.leafId || undefined,
+                    section: "overview",
+                    overviewTab: "about",
+                  });
+                }}
               />
             ) : null}
             <AppMenu

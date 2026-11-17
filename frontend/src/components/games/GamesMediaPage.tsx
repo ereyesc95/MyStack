@@ -276,7 +276,8 @@ export default function GamesMediaPage({
   const openMode =
     (data as { open_mode?: string | null } | null)?.open_mode || null;
 
-  const hasAudio = Boolean(data?.has_audio || audioCards.length > 0);
+  // Only show AUDIO when real release cards exist (never empty Audio/ stubs).
+  const hasAudio = audioCards.length > 0;
   const audioEmbed = useMemo(
     () => resolveLeafAudioEmbed(audioCards),
     [audioCards]

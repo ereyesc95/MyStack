@@ -601,8 +601,8 @@ export default function AppMenu({
       onRefreshLinks ||
       onRefreshRelatedSimilar ||
       onRefreshRelatedParticipations ||
-      onRefreshIncludeBioChange ||
-      (editDataFlat && onEditAbout));
+      onRefreshIncludeBioChange);
+  /* editDataFlat + onEditAbout lives under Edit Data, not Refresh data. */
   const MetadataActionIcon =
     refreshMetadataLabel.trim().toLowerCase() === "artist"
       ? IconMetadata

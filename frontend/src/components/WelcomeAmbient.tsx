@@ -83,8 +83,12 @@ function buildParticles(
           : depth === 1
             ? 112
             : 84;
+    // Keep delays short so the first cards enter quickly; later ones still stagger.
     // Positive delays only — cards enter from off-screen, never spawn mid-view.
-    const delaySec = 0.35 + i * (0.55 + Math.random() * 0.65) + Math.random() * 2.2;
+    const delaySec =
+      i < 3
+        ? i * 0.12 + Math.random() * 0.1
+        : 0.35 + (i - 3) * (0.22 + Math.random() * 0.28) + Math.random() * 0.45;
     out.push({
       key: `${card.id}-${i}`,
       card,
@@ -97,7 +101,7 @@ function buildParticles(
           : 22 + Math.random() * 18 + depth * 5,
       delaySec,
       flipEverySec: 7 + Math.random() * 6,
-      flipDelaySec: delaySec + 3 + Math.random() * 6,
+      flipDelaySec: delaySec + 2 + Math.random() * 4,
       startFlipped: Math.random() < 0.45,
     });
   }
@@ -252,7 +256,7 @@ export default function WelcomeAmbient() {
             setTotal(res.total || res.items.length);
             window.setTimeout(() => {
               if (!cancelled) setReady(true);
-            }, 280);
+            }, 60);
             return;
           }
         } catch {

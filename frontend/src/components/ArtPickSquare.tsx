@@ -7,6 +7,8 @@ type Props = {
   /** Local File preview (browser file input mode). */
   file?: File | null;
   disabled?: boolean;
+  /** Cover crops to the square; contain shows the full image (logos). */
+  objectFit?: "cover" | "contain";
   /** Browser file input (default when onBrowseMedia is omitted). */
   onPick?: (file: File | null) => void;
   /**
@@ -22,6 +24,7 @@ export default function ArtPickSquare({
   previewUrl = null,
   file = null,
   disabled = false,
+  objectFit = "cover",
   onPick,
   onBrowseMedia,
 }: Props) {
@@ -55,7 +58,9 @@ export default function ArtPickSquare({
       ) : null}
       <button
         type="button"
-        className={`art-pick-square${shown ? " art-pick-square--filled" : ""}`}
+        className={`art-pick-square${shown ? " art-pick-square--filled" : ""}${
+          objectFit === "contain" ? " art-pick-square--contain" : ""
+        }`}
         disabled={disabled}
         onClick={() => {
           if (browseOnly) onBrowseMedia();

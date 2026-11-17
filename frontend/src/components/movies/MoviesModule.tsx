@@ -1347,6 +1347,16 @@ export default function MoviesModule({
                     }
                   : undefined
               }
+              onOpenSourceLeaf={(src) => {
+                setMediaEntrySource("home");
+                setDirectFilmFromHome(true);
+                onNavigate({
+                  franchiseId: src.franchiseId,
+                  filmId: src.leafId || undefined,
+                  section: "overview",
+                  overviewTab: "about",
+                });
+              }}
             />
             <AppMenu
               onImport={onImport}

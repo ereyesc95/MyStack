@@ -34,6 +34,17 @@ type Track = {
   navigate_band_id?: number | null;
   navigate_release_id?: string | null;
   release_title?: string | null;
+  source_module?: ModuleHomeAudioKind | string | null;
+  source_title?: string | null;
+  source_franchise_id?: string | null;
+  source_leaf_id?: string | null;
+};
+
+export type ModuleHomeAudioSource = {
+  module: ModuleHomeAudioKind;
+  title: string;
+  franchiseId: string;
+  leafId?: string | null;
 };
 
 type Props = {
@@ -46,6 +57,8 @@ type Props = {
   userId?: number;
   onOpenMusicRelease?: (bandId: number, releaseId: string) => void;
   onOpenMusicArtist?: (bandId: number) => void;
+  /** Open the leaf that owns the soundtrack .lnk (game/film/book/show). */
+  onOpenSourceLeaf?: (source: ModuleHomeAudioSource) => void;
   onPlayingChange?: (playing: boolean) => void;
   onCoverChange?: (coverUrl: string | null) => void;
   onHasSrcChange?: (hasSrc: boolean) => void;
@@ -83,6 +96,7 @@ export default function ModuleHomeAudioPlayer({
   userId,
   onOpenMusicRelease,
   onOpenMusicArtist,
+  onOpenSourceLeaf,
   onPlayingChange,
   onCoverChange,
   onHasSrcChange,
@@ -250,12 +264,18 @@ export default function ModuleHomeAudioPlayer({
 
   const now = tracks[index];
   const artistLabel = (now?.artist || "").trim();
+  const sourceTitle = (now?.source_title || "").trim();
+  const sourceFranchiseId = (now?.source_franchise_id || "").trim();
+  const sourceModule = (now?.source_module || module) as ModuleHomeAudioKind;
   const canOpenRelease = Boolean(
     now?.navigate_band_id &&
       now?.navigate_release_id &&
       onOpenMusicRelease
   );
   const canOpenArtist = Boolean(now?.navigate_band_id && onOpenMusicArtist);
+  const canOpenSource = Boolean(
+    sourceTitle && sourceFranchiseId && onOpenSourceLeaf
+  );
 
   const dockBody = loading && !tracks.length ? (
     <span className="muted">Loading tracks…</span>
@@ -303,6 +323,32 @@ export default function ModuleHomeAudioPlayer({
               </button>
             ) : (
               <span className="muted">{artistLabel}</span>
+            )
+          ) : null}
+          {sourceTitle ? (
+            canOpenSource ? (
+              <button
+                type="button"
+                className="series-audio-player__source-link"
+                title={`Go to ${sourceTitle}`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onOpenSourceLeaf?.({
+                    module: sourceModule,
+                    title: sourceTitle,
+                    franchiseId: sourceFranchiseId,
+                    leafId: now?.source_leaf_id || null,
+                  });
+                }}
+              >
+                {sourceTitle}
+              </button>
+            ) : (
+              <span className="series-audio-player__source-line muted">
+                {sourceTitle}
+              </span>
             )
           ) : null}
         </div>

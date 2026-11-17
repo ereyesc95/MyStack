@@ -70,15 +70,9 @@ def _related_for_path(root: Path, folder_path: str, work_name: str = ""):
 
 
 def _has_audio(folder: Path) -> bool:
-    for audio_name in ("[Audio]", "Audio", "audio"):
-        d = folder / audio_name
-        if d.is_dir():
-            try:
-                if any(d.iterdir()):
-                    return True
-            except OSError:
-                pass
-    return False
+    from app.series_audio import folder_has_audio_links
+
+    return folder_has_audio_links(folder)
 
 
 def _has_gallery(folder: Path) -> bool:

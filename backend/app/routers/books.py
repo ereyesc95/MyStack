@@ -287,8 +287,15 @@ def books_dashboard(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
     nsfw_unlocked: bool = Depends(get_nsfw_unlocked),
+    recent: str = Query("", description="Comma-separated recent book ids"),
 ):
-    return build_books_dashboard(db, user.usr_id, nsfw_unlocked=nsfw_unlocked)
+    recent_ids = [x.strip() for x in recent.split(",") if x.strip()]
+    return build_books_dashboard(
+        db,
+        user.usr_id,
+        nsfw_unlocked=nsfw_unlocked,
+        recent_book_ids=recent_ids or None,
+    )
 
 
 @router.get("/franchises/{work_id}")

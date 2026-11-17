@@ -187,32 +187,43 @@ def _list_films(work_dir: Path, media_root: Path) -> list[dict]:
         logo_url, icon_url = find_logo_file(item_dir, media_root)
         versions = _list_versions(item_dir, media_root)
         primary = versions[0] if versions else None
-        films.append(
-            {
-                "id": _film_id(rel),
-                "title": title or parse_folder_bracket_tags(item_dir.name)[0],
-                "date_iso": date_iso,
-                "display_date": format_display_date(date_iso),
-                "folder_path": rel,
-                "folder_name": item_dir.name,
-                "path": rel,
-                "cover_url": _series_folder_cover(item_dir, media_root)
-                or _folder_cover(item_dir, media_root),
-                "portrait_url": _series_folder_cover(item_dir, media_root),
-                "landscape_url": _series_folder_landscape(item_dir, media_root),
-                "banner_url": _series_folder_banner(item_dir, media_root),
-                "logo_url": logo_url,
-                "icon_url": icon_url,
-                "badge_url": find_badge_file(item_dir, media_root),
-                "has_video": _folder_has_video(item_dir),
-                "version_count": len(versions),
-                "open_url": (primary or {}).get("file_url"),
-                "open_mode": "local" if primary else None,
-                "open_label": "Play video" if primary else None,
-                "hub_title": hub,
-                "official": not is_unofficial_folder(item_dir.name),
-            }
-        )
+        film = {
+            "id": _film_id(rel),
+            "title": title or parse_folder_bracket_tags(item_dir.name)[0],
+            "date_iso": date_iso,
+            "display_date": format_display_date(date_iso),
+            "folder_path": rel,
+            "folder_name": item_dir.name,
+            "path": rel,
+            "cover_url": _series_folder_cover(item_dir, media_root)
+            or _folder_cover(item_dir, media_root),
+            "portrait_url": _series_folder_cover(item_dir, media_root),
+            "landscape_url": _series_folder_landscape(item_dir, media_root),
+            "banner_url": _series_folder_banner(item_dir, media_root),
+            "logo_url": logo_url,
+            "icon_url": icon_url,
+            "badge_url": find_badge_file(item_dir, media_root),
+            "has_video": _folder_has_video(item_dir),
+            "version_count": len(versions),
+            "open_url": (primary or {}).get("file_url"),
+            "open_mode": "local" if primary else None,
+            "open_label": "Play video" if primary else None,
+            "hub_title": hub,
+            "work_name": work_dir.name,
+            "official": not is_unofficial_folder(item_dir.name),
+        }
+        try:
+            from app.franchise_identity import fill_missing_art_from_franchise_home
+
+            fill_missing_art_from_franchise_home(
+                film,
+                work_dir.name,
+                media_root,
+                local_franchise_dir=work_dir,
+            )
+        except Exception:
+            pass
+        films.append(film)
     films.sort(
         key=lambda f: (
             f.get("date_iso") or "9999",
@@ -567,7 +578,7 @@ def build_film_detail(film_id: str, media_root: Path | None = None) -> dict | No
     except Exception:
         pass
 
-    return {
+    detail = {
         "id": _film_id(rel),
         "kind": "film",
         "title": title or film_dir.name,
@@ -599,6 +610,7 @@ def build_film_detail(film_id: str, media_root: Path | None = None) -> dict | No
         "subseries": [],
         "episodes": [],
         "movies": [],
+        "work_name": work_card.get("name") or work_dir.name,
         "work": {
             "id": work_card["id"],
             "name": work_card["name"],
@@ -610,6 +622,18 @@ def build_film_detail(film_id: str, media_root: Path | None = None) -> dict | No
             "is_standalone": work_card["is_standalone"],
         },
     }
+    try:
+        from app.franchise_identity import fill_missing_art_from_franchise_home
+
+        fill_missing_art_from_franchise_home(
+            detail,
+            work_dir.name,
+            root,
+            local_franchise_dir=work_dir,
+        )
+    except Exception:
+        pass
+    return detail
 
 
 def resolve_movies_path(

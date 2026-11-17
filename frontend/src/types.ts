@@ -1697,10 +1697,10 @@ export type UniverseCard = {
   banner_url?: string | null;
   logo_url?: string | null;
   folder_path?: string;
-  module: "movies" | "series" | "books";
+  module: "movies" | "series" | "books" | "games";
   franchise_id: string;
   leaf_id?: string;
-  kind?: "film" | "subseries" | "franchise" | "book" | string;
+  kind?: "film" | "subseries" | "franchise" | "book" | "game" | string;
   universe_id?: number;
   open_url?: string | null;
   file_url?: string | null;
@@ -1722,6 +1722,7 @@ export type UniverseHub = {
   series: UniverseCard[];
   movies: UniverseCard[];
   books?: UniverseCard[];
+  games?: UniverseCard[];
   carousel?: UniverseCard[];
   overview?: SeriesOverview;
   gallery_items?: SeriesGalleryItem[];

@@ -1257,6 +1257,21 @@ input {
   padding: 0.35rem 0.25rem;
 }
 
+.module-top-bar__media-label {
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.module-top-bar__media-module {
+  color: var(--accent);
+  font-weight: 400;
+}
+
+.module-top-bar__media-stack {
+  color: var(--text);
+  font-weight: 700;
+}
+
 .module-top-bar__chevron {
   font-size: 0.65rem;
   color: var(--text-muted);
@@ -4860,9 +4875,22 @@ input {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   overflow: hidden;
+  /* Shared phase so logo + bg keyframes stay locked (set inline on mount). */
+  --welcome-pulse-delay: 0ms;
+  /* Keep pulse visible when Switch Profile opens over a themed module page. */
+  --welcome-pulse-accent: #00d4c8;
 }
 
-/* Same pace as logo pulse, but dimmer so it stays behind the tiles. */
+/* Don't let one-shot modal enter animations replace welcome/switch pulses. */
+.modal-backdrop.modal-backdrop--profiles:not(.modal-backdrop--motion) {
+  animation: none;
+}
+.modal-backdrop.modal-backdrop--profiles:not(.modal-backdrop--motion) > * {
+  animation: none;
+}
+
+/* Same pace as logo pulse, but dimmer so it stays behind the tiles.
+   Welcome + Switch Profile share this rule. */
 .modal-backdrop--profiles::before {
   content: "";
   position: absolute;
@@ -4871,10 +4899,16 @@ input {
   pointer-events: none;
   background: radial-gradient(
     ellipse 70% 55% at 50% 45%,
-    color-mix(in srgb, var(--accent, #c9a227) 14%, transparent) 0%,
+    color-mix(
+      in srgb,
+      var(--welcome-pulse-accent, var(--accent, #00d4c8)) 14%,
+      transparent
+    )
+      0%,
     transparent 70%
   );
   animation: welcome-bg-pulse 2.6s ease-in-out infinite;
+  animation-delay: var(--welcome-pulse-delay, 0ms);
 }
 
 @keyframes welcome-bg-pulse {
@@ -4969,7 +5003,7 @@ input {
   overflow: hidden;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.9s ease;
+  transition: opacity 0.35s ease;
 }
 
 .welcome-ambient--ready {
@@ -5118,6 +5152,12 @@ input {
   animation: mystack-logo-pulse 2.6s ease-in-out infinite;
 }
 
+.modal-backdrop--profiles .profile-picker-welcome__logo {
+  /* Full shorthand so modal-panel-in / theme cannot leave the mark static. */
+  animation: mystack-logo-pulse 2.6s ease-in-out infinite;
+  animation-delay: var(--welcome-pulse-delay, 0ms);
+}
+
 .profile-picker-welcome__mark {
   display: block;
 }
@@ -5131,7 +5171,12 @@ input {
   50% {
     opacity: 1;
     filter: drop-shadow(
-      0 0 0.55rem color-mix(in srgb, var(--accent, #c9a227) 55%, transparent)
+      0 0 0.55rem
+        color-mix(
+          in srgb,
+          var(--welcome-pulse-accent, var(--accent, #00d4c8)) 55%,
+          transparent
+        )
     );
   }
 }
@@ -8539,8 +8584,9 @@ input {
   padding-top: 0;
 }
 
-/* Franchise overview: keep publisher pills clear of show miniatures. */
+/* Franchise / universe overview: miniatures sit in the foot under meta. */
 .artist-about:not(.artist-about--stacked)
+  .artist-about__foot
   .artist-about__tracks.series-about__subseries {
   margin-top: 0.95rem;
   padding-top: 0.2rem;
@@ -10015,7 +10061,8 @@ input {
 }
 
 .modal-panel.artist-admin-modal.add-universe-modal > .artist-admin-form {
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -10322,6 +10369,118 @@ input {
   margin-top: 0.15rem;
 }
 
+.add-universe-modal__members {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.add-universe-modal__members-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.2;
+}
+
+.add-universe-modal__members-empty {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.add-universe-modal__member-minis {
+  list-style: none;
+  margin: 0;
+  padding: 0.1rem 0 0.15rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  max-height: min(32vh, 12.5rem);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.add-universe-modal__member-minis > li {
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.add-universe-modal__member-mini {
+  position: relative;
+  width: 3.35rem;
+  aspect-ratio: 2 / 3;
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 55%, #111);
+}
+
+.add-universe-modal__member-mini-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.add-universe-modal__member-mini-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.add-universe-modal__member-mini-x {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+  z-index: 1;
+  width: 1.05rem;
+  height: 1.05rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(10, 10, 12, 0.78);
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.add-universe-modal__member-mini:hover .add-universe-modal__member-mini-x,
+.add-universe-modal__member-mini:focus-within .add-universe-modal__member-mini-x,
+.add-universe-modal__member-mini-x:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.add-universe-modal__member-mini-x:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+@media (hover: none), (max-width: 720px) {
+  .add-universe-modal__member-mini-x {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 @media (max-width: 480px) {
   .add-universe-modal__art-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -10371,6 +10530,20 @@ input {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.art-pick-square--contain {
+  background: transparent;
+  padding: 0.35rem;
+}
+
+.art-pick-square--contain.art-pick-square--filled {
+  padding: 0.35rem;
+}
+
+.art-pick-square--contain img {
+  object-fit: contain;
+  object-position: center;
 }
 
 .art-pick-square__plus {
@@ -12195,9 +12368,31 @@ button.media-release-card--banner {
   transition: transform 0.35s ease, filter 0.2s ease;
 }
 
+.artist-gallery__photo-card--logo {
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+}
+
+.artist-gallery__photo-card--logo img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+
 .artist-gallery__photo-card:hover img {
   transform: scale(1.04);
   filter: brightness(0.92);
+}
+
+.artist-gallery__photo-card--logo:hover img {
+  transform: none;
+  filter: none;
 }
 
 .artist-gallery__photo-card .artist-gallery__card-label {
@@ -20406,6 +20601,14 @@ button.lyrics-status-badge--icon-only {
   cursor: pointer;
 }
 
+/* Leaf overview cast: chevron only — no pill/circle behind it.
+   Franchise/universe keep the filled chevron above. */
+.series-subseries-page .series-cast__chevron {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+
 .series-cast__chevron:hover {
   color: var(--accent);
 }
@@ -20793,10 +20996,17 @@ button.lyrics-status-badge--icon-only {
   cursor: inherit;
 }
 
-.universe-page .series-about__subseries,
-.universe-page .artist-about__tracks.series-about__subseries {
+.universe-page .artist-about__foot .series-about__subseries,
+.universe-page .artist-about__foot .artist-about__tracks.series-about__subseries {
   margin-top: 1.15rem;
   padding-top: 0.25rem;
+}
+
+/* Pin overview foot (meta + member miniatures) to the hero bottom. */
+.universe-page:not(.artist-page--stacked):not(.artist-page--mobile-portrait)
+  .artist-about:not(.artist-about--stacked)
+  .artist-about__foot {
+  margin-top: auto;
 }
 
 .series-about__subseries-card .artist-about__track-title {
@@ -26790,6 +27000,36 @@ button.series-audio-player__artist-link:hover {
 
 .series-audio-player__now .series-audio-player__album-link:hover {
   color: var(--accent-hover);
+}
+
+/* Soundtrack leaf source (e.g. Super Mario Bros. 3) — clickable, no chrome. */
+button.series-audio-player__source-link,
+.series-audio-player__source-line {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-align: left;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+button.series-audio-player__source-link {
+  cursor: pointer;
+}
+
+button.series-audio-player__source-link:hover,
+button.series-audio-player__source-link:focus-visible {
+  color: var(--accent);
+  text-decoration: none;
+  outline: none;
 }
 
 /* Keep chrome from clipping the absolute (desktop) bubble dock. */

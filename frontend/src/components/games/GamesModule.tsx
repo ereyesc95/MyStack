@@ -23,6 +23,7 @@ import {
 import { clearMediaTheme } from "../../mediaTheme";
 import {
   getMediaEntrySource,
+  setMediaEntrySource,
   takePendingCatalogBrowse,
 } from "../../mediaEntry";
 import { shouldReturnToPhotosExclusive } from "../../photosExclusiveReturn";
@@ -342,7 +343,9 @@ export default function GamesModule({
   }, []);
 
   useEffect(() => {
-    clearMediaTheme(userId);
+    // Do not clearMediaTheme on tab — cover accent must survive home↔catalog
+    // while module home audio is playing (clearMediaTheme already preserves
+    // an active playback session; avoid reset on every catalog open).
     loadDashboard(syncTick > 0);
     // Defer full catalog/filter work until Catalog is opened, except when we
     // already need franchises for a deep link — keep prior light home path.
@@ -357,6 +360,11 @@ export default function GamesModule({
       if (u) setUniverses(u.filter((uni) => Boolean(uni.has_games)));
     });
   }, [loadCatalog, loadDashboard, syncTick, userId, tab, franchiseId, gameId]);
+
+  // Reset page chrome theme once on mount / profile change (not on tab).
+  useEffect(() => {
+    clearMediaTheme(userId);
+  }, [userId]);
 
   useEffect(() => {
     if (franchiseId || gameId) setTab("catalog");
@@ -1148,6 +1156,21 @@ export default function GamesModule({
                     }
                   : undefined
               }
+              onOpenSourceLeaf={(src) => {
+                setMediaEntrySource("home");
+                pushGamesRoute({
+                  franchiseId: src.franchiseId,
+                  gameId: src.leafId || undefined,
+                  section: "overview",
+                  overviewTab: "about",
+                });
+                onNavigate({
+                  franchiseId: src.franchiseId,
+                  gameId: src.leafId || undefined,
+                  section: "overview",
+                  overviewTab: "about",
+                });
+              }}
             />
             <AppMenu
               onImport={onImport}

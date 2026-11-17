@@ -1451,6 +1451,23 @@ export default function App() {
                 universeId: view.universeId,
               });
             }}
+            onOpenGamesLeaf={(franchiseId, gameId) => {
+              pushGamesRoute({
+                franchiseId,
+                gameId,
+                section: "overview",
+                overviewTab: "about",
+                universeId: view.universeId,
+              });
+              setView({
+                kind: "games",
+                franchiseId,
+                gameId,
+                section: "overview",
+                overviewTab: "about",
+                universeId: view.universeId,
+              });
+            }}
             onOpenSeriesFranchise={(franchiseId) => {
               pushSeriesRoute({
                 franchiseId,
@@ -1490,6 +1507,21 @@ export default function App() {
               });
               setView({
                 kind: "books",
+                franchiseId,
+                section: "overview",
+                overviewTab: "about",
+                universeId: view.universeId,
+              });
+            }}
+            onOpenGamesFranchise={(franchiseId) => {
+              pushGamesRoute({
+                franchiseId,
+                section: "overview",
+                overviewTab: "about",
+                universeId: view.universeId,
+              });
+              setView({
+                kind: "games",
                 franchiseId,
                 section: "overview",
                 overviewTab: "about",

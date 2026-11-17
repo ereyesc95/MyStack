@@ -23,6 +23,15 @@ export function toStackName(label: string): string {
   return `${base}Stack`;
 }
 
+/** Split ``MusicStack`` → ``{ module: "Music", stack: "Stack" }`` for styled chrome. */
+export function stackNameParts(label: string): { module: string; stack: string } {
+  const full = toStackName(label);
+  if (full.endsWith("Stack") && full.length > 5) {
+    return { module: full.slice(0, -5), stack: "Stack" };
+  }
+  return { module: full, stack: "Stack" };
+}
+
 const MEDIA_ICONS: Record<string, typeof IconMediaMusic> = {
   music: IconMediaMusic,
   series: IconMediaSeries,

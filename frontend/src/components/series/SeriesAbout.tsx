@@ -268,13 +268,16 @@ export default function SeriesAbout({
     const sync = () => {
       const colStyle = getComputedStyle(photoCol);
       const padTop = parseFloat(colStyle.paddingTop) || 0;
-      const h = photoStage.offsetHeight + padTop;
+      const padBottom = parseFloat(colStyle.paddingBottom) || 0;
+      const stageH = photoStage?.offsetHeight || photoCol.offsetHeight;
+      const h = Math.max(stageH + padTop + padBottom, 0);
+      if (h <= 0) return;
       content.style.height = `${h}px`;
       content.style.minHeight = `${h}px`;
     };
     sync();
     const ro = new ResizeObserver(sync);
-    ro.observe(photoStage);
+    if (photoStage) ro.observe(photoStage);
     ro.observe(photoCol);
     window.addEventListener("resize", sync);
     return () => {
@@ -374,6 +377,21 @@ export default function SeriesAbout({
                 alt=""
                 className="artist-about__photo artist-about__photo--sizer"
                 aria-hidden="true"
+                onLoad={() => {
+                  const content = contentRef.current;
+                  const photoCol = photoColRef.current;
+                  const photoStage = photoStageRef.current;
+                  if (!content || !photoCol || stacked) return;
+                  const colStyle = getComputedStyle(photoCol);
+                  const padTop = parseFloat(colStyle.paddingTop) || 0;
+                  const padBottom = parseFloat(colStyle.paddingBottom) || 0;
+                  const stageH =
+                    photoStage?.offsetHeight || photoCol.offsetHeight;
+                  const h = Math.max(stageH + padTop + padBottom, 0);
+                  if (h <= 0) return;
+                  content.style.height = `${h}px`;
+                  content.style.minHeight = `${h}px`;
+                }}
               />
               <div className="artist-about__photo-stack">
                 {photoLayers.outgoing && (
@@ -397,7 +415,10 @@ export default function SeriesAbout({
               </div>
             </div>
           ) : (
-            <div className="artist-about__photo artist-about__photo--empty" />
+            <div
+              ref={photoStageRef}
+              className="artist-about__photo artist-about__photo--empty"
+            />
           )}
         </div>
         <div ref={contentRef} className="artist-about__content">
@@ -590,153 +611,157 @@ export default function SeriesAbout({
                 </div>
               )}
             </dl>
-          </div>
-          {(showEditionTabs || visibleSubseries.length > 0) && (
-            <section
-              className={`artist-about__tracks series-about__subseries${
-                hasSubseriesCarousel ? " series-about__subseries--carousel" : ""
-              }`}
-            >
-              {showEditionTabs ? (
-                <nav
-                  className="series-subseries-overview__cast-tabs series-about__edition-tabs"
-                  role="tablist"
-                  aria-label="Official or unofficial"
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={officialOnly}
-                    className={officialOnly ? "active" : ""}
-                    onClick={() => setOfficialOnly(true)}
-                  >
-                    Official
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={!officialOnly}
-                    className={!officialOnly ? "active" : ""}
-                    onClick={() => setOfficialOnly(false)}
-                  >
-                    Unofficial
-                  </button>
-                </nav>
-              ) : null}
-              {visibleSubseries.length === 0 ? (
-                <p className="muted artist-section-empty">
-                  {officialOnly
-                    ? "No official titles yet."
-                    : "No unofficial titles yet."}
-                </p>
-              ) : (
-              <div
-                ref={subseriesRowRef}
-                className={`artist-about__tracks-row series-about__subseries-row${
+            {(showEditionTabs || visibleSubseries.length > 0) && (
+              <section
+                className={`artist-about__tracks series-about__subseries${
                   hasSubseriesCarousel
-                    ? " series-about__subseries-row--scroll"
-                    : " series-about__subseries-row--spread"
+                    ? " series-about__subseries--carousel"
+                    : ""
                 }`}
               >
-                {visibleSubseries.map((s) => {
-                  const revealed = tapRevealSubs && revealedSubId === s.id;
-                  const dateLabel =
-                    s.display_date || formatTrackDate(s.date_iso ?? null);
-                  const subTitle = stripUnofficialDisplaySuffix(s.title);
-                  return (
+                {showEditionTabs ? (
+                  <nav
+                    className="series-subseries-overview__cast-tabs series-about__edition-tabs"
+                    role="tablist"
+                    aria-label="Official or unofficial"
+                  >
                     <button
-                      key={s.id}
                       type="button"
-                      className={`artist-about__track series-about__subseries-card${
-                        revealed ? " is-revealed" : ""
-                      }`}
-                      onClick={() => {
-                        if (tapRevealSubs) {
-                          if (revealedSubId === s.id) {
-                            onOpenSubseries(s);
-                            return;
-                          }
-                          setRevealedSubId(s.id);
-                          return;
-                        }
-                        onOpenSubseries(s);
-                      }}
-                      title={subTitle}
+                      role="tab"
+                      aria-selected={officialOnly}
+                      className={officialOnly ? "active" : ""}
+                      onClick={() => setOfficialOnly(true)}
                     >
-                      <span className="artist-about__track-cover series-about__subseries-cover">
-                        <span
-                          className="artist-about__track-cover-bg"
-                          style={
-                            s.cover_url
-                              ? { backgroundImage: `url("${s.cover_url}")` }
-                              : undefined
-                          }
-                        />
-                        {revealed ? (
-                          <span className="series-about__subseries-reveal">
-                            <span className="series-about__subseries-reveal-main">
-                              {s.logo_url ? (
-                                <img
-                                  className="series-about__subseries-reveal-logo"
-                                  src={s.logo_url}
-                                  alt=""
-                                />
-                              ) : (
-                                <span className="series-about__subseries-reveal-title">
-                                  {subTitle}
+                      Official
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={!officialOnly}
+                      className={!officialOnly ? "active" : ""}
+                      onClick={() => setOfficialOnly(false)}
+                    >
+                      Unofficial
+                    </button>
+                  </nav>
+                ) : null}
+                {visibleSubseries.length === 0 ? (
+                  <p className="muted artist-section-empty">
+                    {officialOnly
+                      ? "No official titles yet."
+                      : "No unofficial titles yet."}
+                  </p>
+                ) : (
+                  <div
+                    ref={subseriesRowRef}
+                    className={`artist-about__tracks-row series-about__subseries-row${
+                      hasSubseriesCarousel
+                        ? " series-about__subseries-row--scroll"
+                        : " series-about__subseries-row--spread"
+                    }`}
+                  >
+                    {visibleSubseries.map((s) => {
+                      const revealed = tapRevealSubs && revealedSubId === s.id;
+                      const dateLabel =
+                        s.display_date || formatTrackDate(s.date_iso ?? null);
+                      const subTitle = stripUnofficialDisplaySuffix(s.title);
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          className={`artist-about__track series-about__subseries-card${
+                            revealed ? " is-revealed" : ""
+                          }`}
+                          onClick={() => {
+                            if (tapRevealSubs) {
+                              if (revealedSubId === s.id) {
+                                onOpenSubseries(s);
+                                return;
+                              }
+                              setRevealedSubId(s.id);
+                              return;
+                            }
+                            onOpenSubseries(s);
+                          }}
+                          title={subTitle}
+                        >
+                          <span className="artist-about__track-cover series-about__subseries-cover">
+                            <span
+                              className="artist-about__track-cover-bg"
+                              style={
+                                s.cover_url
+                                  ? {
+                                      backgroundImage: `url("${s.cover_url}")`,
+                                    }
+                                  : undefined
+                              }
+                            />
+                            {revealed ? (
+                              <span className="series-about__subseries-reveal">
+                                <span className="series-about__subseries-reveal-main">
+                                  {s.logo_url ? (
+                                    <img
+                                      className="series-about__subseries-reveal-logo"
+                                      src={s.logo_url}
+                                      alt=""
+                                    />
+                                  ) : (
+                                    <span className="series-about__subseries-reveal-title">
+                                      {subTitle}
+                                    </span>
+                                  )}
                                 </span>
-                              )}
-                            </span>
-                            {dateLabel ? (
-                              <span className="series-about__subseries-reveal-date">
-                                {dateLabel}
+                                {dateLabel ? (
+                                  <span className="series-about__subseries-reveal-date">
+                                    {dateLabel}
+                                  </span>
+                                ) : null}
                               </span>
                             ) : null}
                           </span>
-                        ) : null}
-                      </span>
-                      {!tapRevealSubs ? (
-                        <>
-                          <span className="artist-about__track-title">
-                            {subTitle}
-                          </span>
-                          {dateLabel ? (
-                            <span className="artist-about__track-date">
-                              {dateLabel}
-                            </span>
+                          {!tapRevealSubs ? (
+                            <>
+                              <span className="artist-about__track-title">
+                                {subTitle}
+                              </span>
+                              {dateLabel ? (
+                                <span className="artist-about__track-date">
+                                  {dateLabel}
+                                </span>
+                              ) : null}
+                            </>
                           ) : null}
-                        </>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-              )}
-              {hasSubseriesCarousel ? (
-                <button
-                  type="button"
-                  className="series-about__subseries-chevron"
-                  onClick={advanceSubseriesCarousel}
-                  aria-label="Show more series"
-                >
-                  <svg
-                    className="artist-page__catalog-chevron"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {hasSubseriesCarousel ? (
+                  <button
+                    type="button"
+                    className="series-about__subseries-chevron"
+                    onClick={advanceSubseriesCarousel}
+                    aria-label="Show more series"
                   >
-                    <path
-                      d="M9 6l6 6-6 6"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </button>
-              ) : null}
-            </section>
-          )}
+                    <svg
+                      className="artist-page__catalog-chevron"
+                      viewBox="0 0 24 24"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M9 6l6 6-6 6"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                ) : null}
+              </section>
+            )}
+          </div>
         </div>
       </div>
     </div>

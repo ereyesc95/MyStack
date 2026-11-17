@@ -346,7 +346,7 @@ def _game_card_from_dir(
         open_url = None
         open_label = None
         has_rom = False
-    return {
+    card = {
         "id": _game_id(rel),
         "title": title or parse_folder_bracket_tags(game_dir.name)[0],
         "date_iso": date_iso,
@@ -383,6 +383,19 @@ def _game_card_from_dir(
         "writers": directors,
         "directors": directors,
     }
+    franchise_dir = game_dir if game_dir.name == franchise_name else game_dir.parent
+    try:
+        from app.franchise_identity import fill_missing_art_from_franchise_home
+
+        fill_missing_art_from_franchise_home(
+            card,
+            franchise_name,
+            media_root,
+            local_franchise_dir=franchise_dir,
+        )
+    except Exception:
+        pass
+    return card
 
 
 def _list_games_under_franchise(

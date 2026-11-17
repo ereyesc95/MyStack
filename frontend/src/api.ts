@@ -2772,7 +2772,10 @@ export async function fetchBooksCatalog(params?: {
   }>(`${API}/books/catalog${qs ? `?${qs}` : ""}`);
 }
 
-export async function fetchBooksDashboard() {
+export async function fetchBooksDashboard(recentIds: string[] = []) {
+  const q = recentIds.length
+    ? `?recent=${encodeURIComponent(recentIds.join(","))}`
+    : "";
   return request<
     import("./types").SeriesDashboard & {
       franchise_count?: number;
@@ -2782,7 +2785,7 @@ export async function fetchBooksDashboard() {
       top_films?: import("./types").MoviesFilmCard[];
       scanned_at?: string | null;
     }
-  >(`${API}/books/dashboard`);
+  >(`${API}/books/dashboard${q}`);
 }
 
 export async function fetchBooksFilterOptions() {

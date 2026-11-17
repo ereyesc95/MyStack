@@ -1666,18 +1666,22 @@ def _hub_overview_miniatures(
 
 
 def _hub_media_flags(cards: list[dict]) -> dict:
-    """Best-effort media tab flags from member folders (audio/gallery)."""
+    """Best-effort media tab flags from member folders (audio/gallery/games)."""
+    from app.series_audio import folder_has_audio_links
+
     has_audio = False
     has_gallery = False
     root = _media_root()
+    has_games = any(c.get("module") == "games" for c in cards)
     if not root:
         return {
             "has_series": any(c.get("module") == "series" for c in cards),
             "has_movies": any(c.get("module") == "movies" for c in cards),
+            "has_books": any(c.get("module") == "books" for c in cards),
             "has_audio": False,
             "has_gallery": False,
             "has_library": False,
-            "has_games": False,
+            "has_games": has_games,
         }
     for c in cards:
         folder = (c.get("folder_path") or "").strip()
@@ -1687,27 +1691,19 @@ def _hub_media_flags(cards: list[dict]) -> dict:
         if not base.is_dir():
             continue
         if not has_audio:
-            for name in ("Audio", "audio"):
-                if (base / name).is_dir():
-                    try:
-                        if any((base / name).iterdir()):
-                            has_audio = True
-                            break
-                    except OSError:
-                        pass
-            parent_audio = base.parent / "Audio"
-            if not has_audio and parent_audio.is_dir():
-                try:
-                    if any(parent_audio.iterdir()):
-                        has_audio = True
-                except OSError:
-                    pass
+            has_audio = folder_has_audio_links(base)
+            if not has_audio:
+                has_audio = folder_has_audio_links(base.parent)
         if not has_gallery:
             for name in ("Gallery", "gallery"):
                 gdir = base / name
                 if gdir.is_dir():
                     try:
-                        if any(gdir.rglob("*")):
+                        if any(
+                            p.is_file()
+                            for p in gdir.rglob("*")
+                            if p.suffix.lower() in IMAGE_EXTS
+                        ):
                             has_gallery = True
                             break
                     except OSError:
@@ -1721,7 +1717,7 @@ def _hub_media_flags(cards: list[dict]) -> dict:
         "has_audio": has_audio,
         "has_gallery": has_gallery,
         "has_library": any(c.get("module") == "books" for c in cards),
-        "has_games": False,
+        "has_games": has_games,
     }
 
 
@@ -1782,6 +1778,10 @@ def build_universe_hub(
         (c for c in cards if c.get("module") == "books"),
         key=lambda c: (c.get("date_iso") or "9999", title_key(c)),
     )
+    games = sorted(
+        (c for c in cards if c.get("module") == "games"),
+        key=lambda c: (c.get("date_iso") or "9999", title_key(c)),
+    )
     # Overview carousel: chronological (franchise-like), all leaves
     carousel = sorted(
         cards,
@@ -1790,13 +1790,15 @@ def build_universe_hub(
 
     # Page chrome + About eras: only DB-linked Media paths.
     portrait = data.get("portrait_url") or data.get("cover_url")
-    banner = data.get("banner_url") or data.get("landscape_url")
+    landscape_url = data.get("landscape_url")
+    banner_url = data.get("banner_url")
 
     agg = _hub_aggregate_meta(db, cards)
     media = _hub_media_flags(cards)
     media["has_series"] = bool(series)
     media["has_movies"] = bool(movies)
     media["has_books"] = bool(books)
+    media["has_games"] = bool(games)
     media["has_library"] = bool(books)
 
     franchise_cards = _hub_overview_miniatures(db, universe_id, cards)
@@ -1845,14 +1847,21 @@ def build_universe_hub(
                 "slide_url": portrait,
             }
         )
-    if banner:
+    if landscape_url:
         eras.append(
             {
                 "orientation": "landscape",
-                # Prefer true Banner files; landscape remains the fallback hero.
-                "banner_url": data.get("banner_url") or None,
-                "landscape_url": data.get("landscape_url") or banner,
-                "slide_url": banner,
+                "landscape_url": landscape_url,
+                "slide_url": landscape_url,
+            }
+        )
+    elif banner_url:
+        # No dedicated landscape — use banner as landscape chrome only.
+        eras.append(
+            {
+                "orientation": "landscape",
+                "landscape_url": banner_url,
+                "slide_url": banner_url,
             }
         )
 
@@ -1911,6 +1920,7 @@ def build_universe_hub(
         "series": series,
         "movies": movies,
         "books": books,
+        "games": games,
         "carousel": carousel,
         "overview": overview,
         "media": media,

@@ -5,11 +5,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import {
-  deleteUniverse,
-  fetchUniverseHub,
-  pullUniverseTmdbPortrait,
-} from "../api";
+import { deleteUniverse, fetchUniverseHub } from "../api";
 import { notifyUniversesChanged } from "../universesCache";
 import {
   applyMediaTheme,
@@ -50,7 +46,6 @@ import {
   hasUnofficialItems,
 } from "../unofficialFilter";
 import { IconCardBanner, IconCardCover } from "./MenuIcons";
-import MyStackIcon from "./MyStackIcon";
 import PlaylistBoot from "./PlaylistBoot";
 import ReleaseCardLayoutPicker from "./ReleaseCardLayoutPicker";
 import UniverseAboutEditModal from "./UniverseAboutEditModal";
@@ -81,9 +76,11 @@ type Props = {
   onOpenSeriesLeaf: (franchiseId: string, subseriesId: string) => void;
   onOpenMoviesLeaf: (franchiseId: string, filmId: string) => void;
   onOpenBooksLeaf: (franchiseId: string, bookId: string) => void;
+  onOpenGamesLeaf: (franchiseId: string, gameId: string) => void;
   onOpenSeriesFranchise?: (franchiseId: string) => void;
   onOpenMoviesFranchise?: (franchiseId: string) => void;
   onOpenBooksFranchise?: (franchiseId: string) => void;
+  onOpenGamesFranchise?: (franchiseId: string) => void;
   onBrowseCatalog?: (target: {
     mode: "name" | "genre" | "country" | "publisher" | "writer";
     countryId?: number;
@@ -173,9 +170,11 @@ export default function UniversePage({
   onOpenSeriesLeaf,
   onOpenMoviesLeaf,
   onOpenBooksLeaf,
+  onOpenGamesLeaf,
   onOpenSeriesFranchise,
   onOpenMoviesFranchise,
   onOpenBooksFranchise,
+  onOpenGamesFranchise,
   onBrowseCatalog,
 }: Props) {
   const layout = useDeviceLayout();
@@ -192,7 +191,6 @@ export default function UniversePage({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [metadataFetching, setMetadataFetching] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
   const [eraIndex, setEraIndex] = useState(0);
   const [activeLanguage, setActiveLanguage] = useState<string | null>(null);
@@ -252,7 +250,8 @@ export default function UniversePage({
     const mediaCount =
       (hub.movies?.length || 0) +
       (hub.series?.length || 0) +
-      (hub.books?.length || 0);
+      (hub.books?.length || 0) +
+      (hub.games?.length || 0);
     return mediaCount === 0;
   }, [hub, universe]);
 
@@ -273,8 +272,9 @@ export default function UniversePage({
   }, [universeId, displayLogoUrl]);
 
   const bgUrl =
-    universe?.banner_url ||
     universe?.landscape_url ||
+    overview?.eras?.find((e) => e.landscape_url)?.landscape_url ||
+    universe?.banner_url ||
     universe?.cover_url ||
     universe?.portrait_url ||
     null;
@@ -316,14 +316,19 @@ export default function UniversePage({
     () => (hub?.books || []).map(toMediaCard),
     [hub?.books]
   );
+  const gameCards = useMemo(
+    () => (hub?.games || []).map(toMediaCard),
+    [hub?.games]
+  );
   const audioCards = useMemo(
     () =>
       (hub?.carousel || [
         ...(hub?.series || []),
         ...(hub?.movies || []),
         ...(hub?.books || []),
+        ...(hub?.games || []),
       ]).map(toMediaCard),
-    [hub?.carousel, hub?.series, hub?.movies, hub?.books]
+    [hub?.carousel, hub?.series, hub?.movies, hub?.books, hub?.games]
   );
 
   useEffect(() => {
@@ -342,6 +347,10 @@ export default function UniversePage({
   const visibleBookCards = showBookOfficialBar
     ? filterByOfficial(bookCards, officialOnly)
     : bookCards;
+  const showGameOfficialBar = hasUnofficialItems(gameCards);
+  const visibleGameCards = showGameOfficialBar
+    ? filterByOfficial(gameCards, officialOnly)
+    : gameCards;
 
   const galleryFolders = useMemo(() => {
     const fromOverview = (
@@ -366,6 +375,9 @@ export default function UniversePage({
     if (media?.has_series || seriesCards.length > 0) {
       items.push({ id: "series", label: "SERIES" });
     }
+    if (media?.has_games || gameCards.length > 0) {
+      items.push({ id: "games", label: "GAMES" });
+    }
     if (media?.has_audio) {
       items.push({ id: "audio", label: "AUDIO" });
     }
@@ -373,7 +385,13 @@ export default function UniversePage({
       items.push({ id: "gallery", label: "GALLERY", mobileLabel: "ART" });
     }
     return items;
-  }, [media, seriesCards.length, movieCards.length, bookCards.length]);
+  }, [
+    media,
+    seriesCards.length,
+    movieCards.length,
+    bookCards.length,
+    gameCards.length,
+  ]);
 
   useEffect(() => {
     if (!hub || loading) return;
@@ -413,6 +431,10 @@ export default function UniversePage({
       onOpenBooksLeaf(franchiseId, leafId);
       return;
     }
+    if (card.universe_module === "games") {
+      onOpenGamesLeaf(franchiseId, leafId);
+      return;
+    }
     onOpenMoviesLeaf(franchiseId, leafId);
   }
 
@@ -437,6 +459,15 @@ export default function UniversePage({
         return;
       }
       onOpenBooksLeaf(franchiseId, leafId);
+      return;
+    }
+    if (sub.module === "games") {
+      if (isFranchiseMini || !leafId) {
+        if (onOpenGamesFranchise) onOpenGamesFranchise(franchiseId);
+        else onOpenGamesLeaf(franchiseId, franchiseId);
+        return;
+      }
+      onOpenGamesLeaf(franchiseId, leafId);
       return;
     }
     if (isFranchiseMini || !leafId) {
@@ -524,6 +555,7 @@ export default function UniversePage({
             (section === "movies" ||
               section === "books" ||
               section === "series" ||
+              section === "games" ||
               section === "audio") ? (
               <ReleaseCardLayoutPicker
                 value={cardLayout}
@@ -547,6 +579,7 @@ export default function UniversePage({
                 (section === "movies" ||
                   section === "books" ||
                   section === "series" ||
+                  section === "games" ||
                   section === "audio") ? (
                   <button
                     type="button"
@@ -578,43 +611,9 @@ export default function UniversePage({
                   : undefined
               }
               onEditAbout={isAdmin ? () => setEditOpen(true) : undefined}
-              onRefreshMetadata={
-                isAdmin
-                  ? () => {
-                      setMetadataFetching(true);
-                      void pullUniverseTmdbPortrait(universeId)
-                        .then((next) => {
-                          onUniverseSaved(next);
-                          return load();
-                        })
-                        .catch((e) =>
-                          setError(
-                            e instanceof Error ? e.message : String(e)
-                          )
-                        )
-                        .finally(() => setMetadataFetching(false));
-                    }
-                  : undefined
-              }
             />
           </div>
         </header>
-
-        {metadataFetching ? (
-          <div
-            className="release-page__fetch-overlay"
-            role="status"
-            aria-live="polite"
-          >
-            <MyStackIcon
-              className="release-page__fetch-overlay-logo"
-              size={52}
-            />
-            <p className="release-page__fetch-overlay-msg">
-              Fetching data, please wait...
-            </p>
-          </div>
-        ) : null}
 
         <nav className="artist-page__sections" aria-label="Universe sections">
           {navSections.map((s) => (
@@ -649,6 +648,12 @@ export default function UniversePage({
           />
         ) : null}
         {section === "books" && showBookOfficialBar ? (
+          <OfficialUnofficialBar
+            officialOnly={officialOnly}
+            onChange={setOfficialOnly}
+          />
+        ) : null}
+        {section === "games" && showGameOfficialBar ? (
           <OfficialUnofficialBar
             officialOnly={officialOnly}
             onChange={setOfficialOnly}
@@ -723,6 +728,17 @@ export default function UniversePage({
             />
         ) : null}
 
+        {hub && section === "games" ? (
+          <SeriesMediaGrid
+              items={visibleGameCards}
+              loading={loading && gameCards.length === 0}
+              emptyMessage="No games in this universe yet."
+              cardLayout={cardLayout}
+              coverAspect="portrait"
+              onOpen={openCard}
+            />
+        ) : null}
+
         {hub && section === "audio" ? (
           <SeriesMediaGrid
             items={audioCards}
@@ -760,11 +776,22 @@ export default function UniversePage({
       {editOpen && universe ? (
         <UniverseAboutEditModal
           universe={universe}
+          members={
+            hub?.carousel?.length
+              ? hub.carousel
+              : [
+                  ...(hub?.series || []),
+                  ...(hub?.movies || []),
+                  ...(hub?.books || []),
+                  ...(hub?.games || []),
+                ]
+          }
           onClose={() => setEditOpen(false)}
           onSaved={(next) => {
             onUniverseSaved(next);
             void load();
           }}
+          onMembersChanged={() => void load()}
         />
       ) : null}
 
@@ -775,6 +802,7 @@ export default function UniversePage({
             ...(hub?.series || []),
             ...(hub?.movies || []),
             ...(hub?.books || []),
+            ...(hub?.games || []),
           ]}
           onClose={() => setAddMemberOpen(false)}
           onSaved={() => void load()}

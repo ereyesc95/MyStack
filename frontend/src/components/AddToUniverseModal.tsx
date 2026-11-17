@@ -555,6 +555,7 @@ export default function AddToUniverseModal({
                       ? withMediaAccess(artPicks[kind]!.url!)
                       : artUrl(formUniverse, kind)
                   }
+                  objectFit={kind === "Logo" ? "contain" : "cover"}
                   disabled={busy}
                   onBrowseMedia={() => void browseArt(kind)}
                 />
