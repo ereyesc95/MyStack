@@ -63,38 +63,18 @@ type Props = {
   onChooseSource?: () => void;
 };
 
-async function openLocal(url: string) {
+function parseOpenError(raw: string): string {
+  const text = (raw || "").trim();
+  if (!text) return "Could not open file";
   try {
-    const res = await fetch(url, { method: "POST" });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(text || res.statusText || "Could not open file");
+    const parsed = JSON.parse(text) as { detail?: unknown };
+    if (typeof parsed?.detail === "string" && parsed.detail.trim()) {
+      return parsed.detail.trim();
     }
-  } catch (e) {
-    window.alert(e instanceof Error ? e.message : String(e));
+  } catch {
+    /* plain text */
   }
-}
-
-function openFile(
-  item: FilesItem,
-  ctx?: { tabId?: string; tabLabel?: string }
-) {
-  trackModuleActivity({
-    module: "files",
-    entity_kind: "file",
-    entity_id: item.id,
-    title: item.name,
-    path: item.id.startsWith("Files/") ? item.id : `Files/${item.id}`,
-    group_id: ctx?.tabId || undefined,
-    group_title: ctx?.tabLabel || ctx?.tabId || undefined,
-    vibe_key: item.ext || undefined,
-    vibe_label: item.ext || undefined,
-  });
-  if (item.previewable && item.url) {
-    window.open(withMediaAccess(item.url), "_blank", "noopener,noreferrer");
-    return;
-  }
-  if (item.open_url) void openLocal(item.open_url);
+  return text;
 }
 
 export default function FilesModule({
@@ -135,11 +115,48 @@ export default function FilesModule({
   const [selectMode, setSelectMode] = useState(false);
   const [rowActionsId, setRowActionsId] = useState<string | null>(null);
   const [wrappedOpen, setWrappedOpen] = useState(false);
+  const [openAlert, setOpenAlert] = useState<string | null>(null);
   const wrappedYear = wrappedSeasonYear();
   const searchRef = useRef<HTMLInputElement>(null);
   const searchRootRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const nsfwUnlocked = Boolean(getStoredProfile()?.nsfw_unlocked);
+
+  async function openLocal(url: string) {
+    try {
+      const res = await fetch(url, { method: "POST" });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(parseOpenError(text) || res.statusText || "Could not open file");
+      }
+    } catch (e) {
+      setOpenAlert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function openFile(
+    item: FilesItem,
+    ctx?: { tabId?: string; tabLabel?: string; skipActivity?: boolean }
+  ) {
+    if (!ctx?.skipActivity) {
+      trackModuleActivity({
+        module: "files",
+        entity_kind: "file",
+        entity_id: item.id,
+        title: item.name,
+        path: item.id.startsWith("Files/") ? item.id : `Files/${item.id}`,
+        group_id: ctx?.tabId || undefined,
+        group_title: ctx?.tabLabel || ctx?.tabId || undefined,
+        vibe_key: item.ext || undefined,
+        vibe_label: item.ext || undefined,
+      });
+    }
+    if (item.previewable && item.url) {
+      window.open(withMediaAccess(item.url), "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (item.open_url) void openLocal(item.open_url);
+  }
 
   const reloadTabs = useCallback(async () => {
     const data = await fetchFilesTabs();
@@ -1065,6 +1082,7 @@ export default function FilesModule({
                     tabId,
                     tabLabel:
                       tabs.find((t) => t.id === tabId)?.name || tabId,
+                    skipActivity: true,
                   });
                 }
               });
@@ -1073,10 +1091,22 @@ export default function FilesModule({
           onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
             const tabId = target.groupId || target.id;
             if (!tabId) return;
+            setWrappedOpen(false);
             setActiveTab(tabId);
             pushFilesTabRoute(tabId);
             void reloadFiles(tabId);
           }}
+        />
+      ) : null}
+
+      {openAlert ? (
+        <ConfirmDialog
+          title="Could not open file"
+          message={openAlert}
+          confirmLabel="OK"
+          hideCancel
+          onConfirm={() => setOpenAlert(null)}
+          onClose={() => setOpenAlert(null)}
         />
       ) : null}
     </div>

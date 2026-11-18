@@ -244,6 +244,8 @@ export type ModuleWrappedItem = {
   group_id?: string | null;
   leaf_id?: string | null;
   vibe_key?: string | null;
+  /** Per-row override (e.g. photos views vs video plays). */
+  count_label?: string | null;
 };
 
 export type ModuleWrappedTrack = {
@@ -275,15 +277,22 @@ export type ModuleWrapped = {
   empty_hint: string;
   items_tab: string;
   groups_tab: string;
+  franchises_tab?: string | null;
+  videos_tab?: string | null;
   tracks_tab?: string;
   vibes_tab: string;
   items_rank: string;
   groups_rank: string;
+  franchises_rank?: string | null;
+  videos_rank?: string | null;
   browse_label: string;
   top_items: ModuleWrappedItem[];
   top_groups: ModuleWrappedItem[];
+  top_franchises?: ModuleWrappedItem[];
+  top_videos?: ModuleWrappedItem[];
   top_tracks?: ModuleWrappedTrack[];
   top_vibes: ModuleWrappedItem[];
+  hide_item_covers?: boolean;
   browse_top: {
     id: string;
     title: string;

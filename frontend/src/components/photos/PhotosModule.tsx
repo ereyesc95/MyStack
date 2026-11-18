@@ -964,18 +964,23 @@ export default function PhotosModule({
       (moduleHasImages || moduleHasVideos || moduleHasLinks)) ||
     viewTab === "gallery";
 
-  const openGalleryFolder = (year: string) => {
-    trackModuleActivity({
-      module: "photos",
-      entity_kind: "year",
-      entity_id: year,
-      title: year,
-      path: `Photos/${year}`,
-      group_id: year,
-      group_title: year,
-      vibe_key: year,
-      vibe_label: year,
-    });
+  const openGalleryFolder = (
+    year: string,
+    opts?: { skipActivity?: boolean }
+  ) => {
+    if (!opts?.skipActivity) {
+      trackModuleActivity({
+        module: "photos",
+        entity_kind: "year",
+        entity_id: year,
+        title: year,
+        path: `Photos/${year}`,
+        group_id: year,
+        group_title: year,
+        vibe_key: year,
+        vibe_label: year,
+      });
+    }
     setGalleryFolder(year);
     setViewTab("gallery");
     setViewerOpen(false);
@@ -1133,7 +1138,7 @@ export default function PhotosModule({
                   onClick={() => {
                     trackModuleActivity({
                       module: "photos",
-                      entity_kind: "photo",
+                      entity_kind: it.kind === "video" ? "video" : "photo",
                       entity_id: it.id,
                       title:
                         it.title || (it.kind === "video" ? "Video" : "Photo"),
@@ -1351,13 +1356,13 @@ export default function PhotosModule({
             const year = item.group_id || item.id;
             if (!year) return;
             setWrappedOpen(false);
-            openGalleryFolder(String(year));
+            openGalleryFolder(String(year), { skipActivity: true });
           }}
           onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
             const year = target.groupId || target.id;
             if (!year) return;
             setWrappedOpen(false);
-            openGalleryFolder(String(year));
+            openGalleryFolder(String(year), { skipActivity: true });
           }}
         />
       ) : null}

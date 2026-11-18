@@ -29,7 +29,7 @@ import {
 import { IconCheck, IconPlus } from "./MenuIcons";
 import ModalPortal, { useModalClose } from "./ModalPortal";
 
-type TabId = "items" | "groups" | "tracks" | "vibes";
+type TabId = "items" | "videos" | "groups" | "franchises" | "tracks" | "vibes";
 
 export type ModuleWrappedBrowseTarget = {
   module: ModuleWrappedKind;
@@ -214,8 +214,16 @@ function ModuleWrappedPanel({
     () => (data?.top_items || []).slice(0, 100),
     [data]
   );
+  const videos = useMemo(
+    () => (data?.top_videos || []).slice(0, 100),
+    [data]
+  );
   const groups = useMemo(
     () => (data?.top_groups || []).slice(0, 15),
+    [data]
+  );
+  const franchises = useMemo(
+    () => (data?.top_franchises || []).slice(0, 15),
     [data]
   );
   const tracks = useMemo(
@@ -227,6 +235,7 @@ function ModuleWrappedPanel({
     [data]
   );
   const countLabel = data?.count_label || "plays";
+  const hideItemCovers = Boolean(data?.hide_item_covers) || module === "files";
   const showTracksTab = MEDIA_WITH_TRACKS.includes(module) && tracks.length > 0;
 
   const tabDefs = useMemo(() => {
@@ -234,8 +243,14 @@ function ModuleWrappedPanel({
     if (items.length > 0) {
       defs.push(["items", data?.items_tab || "On repeat"]);
     }
+    if (videos.length > 0) {
+      defs.push(["videos", data?.videos_tab || "Top videos"]);
+    }
     if (groups.length > 0) {
       defs.push(["groups", data?.groups_tab || "Top"]);
+    }
+    if (franchises.length > 0) {
+      defs.push(["franchises", data?.franchises_tab || "Top franchises"]);
     }
     if (showTracksTab) {
       defs.push(["tracks", data?.tracks_tab || "Top tracks"]);
@@ -244,7 +259,15 @@ function ModuleWrappedPanel({
       defs.push(["vibes", data?.vibes_tab || "Vibes"]);
     }
     return defs;
-  }, [data, items.length, groups.length, showTracksTab, vibes.length]);
+  }, [
+    data,
+    items.length,
+    videos.length,
+    groups.length,
+    franchises.length,
+    showTracksTab,
+    vibes.length,
+  ]);
 
   useEffect(() => {
     if (!tabDefs.length) return;
@@ -303,7 +326,9 @@ function ModuleWrappedPanel({
     error,
     data,
     items.length,
+    videos.length,
     groups.length,
+    franchises.length,
     tracks.length,
     vibes.length,
     playlistId,
@@ -350,8 +375,12 @@ function ModuleWrappedPanel({
 
   const featuredItem = items[0];
   const restItems = items.slice(1);
+  const featuredVideo = videos[0];
+  const restVideos = videos.slice(1);
   const featuredGroup = groups[0];
   const restGroups = groups.slice(1);
+  const featuredFranchise = franchises[0];
+  const restFranchises = franchises.slice(1);
   const featuredTrack = tracks[0];
   const restTracks = tracks.slice(1);
   const featuredVibe = vibes[0];
@@ -362,6 +391,10 @@ function ModuleWrappedPanel({
     : "music-wrapped__feature-art music-wrapped__feature-art--square";
   const rowArtClass = portrait ? "music-wrapped__row-art--portrait" : "";
 
+  function rowCountLabel(row: ModuleWrappedItem): string {
+    return (row.count_label || countLabel || "plays").trim() || "plays";
+  }
+
   function browseFromGroup(g: ModuleWrappedItem) {
     requestClose(() =>
       onBrowseTop?.({
@@ -371,6 +404,160 @@ function ModuleWrappedPanel({
         franchiseId: g.franchise_id,
         groupId: g.group_id,
       })
+    );
+  }
+
+  function renderRankedList(
+    listFeatured: ModuleWrappedItem | undefined,
+    listRest: ModuleWrappedItem[],
+    rankLabel: string,
+    opts?: { hideCovers?: boolean }
+  ) {
+    const hideCovers = Boolean(opts?.hideCovers);
+    return (
+      <div className="music-wrapped__pane music-wrapped__pane--tracks">
+        <div className="music-wrapped__pane-scroll">
+          {listFeatured ? (
+            <button
+              type="button"
+              className="music-wrapped__feature music-wrapped__feature--track"
+              onClick={() => onOpenItem?.(listFeatured)}
+            >
+              {!hideCovers ? (
+                listFeatured.cover_url || listFeatured.photo_url ? (
+                  <img
+                    className={artClass}
+                    src={
+                      listFeatured.cover_url || listFeatured.photo_url || ""
+                    }
+                    alt=""
+                  />
+                ) : (
+                  <span
+                    className={`${artClass} music-wrapped__art-fallback`}
+                  />
+                )
+              ) : (
+                <span className="music-wrapped__feature-rank-only">#1</span>
+              )}
+              <span className="music-wrapped__feature-meta">
+                <span className="music-wrapped__feature-rank">{rankLabel}</span>
+                <strong>{listFeatured.title}</strong>
+                <em>
+                  {listFeatured.subtitle}
+                  {listFeatured.play_count != null
+                    ? `${listFeatured.subtitle ? " · " : ""}${listFeatured.play_count.toLocaleString()} ${rowCountLabel(listFeatured)}`
+                    : ""}
+                </em>
+              </span>
+            </button>
+          ) : null}
+          <ol className="music-wrapped__list">
+            {listRest.map((t, i) => {
+              const rank = i + 2;
+              const slim = rank > 10 || hideCovers;
+              return (
+                <li key={t.id || t.path || rank}>
+                  <button
+                    type="button"
+                    className={`music-wrapped__row${
+                      slim ? " music-wrapped__row--slim" : ""
+                    }${rowArtClass && !hideCovers ? ` ${rowArtClass}` : ""}`}
+                    onClick={() => onOpenItem?.(t)}
+                  >
+                    {!slim && !hideCovers ? (
+                      t.cover_url || t.photo_url ? (
+                        <img
+                          src={t.cover_url || t.photo_url || ""}
+                          alt=""
+                        />
+                      ) : (
+                        <span className="music-wrapped__art-fallback" />
+                      )
+                    ) : (
+                      <span className="music-wrapped__rank">{rank}</span>
+                    )}
+                    <span>
+                      <strong>{t.title}</strong>
+                      {t.subtitle ? <em>{t.subtitle}</em> : null}
+                    </span>
+                    <span className="music-wrapped__count">
+                      {t.play_count.toLocaleString()} {rowCountLabel(t)}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      </div>
+    );
+  }
+
+  function renderGroupGrid(
+    listFeatured: ModuleWrappedItem | undefined,
+    listRest: ModuleWrappedItem[],
+    rankLabel: string
+  ) {
+    return (
+      <div className="music-wrapped__pane">
+        {listFeatured ? (
+          <button
+            type="button"
+            className="music-wrapped__feature"
+            onClick={() => browseFromGroup(listFeatured)}
+          >
+            {listFeatured.cover_url || listFeatured.photo_url ? (
+              <img
+                className={artClass}
+                src={
+                  listFeatured.cover_url || listFeatured.photo_url || ""
+                }
+                alt=""
+              />
+            ) : (
+              <span className={`${artClass} music-wrapped__art-fallback`} />
+            )}
+            <span className="music-wrapped__feature-meta">
+              <span className="music-wrapped__feature-rank">{rankLabel}</span>
+              <strong>{listFeatured.title}</strong>
+              <em>
+                {listFeatured.play_count} {rowCountLabel(listFeatured)}
+              </em>
+            </span>
+          </button>
+        ) : null}
+        {listRest.length > 0 ? (
+          <ul className="music-wrapped__grid">
+            {listRest.map((a, i) => (
+              <li key={a.id}>
+                <button
+                  type="button"
+                  className="music-wrapped__grid-card"
+                  onClick={() => browseFromGroup(a)}
+                >
+                  {a.cover_url || a.photo_url ? (
+                    <img src={a.cover_url || a.photo_url || ""} alt="" />
+                  ) : (
+                    <span className="music-wrapped__art-fallback music-wrapped__art-fallback--round" />
+                  )}
+                  <span>
+                    <strong>
+                      <span className="music-wrapped__grid-rank">
+                        #{i + 2}
+                      </span>{" "}
+                      {a.title}
+                    </strong>
+                    <em>
+                      {a.play_count} {rowCountLabel(a)}
+                    </em>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
     );
   }
 
@@ -615,149 +802,38 @@ function ModuleWrappedPanel({
               ref={bodyContentRef}
               key={tab}
             >
-              {tab === "items" && items.length > 0 ? (
-                <div className="music-wrapped__pane music-wrapped__pane--tracks">
-                  <div className="music-wrapped__pane-scroll">
-                    {featuredItem ? (
-                      <button
-                        type="button"
-                        className="music-wrapped__feature music-wrapped__feature--track"
-                        onClick={() => onOpenItem?.(featuredItem)}
-                      >
-                        {featuredItem.cover_url ? (
-                          <img
-                            className={artClass}
-                            src={featuredItem.cover_url}
-                            alt=""
-                          />
-                        ) : (
-                          <span
-                            className={`${artClass} music-wrapped__art-fallback`}
-                          />
-                        )}
-                        <span className="music-wrapped__feature-meta">
-                          <span className="music-wrapped__feature-rank">
-                            {data.items_rank}
-                          </span>
-                          <strong>{featuredItem.title}</strong>
-                          <em>
-                            {featuredItem.subtitle}
-                            {featuredItem.play_count != null
-                              ? `${featuredItem.subtitle ? " · " : ""}${featuredItem.play_count.toLocaleString()} ${countLabel}`
-                              : ""}
-                          </em>
-                        </span>
-                      </button>
-                    ) : null}
-                    <ol className="music-wrapped__list">
-                      {restItems.map((t, i) => {
-                        const rank = i + 2;
-                        const slim = rank > 10;
-                        return (
-                          <li key={t.id || t.path || rank}>
-                            <button
-                              type="button"
-                              className={`music-wrapped__row${
-                                slim ? " music-wrapped__row--slim" : ""
-                              }${rowArtClass ? ` ${rowArtClass}` : ""}`}
-                              onClick={() => onOpenItem?.(t)}
-                            >
-                              {!slim ? (
-                                t.cover_url ? (
-                                  <img src={t.cover_url} alt="" />
-                                ) : (
-                                  <span className="music-wrapped__art-fallback" />
-                                )
-                              ) : (
-                                <span className="music-wrapped__rank">
-                                  {rank}
-                                </span>
-                              )}
-                              <span>
-                                <strong>{t.title}</strong>
-                                <em>{t.subtitle}</em>
-                              </span>
-                              <span className="music-wrapped__count">
-                                {t.play_count.toLocaleString()} {countLabel}
-                              </span>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ol>
-                  </div>
-                </div>
-              ) : null}
+              {tab === "items" && items.length > 0
+                ? renderRankedList(
+                    featuredItem,
+                    restItems,
+                    data.items_rank,
+                    { hideCovers: hideItemCovers }
+                  )
+                : null}
 
-              {tab === "groups" && groups.length > 0 ? (
-                <div className="music-wrapped__pane">
-                  {featuredGroup ? (
-                    <button
-                      type="button"
-                      className="music-wrapped__feature"
-                      onClick={() => browseFromGroup(featuredGroup)}
-                    >
-                      {featuredGroup.cover_url || featuredGroup.photo_url ? (
-                        <img
-                          className={artClass}
-                          src={
-                            featuredGroup.cover_url ||
-                            featuredGroup.photo_url ||
-                            ""
-                          }
-                          alt=""
-                        />
-                      ) : (
-                        <span
-                          className={`${artClass} music-wrapped__art-fallback`}
-                        />
-                      )}
-                      <span className="music-wrapped__feature-meta">
-                        <span className="music-wrapped__feature-rank">
-                          {data.groups_rank}
-                        </span>
-                        <strong>{featuredGroup.title}</strong>
-                        <em>
-                          {featuredGroup.play_count} {countLabel}
-                        </em>
-                      </span>
-                    </button>
-                  ) : null}
-                  {restGroups.length > 0 ? (
-                    <ul className="music-wrapped__grid">
-                      {restGroups.map((a, i) => (
-                        <li key={a.id}>
-                          <button
-                            type="button"
-                            className="music-wrapped__grid-card"
-                            onClick={() => browseFromGroup(a)}
-                          >
-                            {a.cover_url || a.photo_url ? (
-                              <img
-                                src={a.cover_url || a.photo_url || ""}
-                                alt=""
-                              />
-                            ) : (
-                              <span className="music-wrapped__art-fallback music-wrapped__art-fallback--round" />
-                            )}
-                            <span>
-                              <strong>
-                                <span className="music-wrapped__grid-rank">
-                                  #{i + 2}
-                                </span>{" "}
-                                {a.title}
-                              </strong>
-                              <em>
-                                {a.play_count} {countLabel}
-                              </em>
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              ) : null}
+              {tab === "videos" && videos.length > 0
+                ? renderRankedList(
+                    featuredVideo,
+                    restVideos,
+                    data.videos_rank || "#1 Video"
+                  )
+                : null}
+
+              {tab === "groups" && groups.length > 0
+                ? renderGroupGrid(
+                    featuredGroup,
+                    restGroups,
+                    data.groups_rank
+                  )
+                : null}
+
+              {tab === "franchises" && franchises.length > 0
+                ? renderGroupGrid(
+                    featuredFranchise,
+                    restFranchises,
+                    data.franchises_rank || "#1 Franchise"
+                  )
+                : null}
 
               {tab === "tracks" && showTracksTab
                 ? renderTrackList(featuredTrack, restTracks, true)

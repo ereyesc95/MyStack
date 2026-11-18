@@ -1005,11 +1005,37 @@ export default function HobbiesModule({
           onClose={() => setWrappedOpen(false)}
           onOpenItem={(item: ModuleWrappedItem) => {
             const cid = Number(item.group_id);
-            if (Number.isFinite(cid) && cid > 0) openCollection(cid);
+            if (Number.isFinite(cid) && cid > 0) {
+              setWrappedOpen(false);
+              openCollection(cid);
+            }
           }}
           onBrowseTop={(target: ModuleWrappedBrowseTarget) => {
+            // Franchise theme browse — open first matching collection when possible.
             const cid = Number(target.groupId || target.id);
-            if (Number.isFinite(cid) && cid > 0) openCollection(cid);
+            if (Number.isFinite(cid) && cid > 0) {
+              setWrappedOpen(false);
+              openCollection(cid);
+              return;
+            }
+            const theme = (target.title || target.id || "").trim().toLowerCase();
+            if (!theme) {
+              setWrappedOpen(false);
+              return;
+            }
+            const hit = collections.find((c) => {
+              const name = String(c.name || "").toLowerCase();
+              const cTheme = String(
+                (c as { theme?: string | null }).theme || ""
+              ).toLowerCase();
+              return name.includes(theme) || cTheme === theme;
+            });
+            if (hit?.id != null) {
+              setWrappedOpen(false);
+              openCollection(Number(hit.id));
+            } else {
+              setWrappedOpen(false);
+            }
           }}
         />
       ) : null}

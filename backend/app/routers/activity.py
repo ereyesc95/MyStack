@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_user
+from app.deps import get_current_user, get_nsfw_unlocked
 from app.models import User
 from app.module_activity import MODULES, build_module_wrapped, record_module_activity
 
@@ -65,8 +65,11 @@ def activity_wrapped(
     year: int | None = Query(None, ge=2000, le=2100),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    nsfw_unlocked: bool = Depends(get_nsfw_unlocked),
 ):
     mod = module.strip().casefold()
     if mod not in MODULES:
         raise HTTPException(status_code=400, detail="Unknown module")
-    return build_module_wrapped(db, user.usr_id, mod, year=year)
+    return build_module_wrapped(
+        db, user.usr_id, mod, year=year, nsfw_unlocked=nsfw_unlocked
+    )
