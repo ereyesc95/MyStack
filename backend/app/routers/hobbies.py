@@ -267,6 +267,29 @@ def hobbies_franchise_options(_user: User = Depends(get_current_user)):
     return {"options": list_franchise_theme_options()}
 
 
+@router.get("/franchise-audio-pool")
+def hobbies_franchise_audio_pool(
+    franchise: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    nsfw_unlocked: bool = Depends(get_nsfw_unlocked),
+):
+    """Up to 10 soundtrack tracks for a franchise across Series/Movies/Books/Games.
+
+    Used by limited HobbyStack collections whose Franchise meta matches a media
+    franchise folder. Scans ``[Audio]`` shortcuts only (not Music/).
+    """
+    _ = user
+    from app.module_home_audio import build_franchise_home_audio_pool
+
+    tracks = build_franchise_home_audio_pool(
+        franchise.strip(),
+        db,
+        nsfw_unlocked=nsfw_unlocked,
+    )
+    return {"tracks": tracks, "count": len(tracks)}
+
+
 @router.get("/themes")
 def hobbies_themes(
     db: Session = Depends(get_db),

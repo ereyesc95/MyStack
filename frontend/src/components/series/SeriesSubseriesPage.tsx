@@ -2310,11 +2310,15 @@ export default function SeriesSubseriesPage({
       : isFilm || isBook || isGame
         ? overview?.genres ?? []
         : overview?.base_genres ?? [];
-  const genres = nsfwUnlocked
+  const genres = (nsfwUnlocked
     ? genresRaw
     : genresRaw.filter(
         (g) => !isAdultGenreName(typeof g === "string" ? g : g?.name)
-      );
+      )
+  ).filter((g) => {
+    const name = (typeof g === "string" ? g : g?.name || "").trim();
+    return Boolean(name);
+  });
   const primaryGenreName = useMemo(() => {
     const g0 = genres[0];
     if (!g0) return null;

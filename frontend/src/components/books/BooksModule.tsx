@@ -32,6 +32,7 @@ import {
   catalogBackgroundIso,
   catalogBackgroundUrl,
 } from "../../catalogBackdrop";
+import { resolveSubgenreId, vibeBrowseName } from "../../catalogBrowse";
 import {
   loadOwnershipIndex,
   markLeafCards,
@@ -688,6 +689,60 @@ export default function BooksModule({
     });
   };
 
+  const browseCatalog = (target: {
+    mode: SeriesFilterMode;
+    countryId?: number;
+    subgenreId?: number;
+    genreName?: string;
+    publisher?: string;
+    writer?: string;
+  }) => {
+    clearMediaTheme(userId);
+    setEntrySource("catalog");
+    setTab("catalog");
+    if (target.mode === "writer" || target.mode === "publisher") {
+      setCatalogScope("shows");
+    }
+    pushBooksCatalogRoute();
+    onNavigate({
+      franchiseId: undefined,
+      bookId: undefined,
+      section: undefined,
+      overviewTab: undefined,
+      universeId: undefined,
+    });
+    setFilterMode(target.mode);
+    setSearch("");
+    setLetter(target.mode === "name" ? "A" : "");
+    setContinentId("");
+    setCountryId(target.countryId ?? "");
+    setStartDecade("");
+    setEndDecade("");
+    let nextSubgenre: number | "" = target.subgenreId ?? "";
+    if (nextSubgenre === "" && target.genreName) {
+      if (filterOptions) {
+        nextSubgenre = resolveSubgenreId(filterOptions, target.genreName);
+      } else {
+        void (async () => {
+          const opts = await fetchBooksFilterOptions().catch(() => null);
+          if (opts) setFilterOptions(opts);
+          setSubgenreId(resolveSubgenreId(opts, target.genreName));
+        })();
+      }
+    }
+    setSubgenreId(nextSubgenre);
+    setPublisher(target.publisher ?? "");
+    setWriter(target.writer ?? "");
+    loadCatalog();
+  };
+
+  const openWrappedVibe = (item: ModuleWrappedItem) => {
+    browseCatalog({
+      mode: "genre",
+      genreName: vibeBrowseName(item),
+    });
+  };
+
   const backToBooksHome = () => {
     clearMediaTheme(userId);
     pushBooksRootRoute();
@@ -831,33 +886,7 @@ export default function BooksModule({
                   : "CATALOG"
                 : undefined
         }
-        onBrowseCatalog={(target) => {
-          clearMediaTheme(userId);
-          setEntrySource("catalog");
-          setTab("catalog");
-          if (target.mode === "writer" || target.mode === "publisher") {
-            setCatalogScope("shows");
-          }
-          pushBooksCatalogRoute();
-          onNavigate({
-            franchiseId: undefined,
-            bookId: undefined,
-            section: undefined,
-            overviewTab: undefined,
-            universeId: undefined,
-          });
-          setFilterMode(target.mode);
-          setSearch("");
-          setLetter(target.mode === "name" ? "A" : "");
-          setContinentId("");
-          setCountryId(target.countryId ?? "");
-          setStartDecade("");
-          setEndDecade("");
-          setSubgenreId(target.subgenreId ?? "");
-          setPublisher(target.publisher ?? "");
-          setWriter(target.writer ?? "");
-          loadCatalog();
-        }}
+        onBrowseCatalog={browseCatalog}
         onOpenMusicRelease={onOpenMusicRelease}
         onOpenSeriesFranchise={onOpenSeriesFranchise}
         onOpenFilm={(id) => {
@@ -1090,33 +1119,7 @@ export default function BooksModule({
             })
             .catch(() => {});
         }}
-        onBrowseCatalog={(target) => {
-          clearMediaTheme(userId);
-          setEntrySource("catalog");
-          setTab("catalog");
-          if (target.mode === "writer" || target.mode === "publisher") {
-            setCatalogScope("shows");
-          }
-          pushBooksCatalogRoute();
-          onNavigate({
-            franchiseId: undefined,
-            bookId: undefined,
-            section: undefined,
-            overviewTab: undefined,
-            universeId: undefined,
-          });
-          setFilterMode(target.mode);
-          setSearch("");
-          setLetter(target.mode === "name" ? "A" : "");
-          setContinentId("");
-          setCountryId(target.countryId ?? "");
-          setStartDecade("");
-          setEndDecade("");
-          setSubgenreId(target.subgenreId ?? "");
-          setPublisher(target.publisher ?? "");
-          setWriter(target.writer ?? "");
-          loadCatalog();
-        }}
+        onBrowseCatalog={browseCatalog}
         onImport={onImport}
         onSync={onSync}
         onChooseSource={onChooseSource}
@@ -1551,10 +1554,7 @@ export default function BooksModule({
             if (target.groupId) openBook(target.groupId, fid, "home");
             else openWork(fid, undefined, undefined, "home");
           }}
-          onOpenVibe={() => {
-            setTab("catalog");
-            pushBooksCatalogRoute();
-          }}
+          onOpenVibe={openWrappedVibe}
         />
       ) : null}
     </div>

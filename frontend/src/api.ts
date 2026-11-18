@@ -4077,6 +4077,13 @@ export async function fetchGamesHomeAudioPool() {
   );
 }
 
+export async function fetchHobbyFranchiseAudioPool(franchise: string) {
+  const q = new URLSearchParams({ franchise: franchise.trim() });
+  return request<{ tracks: ModuleHomeAudioTrack[]; count: number }>(
+    `${API}/hobbies/franchise-audio-pool?${q}`
+  );
+}
+
 export async function fetchSeriesPlayerTracks(franchiseId: string) {
   return request<{
     tracks: {

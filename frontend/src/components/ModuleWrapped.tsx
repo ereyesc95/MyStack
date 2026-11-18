@@ -26,7 +26,7 @@ import {
   diskCreditFromTitle,
   trackMainTitle,
 } from "./music/release/releaseTrackPanelMeta";
-import { IconCheck, IconPlus } from "./MenuIcons";
+import { IconCheck, IconPlus, IconTrophy } from "./MenuIcons";
 import ModalPortal, { useModalClose } from "./ModalPortal";
 
 type TabId = "items" | "videos" | "groups" | "franchises" | "tracks" | "vibes";
@@ -343,15 +343,26 @@ function ModuleWrappedPanel({
     try {
       let id = playlistId;
       if (id == null) {
-        const created = await createUserPlaylist({
-          name: playlistName,
-          description: `Your most played tracks in ${year} are here!`,
-        });
-        if (!created.ok || created.id == null) {
-          throw new Error(created.error || "Could not create playlist");
+        // Re-check so Music + Series/Movies fills share one `{year} Wrapped`.
+        const list = await fetchUserPlaylists().catch(() => []);
+        const hit = list.find(
+          (p) =>
+            (p.name || "").trim().toLowerCase() === playlistName.toLowerCase()
+        );
+        if (hit?.id != null) {
+          id = hit.id;
+          setPlaylistId(id);
+        } else {
+          const created = await createUserPlaylist({
+            name: playlistName,
+            description: `Your most played tracks in ${year} are here!`,
+          });
+          if (!created.ok || created.id == null) {
+            throw new Error(created.error || "Could not create playlist");
+          }
+          id = created.id;
+          setPlaylistId(id);
         }
-        id = created.id;
-        setPlaylistId(id);
       }
       for (const t of tracks) {
         if (!t.path) continue;
@@ -366,6 +377,7 @@ function ModuleWrappedPanel({
       }
       setPlaylistFilled(true);
       onPlaylistCreated?.();
+      window.dispatchEvent(new CustomEvent("playlists-changed"));
     } catch (e) {
       setPlaylistError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -407,6 +419,10 @@ function ModuleWrappedPanel({
     );
   }
 
+  function openWrappedItem(item: ModuleWrappedItem) {
+    requestClose(() => onOpenItem?.(item));
+  }
+
   function renderRankedList(
     listFeatured: ModuleWrappedItem | undefined,
     listRest: ModuleWrappedItem[],
@@ -421,7 +437,7 @@ function ModuleWrappedPanel({
             <button
               type="button"
               className="music-wrapped__feature music-wrapped__feature--track"
-              onClick={() => onOpenItem?.(listFeatured)}
+              onClick={() => openWrappedItem(listFeatured)}
             >
               {!hideCovers ? (
                 listFeatured.cover_url || listFeatured.photo_url ? (
@@ -438,7 +454,12 @@ function ModuleWrappedPanel({
                   />
                 )
               ) : (
-                <span className="music-wrapped__feature-rank-only">#1</span>
+                <span
+                  className={`${artClass} music-wrapped__feature-trophy`}
+                  aria-hidden
+                >
+                  <IconTrophy className="music-wrapped__trophy-icon" />
+                </span>
               )}
               <span className="music-wrapped__feature-meta">
                 <span className="music-wrapped__feature-rank">{rankLabel}</span>
@@ -463,7 +484,7 @@ function ModuleWrappedPanel({
                     className={`music-wrapped__row${
                       slim ? " music-wrapped__row--slim" : ""
                     }${rowArtClass && !hideCovers ? ` ${rowArtClass}` : ""}`}
-                    onClick={() => onOpenItem?.(t)}
+                    onClick={() => openWrappedItem(t)}
                   >
                     {!slim && !hideCovers ? (
                       t.cover_url || t.photo_url ? (
@@ -499,6 +520,7 @@ function ModuleWrappedPanel({
     listRest: ModuleWrappedItem[],
     rankLabel: string
   ) {
+    const hideCovers = hideItemCovers;
     return (
       <div className="music-wrapped__pane">
         {listFeatured ? (
@@ -507,7 +529,14 @@ function ModuleWrappedPanel({
             className="music-wrapped__feature"
             onClick={() => browseFromGroup(listFeatured)}
           >
-            {listFeatured.cover_url || listFeatured.photo_url ? (
+            {hideCovers ? (
+              <span
+                className={`${artClass} music-wrapped__feature-trophy`}
+                aria-hidden
+              >
+                <IconTrophy className="music-wrapped__trophy-icon" />
+              </span>
+            ) : listFeatured.cover_url || listFeatured.photo_url ? (
               <img
                 className={artClass}
                 src={
@@ -528,7 +557,11 @@ function ModuleWrappedPanel({
           </button>
         ) : null}
         {listRest.length > 0 ? (
-          <ul className="music-wrapped__grid">
+          <ul
+            className={`music-wrapped__grid${
+              hideCovers ? " music-wrapped__grid--no-covers" : ""
+            }`}
+          >
             {listRest.map((a, i) => (
               <li key={a.id}>
                 <button
@@ -536,16 +569,22 @@ function ModuleWrappedPanel({
                   className="music-wrapped__grid-card"
                   onClick={() => browseFromGroup(a)}
                 >
-                  {a.cover_url || a.photo_url ? (
+                  {hideCovers ? (
+                    <span className="music-wrapped__grid-rank-only">
+                      #{i + 2}
+                    </span>
+                  ) : a.cover_url || a.photo_url ? (
                     <img src={a.cover_url || a.photo_url || ""} alt="" />
                   ) : (
                     <span className="music-wrapped__art-fallback music-wrapped__art-fallback--round" />
                   )}
                   <span>
                     <strong>
-                      <span className="music-wrapped__grid-rank">
-                        #{i + 2}
-                      </span>{" "}
+                      {!hideCovers ? (
+                        <span className="music-wrapped__grid-rank">
+                          #{i + 2}
+                        </span>
+                      ) : null}{" "}
                       {a.title}
                     </strong>
                     <em>
@@ -851,13 +890,20 @@ function ModuleWrappedPanel({
                           module === "hobbies" ||
                           module === "photos"
                         ) {
-                          onOpenItem?.(featuredVibe);
+                          openWrappedItem(featuredVibe);
                         } else {
                           requestClose(() => onOpenVibe?.(featuredVibe));
                         }
                       }}
                     >
-                      {featuredVibe.image_url || featuredVibe.cover_url ? (
+                      {hideItemCovers ? (
+                        <span
+                          className={`${artClass} music-wrapped__feature-trophy`}
+                          aria-hidden
+                        >
+                          <IconTrophy className="music-wrapped__trophy-icon" />
+                        </span>
+                      ) : featuredVibe.image_url || featuredVibe.cover_url ? (
                         featuredVibe.image_url && !featuredVibe.cover_url ? (
                           <span
                             className="music-wrapped__feature-art music-wrapped__feature-art--genre"
@@ -868,9 +914,7 @@ function ModuleWrappedPanel({
                         ) : (
                           <img
                             className={
-                              module === "files" ||
-                              module === "hobbies" ||
-                              module === "photos"
+                              module === "hobbies" || module === "photos"
                                 ? artClass
                                 : vibeArtClass
                             }
@@ -885,9 +929,7 @@ function ModuleWrappedPanel({
                       ) : (
                         <span
                           className={`${
-                            module === "files" ||
-                            module === "hobbies" ||
-                            module === "photos"
+                            module === "hobbies" || module === "photos"
                               ? artClass
                               : vibeArtClass
                           } music-wrapped__art-fallback`}
@@ -914,7 +956,11 @@ function ModuleWrappedPanel({
                     </button>
                   ) : null}
                   {restVibes.length > 0 ? (
-                    <ul className="music-wrapped__grid">
+                    <ul
+                      className={`music-wrapped__grid${
+                        hideItemCovers ? " music-wrapped__grid--no-covers" : ""
+                      }`}
+                    >
                       {restVibes.map((g, i) => (
                         <li key={String(g.id)}>
                           <button
@@ -926,13 +972,17 @@ function ModuleWrappedPanel({
                                 module === "hobbies" ||
                                 module === "photos"
                               ) {
-                                onOpenItem?.(g);
+                                openWrappedItem(g);
                               } else {
                                 requestClose(() => onOpenVibe?.(g));
                               }
                             }}
                           >
-                            {g.image_url && !g.cover_url ? (
+                            {hideItemCovers ? (
+                              <span className="music-wrapped__grid-rank-only">
+                                #{i + 2}
+                              </span>
+                            ) : g.image_url && !g.cover_url ? (
                               <span
                                 className="music-wrapped__grid-genre"
                                 style={{

@@ -203,6 +203,7 @@ type Props = {
     restore?: ArtistBackRestore,
     gameId?: string
   ) => void;
+  onBackToHobbies?: (collectionId?: number) => void;
   onBackToPhotos?: () => void;
   /** Open Series module from an artist SERIES folder path. */
   onOpenSeriesFolder?: (folderPath: string) => void;
@@ -266,6 +267,7 @@ export default function MusicModule({
   onBackToMovies,
   onBackToBooks,
   onBackToGames,
+  onBackToHobbies,
   onBackToPhotos,
   onOpenSeriesFolder,
   onOpenMoviesLeaf,
@@ -1351,6 +1353,12 @@ export default function MusicModule({
       .then((d) => setPlaylists(d.items))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const onChanged = () => reloadPlaylists();
+    window.addEventListener("playlists-changed", onChanged);
+    return () => window.removeEventListener("playlists-changed", onChanged);
+  }, [reloadPlaylists]);
 
   const userPlaylistOpen = tab === "playlists" && playlistId != null;
   const catalogLiveShowsOpenActive =
@@ -2680,6 +2688,7 @@ export default function MusicModule({
           onBackToMovies={onBackToMovies}
           onBackToBooks={onBackToBooks}
           onBackToGames={onBackToGames}
+          onBackToHobbies={onBackToHobbies}
           onBackToHome={() => {
             clearArtistEntryReferrer();
             clearMediaTheme(userId);
@@ -2796,6 +2805,11 @@ export default function MusicModule({
               );
               return;
             }
+            if (ref?.source === "hobbies") {
+              clearArtistEntryReferrer();
+              onBackToHobbies?.(ref.hobbyCollectionId);
+              return;
+            }
             clearArtistEntryReferrer();
             pushMusicRootRoute();
             onBand(undefined);
@@ -2822,11 +2836,13 @@ export default function MusicModule({
                   ? "BOOKS"
                   : getArtistEntryReferrer()?.source === "games"
                     ? "GAMES"
-                    : entrySource === "home"
-                      ? "HOME"
-                      : entrySource === "collection"
-                        ? "COLLECTION"
-                        : "CATALOG")
+                    : getArtistEntryReferrer()?.source === "hobbies"
+                      ? "HOBBIES"
+                      : entrySource === "home"
+                        ? "HOME"
+                        : entrySource === "collection"
+                          ? "COLLECTION"
+                          : "CATALOG")
           }
           onNavigate={(section, overviewTab) =>
             onArtistNavigate(section, overviewTab ?? artistOverviewTab)

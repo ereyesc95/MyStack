@@ -102,6 +102,24 @@ def create_user_playlist(
     clean = name.strip()
     if not clean:
         return {"ok": False, "error": "Playlist name is required"}
+    # One canonical `{year} Wrapped` playlist — reuse + fold duplicates.
+    wrapped_year = parse_listening_wrapped_year(clean)
+    if wrapped_year is not None:
+        existing = _find_listening_wrapped_playlists(db, wrapped_year)
+        if existing:
+            primary = existing[0]
+            _merge_wrapped_playlist_duplicates(db, primary, existing[1:])
+            if description and not (primary.pla_description or "").strip():
+                primary.pla_description = description.strip()
+                db.commit()
+            return {
+                "ok": True,
+                "id": primary.pla_id,
+                "name": primary.pla_name,
+                "description": primary.pla_description,
+                "cover_url": resolve_playlist_cover_url(primary),
+                "duplicate": True,
+            }
     next_id = _next_playlist_id(db)
     row = Playlist(
         pla_id=next_id,
@@ -124,6 +142,31 @@ def create_user_playlist(
         "cover_url": resolve_playlist_cover_url(row),
         "duplicate": False,
     }
+
+
+def _find_listening_wrapped_playlists(db: Session, year: int) -> list[Playlist]:
+    want = f"{year} Wrapped".casefold()
+    rows = db.scalars(
+        select(Playlist)
+        .where(Playlist.pla_type == USER_PLAYLIST_TYPE)
+        .order_by(Playlist.pla_id)
+    ).all()
+    return [p for p in rows if (p.pla_name or "").strip().casefold() == want]
+
+
+def _merge_wrapped_playlist_duplicates(
+    db: Session, primary: Playlist, dupes: list[Playlist]
+) -> None:
+    if not dupes:
+        return
+    for dupe in dupes:
+        tracks = db.scalars(
+            select(PlaylistData).where(PlaylistData.pld_playlist == dupe.pla_id)
+        ).all()
+        for t in tracks:
+            t.pld_playlist = primary.pla_id
+        db.delete(dupe)
+    db.commit()
 
 
 def parse_listening_wrapped_year(name: str | None) -> int | None:

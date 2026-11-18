@@ -51,6 +51,7 @@ import {
   preferredSectionForSource,
   saveFranchiseHomeReferrer,
 } from "../../franchiseHome";
+import { vibeBrowseName } from "../../catalogBrowse";
 import { wrappedSeasonYear } from "../../moduleWrappedCache";
 import type {
   CardOrientation,
@@ -1456,10 +1457,24 @@ export default function GamesModule({
             if (target.groupId) openGame(target.groupId, fid, "home");
             else openFranchise(fid, undefined, "overview", "home");
           }}
-          onOpenVibe={() => {
+          onOpenVibe={(item: ModuleWrappedItem) => {
+            const platform = vibeBrowseName(item);
             setTab("catalog");
-            setCatalogScope("platforms");
             pushGamesCatalogRoute();
+            setCatalogScope("platforms");
+            setFilterMode("name");
+            setPlatformFilter(platform || null);
+            setSubgenreId("");
+            setContinentId("");
+            setCountryId("");
+            setStartDecade("");
+            setEndDecade("");
+            setDeveloper("");
+            setPublisher("");
+            setWriter("");
+            setSearch("");
+            setLetter("A");
+            loadCatalog();
           }}
         />
       ) : null}

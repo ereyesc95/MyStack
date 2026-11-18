@@ -2077,6 +2077,36 @@ input {
   opacity: 0.55;
   font-variant-numeric: tabular-nums;
 }
+.music-wrapped__feature-trophy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  border-radius: 0.55rem;
+}
+.music-wrapped__trophy-icon {
+  width: 52%;
+  height: 52%;
+  opacity: 0.95;
+}
+.music-wrapped__grid--no-covers .music-wrapped__grid-card {
+  grid-template-columns: auto 1fr;
+}
+.music-wrapped__grid-rank-only {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  font-size: 0.85rem;
+  font-weight: 650;
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
+.wrapped-playlist-module .module-top-bar__media-module,
+.wrapped-playlist-module .module-top-bar__media-label {
+  color: color-mix(in srgb, var(--accent) 72%, var(--text) 28%);
+}
 .music-wrapped__feature-meta {
   display: flex;
   flex-direction: column;

@@ -229,6 +229,7 @@ type Props = {
     restore?: { tab?: "home" | "catalog"; letter?: string },
     gameId?: string
   ) => void;
+  onBackToHobbies?: (collectionId?: number) => void;
   onBackToHome?: () => void;
   onBackToCatalog?: () => void;
   onBackToCollection?: () => void;
@@ -443,6 +444,7 @@ export default function ReleasePage({
   onBackToMovies,
   onBackToBooks,
   onBackToGames,
+  onBackToHobbies,
   onBackToHome,
   onBackToCatalog,
   onBackToCollection,
@@ -1359,6 +1361,10 @@ export default function ReleasePage({
           : undefined,
         ref.subseriesId
       );
+      return;
+    }
+    if (ref?.source === "hobbies") {
+      onBackToHobbies?.(ref.hobbyCollectionId);
       return;
     }
     if (ref && ref.bandId !== bandId) {

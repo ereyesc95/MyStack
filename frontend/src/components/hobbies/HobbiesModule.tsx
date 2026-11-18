@@ -42,6 +42,7 @@ import {
   type HobbyLinkTargetModule,
   type HobbyPreset,
 } from "../../api";
+import { saveArtistEntryReferrer } from "../../artistEntry";
 import { getStoredProfile } from "../../auth";
 import {
   pushHobbiesCollectionRoute,
@@ -53,17 +54,25 @@ import { prefetchCollectionPresenceDetail } from "../../collectionPresenceCache"
 import { withMediaAccess } from "../../mediaFileUrl";
 import { trackModuleActivity } from "../../moduleActivity";
 import { wrappedSeasonYear } from "../../moduleWrappedCache";
+import { saveReleaseReferrer } from "../../musicRoute";
 import type { CardOrientation, ModuleWrappedItem } from "../../types";
 import {
   getStoredHobbiesOrientation,
   saveHobbiesOrientation,
 } from "../../themes";
+import {
+  moduleHomePlaybackClassNames,
+  PlaybackCoverAtmosphere,
+} from "../../usePlaybackCoverBg";
 import type { MediaOption } from "../ModuleTopBar";
 import ModuleTopBar from "../ModuleTopBar";
 import AppMenu from "../AppMenu";
 import CardOrientationPicker from "../CardOrientationPicker";
 import ModalPortal from "../ModalPortal";
 import ConfirmDialog from "../ConfirmDialog";
+import ModuleHomeAudioPlayer, {
+  type ModuleHomeAudioSource,
+} from "../ModuleHomeAudioPlayer";
 import ModuleWrapped, {
   type ModuleWrappedBrowseTarget,
 } from "../ModuleWrapped";
@@ -228,6 +237,9 @@ type Props = {
   onOpenMusicCollection?: () => void;
   /** Open a Linked collection target (module + tab). */
   onOpenLinkedTarget?: (module: string, tab: string) => void;
+  onOpenArtist?: (bandId: number) => void;
+  onOpenMusicRelease?: (bandId: number, releaseId: string) => void;
+  onOpenSourceLeaf?: (source: ModuleHomeAudioSource) => void;
   collectionId?: number;
   /** Hub tab when not inside a collection (`/hobbies` vs `/hobbies/franchises`). */
   hubTab?: HobbiesHubTab;
@@ -391,6 +403,9 @@ export default function HobbiesModule({
   onSelectMedia,
   onOpenMusicCollection,
   onOpenLinkedTarget,
+  onOpenArtist,
+  onOpenMusicRelease,
+  onOpenSourceLeaf,
   collectionId,
   hubTab = "home",
   busy,
@@ -430,7 +445,11 @@ export default function HobbiesModule({
   const [identityTarget, setIdentityTarget] =
     useState<HubIdentityTarget | null>(null);
   const profile = getStoredProfile();
+  const userId = profile?.user_id;
   const nsfwUnlocked = Boolean(profile?.nsfw_unlocked);
+  const [homeAudioPlaying, setHomeAudioPlaying] = useState(false);
+  const [homeAudioHasSrc, setHomeAudioHasSrc] = useState(false);
+  const [homeAudioCover, setHomeAudioCover] = useState<string | null>(null);
   const [cardOrientation, setCardOrientation] = useState<CardOrientation>(() =>
     profile?.user_id != null
       ? getStoredHobbiesOrientation(profile.user_id)
@@ -667,12 +686,35 @@ export default function HobbiesModule({
       ? hobbyRealArtUrl(active.landscape_url) ||
         hobbyRealArtUrl(active.cover_url)
       : null;
+  const franchiseTheme = (active?.theme || "").trim();
+  const showFranchiseAudio = Boolean(
+    active &&
+      !active.linked &&
+      active.limited &&
+      franchiseTheme &&
+      activeId != null
+  );
+  const showHomePlaybackBg = Boolean(homeAudioPlaying && homeAudioCover);
 
   return (
     <div
-      className={`hobbies-module${activeBgUrl ? " hobbies-module--has-bg" : ""}`}
+      className={`hobbies-module${
+        activeBgUrl || showHomePlaybackBg || homeAudioHasSrc
+          ? " hobbies-module--has-bg"
+          : ""
+      }${moduleHomePlaybackClassNames({
+        showPlaybackBg: showHomePlaybackBg,
+        hasSrc: homeAudioHasSrc,
+        playing: homeAudioPlaying,
+      })}`}
     >
-      {activeBgUrl ? (
+      {showHomePlaybackBg || homeAudioPlaying || homeAudioHasSrc ? (
+        <PlaybackCoverAtmosphere
+          playing={homeAudioPlaying}
+          hasSrc={homeAudioHasSrc}
+          coverUrl={homeAudioCover}
+        />
+      ) : activeBgUrl ? (
         <div className="hobbies-module__bg-stack" aria-hidden>
           <div
             className="hobbies-module__bg"
@@ -736,6 +778,46 @@ export default function HobbiesModule({
               >
                 {`${wrappedYear} Wrapped`}
               </button>
+            ) : null}
+            {showFranchiseAudio ? (
+              <ModuleHomeAudioPlayer
+                module="series"
+                franchiseName={franchiseTheme}
+                enabled={showFranchiseAudio}
+                userId={userId}
+                onPlayingChange={setHomeAudioPlaying}
+                onCoverChange={setHomeAudioCover}
+                onHasSrcChange={setHomeAudioHasSrc}
+                onOpenMusicRelease={
+                  onOpenMusicRelease
+                    ? (bandId, releaseId) => {
+                        saveReleaseReferrer({
+                          bandId,
+                          section: "audio",
+                          source: "hobbies",
+                          hobbyCollectionId: active?.id,
+                          franchiseName: franchiseTheme || undefined,
+                        });
+                        onOpenMusicRelease(bandId, releaseId);
+                      }
+                    : undefined
+                }
+                onOpenMusicArtist={
+                  onOpenArtist
+                    ? (bandId) => {
+                        saveArtistEntryReferrer({
+                          source: "hobbies",
+                          section: "audio",
+                          hobbyCollectionId: active?.id,
+                          franchiseName: franchiseTheme || undefined,
+                          backLabel: (active?.name || "HOBBIES").toUpperCase(),
+                        });
+                        onOpenArtist(bandId);
+                      }
+                    : undefined
+                }
+                onOpenSourceLeaf={onOpenSourceLeaf}
+              />
             ) : null}
             <AppMenu
               isAdmin={isAdmin}

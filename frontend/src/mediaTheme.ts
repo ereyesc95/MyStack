@@ -28,6 +28,8 @@ let colorsBeforePlayback: CustomThemeColors | null = null;
 let playbackMenuTheme: ThemeId | null = null;
 /** When true, cover-based colors must not override the current display while playing. */
 let playbackThemeSuppressed = false;
+/** Last cover used for playback sampling (re-apply after leaving a leaf page). */
+let lastPlaybackCoverUrl: string | null = null;
 
 function readLiveThemeColors(): CustomThemeColors {
   const s = getComputedStyle(document.documentElement);
@@ -343,6 +345,7 @@ export function applyPlaybackThemeFromCover(
   userId?: number
 ) {
   if (!coverUrl || artistPageThemePin || playbackThemeSuppressed) return;
+  lastPlaybackCoverUrl = coverUrl;
   beginPlaybackThemeSession(userId);
   void colorsFromImageUrl(coverUrl).then((colors) => {
     if (
@@ -409,6 +412,7 @@ export function endPlaybackThemeSession(userId?: number) {
   if (!playbackSessionActive) return;
   playbackSessionActive = false;
   playbackIsPlaying = false;
+  lastPlaybackCoverUrl = null;
   restoreThemeAfterPlayback(userId);
   themeBeforePlayback = null;
   colorsBeforePlayback = null;
@@ -486,22 +490,75 @@ export function applySavedArtistTheme(userId?: number) {
 export function clearMediaTheme(userId?: number) {
   albumPageActive = false;
   clearArtistPageThemePin();
-  // Keep cover-based accent while module/home audio is still playing
-  // (e.g. Games/Series home ↔ catalog tab). Same as Music stack browsing.
-  if (playbackSessionActive && playbackIsPlaying) {
-    artistPageActive = false;
-    themeBeforeArtist = null;
-    return;
-  }
-  endPlaybackThemeSession(userId);
-  if (!artistPageActive && themeBeforeArtist === null) {
-    clearMediaCss();
-    applyTheme(getStoredTheme(userId), userId);
-    return;
-  }
-  clearMediaCss();
+  // Leaving a leaf/franchise/universe must always restore the home/menu theme.
+  // If module home audio is still playing, re-apply cover sampling afterward so
+  // the accent stays — but never leave leaf CSS vars stuck on home chrome.
+  const keepPlaybackCover = playbackSessionActive && playbackIsPlaying;
   const restore = themeBeforeArtist ?? readPersistedTheme(userId);
   themeBeforeArtist = null;
   artistPageActive = false;
+  if (!keepPlaybackCover) {
+    endPlaybackThemeSession(userId);
+  }
+  clearMediaCss();
   applyTheme(restore, userId);
+  if (keepPlaybackCover && lastPlaybackCoverUrl) {
+    applyPlaybackThemeFromCover(lastPlaybackCoverUrl, userId);
+  }
+}
+
+/** Snapshot theme before Switch Profile so Back can restore leaf Adaptive. */
+let themeBeforeProfileSwitch: {
+  artistPageActive: boolean;
+  albumPageActive: boolean;
+  themeBeforeArtist: ThemeId | null;
+  colors: CustomThemeColors | null;
+} | null = null;
+
+export function beginProfileSwitchTheme(userId?: number) {
+  themeBeforeProfileSwitch = {
+    artistPageActive,
+    albumPageActive,
+    themeBeforeArtist,
+    colors: artistPageActive || albumPageActive ? readLiveThemeColors() : null,
+  };
+  // Profile picker always uses the stored home/menu theme.
+  albumPageActive = false;
+  artistPageActive = false;
+  themeBeforeArtist = null;
+  clearArtistPageThemePin();
+  if (!(playbackSessionActive && playbackIsPlaying)) {
+    endPlaybackThemeSession(userId);
+  }
+  clearMediaCss();
+  applyTheme(readPersistedTheme(userId), userId);
+}
+
+export function endProfileSwitchTheme(userId?: number) {
+  const snap = themeBeforeProfileSwitch;
+  themeBeforeProfileSwitch = null;
+  if (!snap) {
+    applyStoredThemeOrKeepAdaptive(userId ?? 0);
+    return;
+  }
+  if (snap.artistPageActive || snap.albumPageActive) {
+    artistPageActive = snap.artistPageActive;
+    albumPageActive = snap.albumPageActive;
+    themeBeforeArtist = snap.themeBeforeArtist;
+    clearArtistPageThemePin();
+    setAdaptiveMediaPref(true, userId);
+    if (snap.colors) {
+      applyMediaCss(snap.colors, snap.albumPageActive ? "album" : "artist");
+    } else {
+      applyTheme("artist", userId);
+    }
+    document.documentElement.setAttribute(
+      "data-theme",
+      snap.albumPageActive ? "album" : "artist"
+    );
+    window.dispatchEvent(new CustomEvent("theme-changed"));
+    return;
+  }
+  clearMediaCss();
+  applyTheme(readPersistedTheme(userId), userId);
 }

@@ -33,6 +33,7 @@ import {
   catalogBackgroundIso,
   catalogBackgroundUrl,
 } from "../../catalogBackdrop";
+import { resolveSubgenreId, vibeBrowseName } from "../../catalogBrowse";
 import {
   loadOwnershipIndex,
   markFranchiseOwnership,
@@ -819,9 +820,54 @@ export default function SeriesModule({
     setCountryId(target.countryId ?? "");
     setStartDecade("");
     setEndDecade("");
-    setSubgenreId(target.subgenreId ?? "");
+    let nextSubgenre: number | "" = target.subgenreId ?? "";
+    if (nextSubgenre === "" && target.genreName) {
+      if (filterOptions) {
+        nextSubgenre = resolveSubgenreId(filterOptions, target.genreName);
+      } else {
+        void (async () => {
+          const opts = await fetchSeriesFilterOptions().catch(() => null);
+          if (opts) setFilterOptions(opts);
+          setSubgenreId(resolveSubgenreId(opts, target.genreName));
+        })();
+      }
+    }
+    setSubgenreId(nextSubgenre);
     setPublisher(target.publisher ?? "");
     setWriter(target.writer ?? "");
+  };
+
+  const openWrappedVibe = (item: ModuleWrappedItem) => {
+    const name = vibeBrowseName(item);
+    clearMediaTheme(userId);
+    setFranchiseShell(null);
+    setTab("catalog");
+    pushSeriesCatalogRoute(true);
+    onNavigate({
+      franchiseId: undefined,
+      subseriesId: undefined,
+      seasonId: undefined,
+      section: "overview",
+      universeId: undefined,
+    });
+    setFilterMode("genre");
+    setSearch("");
+    setLetter("");
+    setContinentId("");
+    setCountryId("");
+    setStartDecade("");
+    setEndDecade("");
+    setPublisher("");
+    setWriter("");
+    if (filterOptions) {
+      setSubgenreId(resolveSubgenreId(filterOptions, name));
+      return;
+    }
+    void (async () => {
+      const opts = await fetchSeriesFilterOptions().catch(() => null);
+      if (opts) setFilterOptions(opts);
+      setSubgenreId(resolveSubgenreId(opts, name));
+    })();
   };
 
   const openMusicRelease = (bandId: number, releaseId: string) => {
@@ -1552,10 +1598,7 @@ export default function SeriesModule({
             }
             openFranchise(fid, leaf, undefined, "home");
           }}
-          onOpenVibe={() => {
-            setTab("catalog");
-            pushSeriesCatalogRoute(true);
-          }}
+          onOpenVibe={openWrappedVibe}
         />
       ) : null}
     </div>

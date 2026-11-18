@@ -39,6 +39,7 @@ import {
   catalogBackgroundIso,
   catalogBackgroundUrl,
 } from "../../catalogBackdrop";
+import { resolveSubgenreId, vibeBrowseName } from "../../catalogBrowse";
 import {
   loadOwnershipIndex,
   markLeafCards,
@@ -744,6 +745,60 @@ export default function MoviesModule({
     });
   };
 
+  const browseCatalog = (target: {
+    mode: SeriesFilterMode;
+    countryId?: number;
+    subgenreId?: number;
+    genreName?: string;
+    publisher?: string;
+    writer?: string;
+  }) => {
+    clearMediaTheme(userId);
+    setEntrySource("catalog");
+    setTab("catalog");
+    if (target.mode === "writer" || target.mode === "publisher") {
+      setCatalogScope("shows");
+    }
+    pushMoviesCatalogRoute();
+    onNavigate({
+      franchiseId: undefined,
+      filmId: undefined,
+      section: undefined,
+      overviewTab: undefined,
+      universeId: undefined,
+    });
+    setFilterMode(target.mode);
+    setSearch("");
+    setLetter(target.mode === "name" ? "A" : "");
+    setContinentId("");
+    setCountryId(target.countryId ?? "");
+    setStartDecade("");
+    setEndDecade("");
+    let nextSubgenre: number | "" = target.subgenreId ?? "";
+    if (nextSubgenre === "" && target.genreName) {
+      if (filterOptions) {
+        nextSubgenre = resolveSubgenreId(filterOptions, target.genreName);
+      } else {
+        void (async () => {
+          const opts = await fetchMoviesFilterOptions().catch(() => null);
+          if (opts) setFilterOptions(opts);
+          setSubgenreId(resolveSubgenreId(opts, target.genreName));
+        })();
+      }
+    }
+    setSubgenreId(nextSubgenre);
+    setPublisher(target.publisher ?? "");
+    setWriter(target.writer ?? "");
+    loadCatalog();
+  };
+
+  const openWrappedVibe = (item: ModuleWrappedItem) => {
+    browseCatalog({
+      mode: "genre",
+      genreName: vibeBrowseName(item),
+    });
+  };
+
   const backToMoviesHome = () => {
     clearMediaTheme(userId);
     pushMoviesRootRoute();
@@ -929,33 +984,7 @@ export default function MoviesModule({
                   : undefined;
               })()
         }
-        onBrowseCatalog={(target) => {
-          clearMediaTheme(userId);
-          setEntrySource("catalog");
-          setTab("catalog");
-          if (target.mode === "writer" || target.mode === "publisher") {
-            setCatalogScope("shows");
-          }
-          pushMoviesCatalogRoute();
-          onNavigate({
-            franchiseId: undefined,
-            filmId: undefined,
-            section: undefined,
-            overviewTab: undefined,
-            universeId: undefined,
-          });
-          setFilterMode(target.mode);
-          setSearch("");
-          setLetter(target.mode === "name" ? "A" : "");
-          setContinentId("");
-          setCountryId(target.countryId ?? "");
-          setStartDecade("");
-          setEndDecade("");
-          setSubgenreId(target.subgenreId ?? "");
-          setPublisher(target.publisher ?? "");
-          setWriter(target.writer ?? "");
-          loadCatalog();
-        }}
+        onBrowseCatalog={browseCatalog}
         onOpenMusicRelease={onOpenMusicRelease}
         onOpenSeriesFranchise={onOpenSeriesFranchise}
         onOpenFilm={(id) => {
@@ -1202,33 +1231,7 @@ export default function MoviesModule({
             })
             .catch(() => {});
         }}
-        onBrowseCatalog={(target) => {
-          clearMediaTheme(userId);
-          setEntrySource("catalog");
-          setTab("catalog");
-          if (target.mode === "writer" || target.mode === "publisher") {
-            setCatalogScope("shows");
-          }
-          pushMoviesCatalogRoute();
-          onNavigate({
-            franchiseId: undefined,
-            filmId: undefined,
-            section: undefined,
-            overviewTab: undefined,
-            universeId: undefined,
-          });
-          setFilterMode(target.mode);
-          setSearch("");
-          setLetter(target.mode === "name" ? "A" : "");
-          setContinentId("");
-          setCountryId(target.countryId ?? "");
-          setStartDecade("");
-          setEndDecade("");
-          setSubgenreId(target.subgenreId ?? "");
-          setPublisher(target.publisher ?? "");
-          setWriter(target.writer ?? "");
-          loadCatalog();
-        }}
+        onBrowseCatalog={browseCatalog}
         onImport={onImport}
         onSync={onSync}
         onChooseSource={onChooseSource}
@@ -1660,10 +1663,7 @@ export default function MoviesModule({
               openFilm(target.groupId, fid, "home", true, target.title);
             else openWork(fid, undefined, undefined, "home");
           }}
-          onOpenVibe={() => {
-            setTab("catalog");
-            pushMoviesCatalogRoute();
-          }}
+          onOpenVibe={openWrappedVibe}
         />
       ) : null}
     </div>

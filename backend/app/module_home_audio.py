@@ -404,6 +404,109 @@ def _release_key(track: dict) -> str:
     return f"trk:{(track.get('id') or path or 'unknown').casefold()}"
 
 
+def _franchise_match_key(name: str | None) -> str:
+    """Casefold + strip apostrophes so ``mcdonald's`` ≈ ``McDonald's``."""
+    from app.franchise_index import normalize_franchise_slug
+
+    text = normalize_franchise_slug(name or "")
+    return (
+        text.replace("'", "")
+        .replace("\u2019", "")
+        .replace("`", "")
+        .replace("█", "")
+    )
+
+
+def _folder_matches_franchise(
+    folder: Path,
+    root: Path,
+    want_key: str,
+    leaf_meta: dict[str, dict],
+) -> bool:
+    if not want_key:
+        return False
+    rel = (safe_relative(folder, root) or "").replace("\\", "/").strip("/")
+    meta = leaf_meta.get(rel.casefold()) if rel else None
+    if meta:
+        for key in ("source_franchise_id", "source_title"):
+            if _franchise_match_key(meta.get(key)) == want_key:
+                return True
+    from pathlib import PurePosixPath
+
+    for part in PurePosixPath(rel).parts:
+        if _franchise_match_key(part) == want_key:
+            return True
+        # Dated leaf/work folders: ``2015.07.05. Dragon Ball Super``
+        import re
+
+        m = re.match(r"^\d{4}(?:\.\d{2}(?:\.\d{2})?)?\.\s*(.+)$", part.strip())
+        if m and _franchise_match_key(m.group(1)) == want_key:
+            return True
+    return False
+
+
+def _sample_pool_from_by_release(
+    by_release: dict[str, dict[str, list[dict]]],
+    *,
+    limit: int,
+) -> list[dict]:
+    if not by_release:
+        return []
+    target = max(1, int(limit))
+
+    def pick_variant(variants: list[dict]) -> dict:
+        return dict(random.choice(variants))
+
+    release_keys = list(by_release.keys())
+    random.shuffle(release_keys)
+    out: list[dict] = []
+    seen_paths: set[str] = set()
+
+    for key in release_keys:
+        if len(out) >= target:
+            break
+        path_map = by_release[key]
+        unused = [p for p in path_map if p not in seen_paths]
+        if not unused:
+            continue
+        path = random.choice(unused)
+        seen_paths.add(path)
+        out.append(pick_variant(path_map[path]))
+
+    if len(out) < target:
+        pool: list[tuple[str, str]] = []
+        for key, path_map in by_release.items():
+            for path in path_map:
+                if path not in seen_paths:
+                    pool.append((key, path))
+        random.shuffle(pool)
+        for _key, path in pool:
+            if len(out) >= target:
+                break
+            if path in seen_paths:
+                continue
+            seen_paths.add(path)
+            out.append(pick_variant(by_release[_key][path]))
+
+    if len(out) < target:
+        all_variants = [
+            variants[0]
+            for path_map in by_release.values()
+            for variants in path_map.values()
+            if variants
+        ]
+        if all_variants:
+            need = target - len(out)
+            extras = random.choices(all_variants, k=need)
+            for i, t in enumerate(extras):
+                row = dict(t)
+                row["id"] = f"{t.get('id') or 'trk'}_r{i}_{len(out)}"
+                out.append(row)
+
+    random.shuffle(out)
+    return out[:target]
+
+
 def build_module_home_audio_pool(
     module: str,
     db: Session,
@@ -425,9 +528,6 @@ def build_module_home_audio_pool(
     if not owners:
         return []
     leaf_meta = _leaf_meta_by_folder(mod, db, nsfw_unlocked=nsfw_unlocked)
-    target = max(1, int(limit))
-
-    # release_key → play_path → annotated track variants (different leaf sources)
     by_release: dict[str, dict[str, list[dict]]] = {}
     for folder in owners:
         tracks = collect_audio_tracks_from_folders(
@@ -445,61 +545,54 @@ def build_module_home_audio_pool(
                 continue
             key = _release_key(annotated)
             by_release.setdefault(key, {}).setdefault(path, []).append(annotated)
+    return _sample_pool_from_by_release(by_release, limit=limit)
 
-    if not by_release:
+
+def build_franchise_home_audio_pool(
+    franchise_name: str,
+    db: Session,
+    *,
+    nsfw_unlocked: bool = False,
+    limit: int = POOL_LIMIT,
+) -> list[dict]:
+    """Up to ``limit`` soundtrack tracks for a franchise across Series/Movies/Books/Games.
+
+    Used by HobbyStack limited collections whose Franchise meta matches a media
+    franchise folder name. Does not scan ``Music/`` directly — only ``[Audio]``
+    ``.lnk`` / ``.path`` portals under those four modules.
+    """
+    root = _media_root()
+    want_key = _franchise_match_key(franchise_name)
+    if not root or not want_key:
         return []
 
-    def pick_variant(variants: list[dict]) -> dict:
-        return dict(random.choice(variants))
-
-    release_keys = list(by_release.keys())
-    random.shuffle(release_keys)
-    out: list[dict] = []
-    seen_paths: set[str] = set()
-
-    # Pass 1 — one track from each distinct release.
-    for key in release_keys:
-        if len(out) >= target:
-            break
-        path_map = by_release[key]
-        unused = [p for p in path_map if p not in seen_paths]
-        if not unused:
+    by_release: dict[str, dict[str, list[dict]]] = {}
+    for mod in ("series", "movies", "books", "games"):
+        owners = _cached_audio_owners(mod, db, nsfw_unlocked=nsfw_unlocked)
+        if not owners:
             continue
-        path = random.choice(unused)
-        seen_paths.add(path)
-        out.append(pick_variant(path_map[path]))
-
-    # Pass 2 — more unused tracks, still preferring unused releases first.
-    if len(out) < target:
-        pool: list[tuple[str, str]] = []  # (release_key, play_path)
-        for key, path_map in by_release.items():
-            for path in path_map:
-                if path not in seen_paths:
-                    pool.append((key, path))
-        random.shuffle(pool)
-        for _key, path in pool:
-            if len(out) >= target:
-                break
-            if path in seen_paths:
-                continue
-            seen_paths.add(path)
-            out.append(pick_variant(by_release[_key][path]))
-
-    # Pass 3 — still short (few releases): sample with replacement.
-    if len(out) < target:
-        all_variants = [
-            variants[0]
-            for path_map in by_release.values()
-            for variants in path_map.values()
-            if variants
+        leaf_meta = _leaf_meta_by_folder(mod, db, nsfw_unlocked=nsfw_unlocked)
+        matched = [
+            folder
+            for folder in owners
+            if _folder_matches_franchise(folder, root, want_key, leaf_meta)
         ]
-        if all_variants:
-            need = target - len(out)
-            extras = random.choices(all_variants, k=need)
-            for i, t in enumerate(extras):
-                row = dict(t)
-                row["id"] = f"{t.get('id') or 'trk'}_r{i}_{len(out)}"
-                out.append(row)
-
-    random.shuffle(out)
-    return out[:target]
+        for folder in matched:
+            tracks = collect_audio_tracks_from_folders(
+                db,
+                [folder],
+                root,
+                shortcuts_only=True,
+            )
+            if not tracks:
+                continue
+            for t in tracks:
+                annotated = _annotate_track(t, folder, root, leaf_meta, mod)
+                path = (annotated.get("play_path") or "").strip()
+                if not path:
+                    continue
+                key = _release_key(annotated)
+                by_release.setdefault(key, {}).setdefault(path, []).append(
+                    annotated
+                )
+    return _sample_pool_from_by_release(by_release, limit=limit)

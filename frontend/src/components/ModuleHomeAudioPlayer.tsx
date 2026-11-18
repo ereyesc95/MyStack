@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   fetchBooksHomeAudioPool,
   fetchGamesHomeAudioPool,
+  fetchHobbyFranchiseAudioPool,
   fetchMoviesHomeAudioPool,
   fetchSeriesHomeAudioPool,
 } from "../api";
@@ -49,6 +50,11 @@ export type ModuleHomeAudioSource = {
 
 type Props = {
   module: ModuleHomeAudioKind;
+  /**
+   * When set (HobbyStack limited Franchise meta), load a cross-module
+   * franchise soundtrack pool instead of the module-wide home pool.
+   */
+  franchiseName?: string | null;
   enabled?: boolean;
   hideToggle?: boolean;
   /** Controlled open (portrait menu). */
@@ -64,7 +70,15 @@ type Props = {
   onHasSrcChange?: (hasSrc: boolean) => void;
 };
 
-async function loadPool(module: ModuleHomeAudioKind): Promise<Track[]> {
+async function loadPool(
+  module: ModuleHomeAudioKind,
+  franchiseName?: string | null
+): Promise<Track[]> {
+  const franchise = (franchiseName || "").trim();
+  if (franchise) {
+    const data = await fetchHobbyFranchiseAudioPool(franchise);
+    return (data.tracks || []) as Track[];
+  }
   const data =
     module === "movies"
       ? await fetchMoviesHomeAudioPool()
@@ -89,6 +103,7 @@ function playUrlFor(track: Track): string | null {
  */
 export default function ModuleHomeAudioPlayer({
   module,
+  franchiseName = null,
   enabled = true,
   hideToggle = false,
   open: openProp,
@@ -151,7 +166,7 @@ export default function ModuleHomeAudioPlayer({
     if (!enabled) return;
     let cancelled = false;
     setLoading(true);
-    void loadPool(module)
+    void loadPool(module, franchiseName)
       .then((list) => {
         if (cancelled) return;
         setTracks(list);
@@ -170,7 +185,7 @@ export default function ModuleHomeAudioPlayer({
     return () => {
       cancelled = true;
     };
-  }, [module, enabled]);
+  }, [module, franchiseName, enabled]);
 
   useEffect(() => {
     return () => {

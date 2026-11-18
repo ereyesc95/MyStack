@@ -8,7 +8,8 @@ export type ArtistEntrySource =
   | "series"
   | "movies"
   | "books"
-  | "games";
+  | "games"
+  | "hobbies";
 
 export type ArtistEntryReferrer = {
   source: ArtistEntrySource;
@@ -32,6 +33,8 @@ export type ArtistEntryReferrer = {
   filmId?: string;
   bookId?: string;
   gameId?: string;
+  /** HobbyStack collection to reopen when returning from Artist. */
+  hobbyCollectionId?: number;
   backLabel?: string;
 };
 
@@ -86,6 +89,8 @@ export function defaultSectionForSource(
     case "games":
       return "audio";
     case "photos":
+      return "audio";
+    case "hobbies":
       return "audio";
     case "music":
     default:

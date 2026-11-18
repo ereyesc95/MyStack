@@ -193,10 +193,14 @@ def record_module_activity(
             row.mad_group_id = group_id
         if group_title and not row.mad_group_title:
             row.mad_group_title = group_title
-        if vibe_key and not row.mad_vibe_key:
+        # Always refresh vibe when the client sends one — first play often
+        # lands before leaf genres resolve, so a later play must be able to fill it.
+        if vibe_key:
             row.mad_vibe_key = vibe_key
-        if vibe_label and not row.mad_vibe_label:
+        if vibe_label:
             row.mad_vibe_label = vibe_label
+        elif vibe_key and not row.mad_vibe_label:
+            row.mad_vibe_label = vibe_key
     else:
         row = ModuleActivityDay(
             mad_user_id=uid,
@@ -969,6 +973,64 @@ def build_module_wrapped(
             vibe_counts[vk] += n
             if vk not in vibe_labels:
                 vibe_labels[vk] = (r.mad_vibe_label or vk).strip() or vk
+
+    # Movies: first play often lands before leaf genres resolve. Backfill vibes
+    # from film meta so Wrapped Platforms/Vibes still populate.
+    if mod == "movies":
+        try:
+            from app.movies_refresh import _load_meta, find_movie_work
+
+            dirty = False
+            for eid, n in list(item_counts.items()):
+                meta = item_meta.get(eid)
+                if not meta:
+                    continue
+                if (meta.mad_vibe_key or "").strip():
+                    continue
+                fid = (meta.mad_franchise_id or "").strip()
+                if not fid:
+                    continue
+                work = find_movie_work(db, fid)
+                if not work:
+                    continue
+                blob = _load_meta(work)
+                films = blob.get("films") if isinstance(blob.get("films"), dict) else {}
+                film_blob = None
+                path_cf = ((meta.mad_path or eid) or "").replace("\\", "/").casefold()
+                for key, fmeta in films.items():
+                    if not isinstance(fmeta, dict):
+                        continue
+                    title = (fmeta.get("title") or key or "").strip()
+                    if title and title.casefold() in path_cf:
+                        film_blob = fmeta
+                        break
+                    if key and key.casefold() in path_cf:
+                        film_blob = fmeta
+                        break
+                if film_blob is None and films:
+                    # Fallback: work-level genres when film match fails.
+                    film_blob = {"genres": blob.get("genres") or []}
+                genres = film_blob.get("genres") if film_blob else None
+                primary = None
+                if isinstance(genres, list):
+                    for g in genres:
+                        if isinstance(g, dict):
+                            primary = (g.get("name") or "").strip() or None
+                        elif isinstance(g, str):
+                            primary = g.strip() or None
+                        if primary:
+                            break
+                if not primary:
+                    continue
+                vibe_counts[primary] += n
+                vibe_labels.setdefault(primary, primary)
+                meta.mad_vibe_key = primary
+                meta.mad_vibe_label = primary
+                dirty = True
+            if dirty:
+                db.commit()
+        except Exception:
+            pass
 
     def _build_item_row(eid: str, count: int) -> dict[str, Any]:
         meta = item_meta.get(eid)

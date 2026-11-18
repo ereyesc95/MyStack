@@ -307,6 +307,17 @@ export function IconCheck({ className }: IconProps) {
   );
 }
 
+export function IconTrophy({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="48" height="48" aria-hidden>
+      <path
+        fill="currentColor"
+        d="M18 2h-2V1H8v1H6c-1.1 0-2 .9-2 2v2c0 2.28 1.53 4.19 3.6 4.78.72 2.09 2.4 3.67 4.4 4.05V17H9v2h6v-2h-3v-2.17c2-.38 3.68-1.96 4.4-4.05C18.47 10.19 20 8.28 20 6V4c0-1.1-.9-2-2-2zM6 6V4h2v4.82C6.84 8.4 6 7.3 6 6zm12 0c0 1.3-.84 2.4-2 2.82V4h2v2zM8 20h8v2H8z"
+      />
+    </svg>
+  );
+}
+
 export function IconSquare({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" width="16" height="16" aria-hidden>

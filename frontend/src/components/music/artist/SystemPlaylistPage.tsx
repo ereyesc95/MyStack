@@ -2287,7 +2287,7 @@ export default function SystemPlaylistPage({
                               rows={2}
                             />
                             <p className="release-page__type-line">
-                              {`Playlist · ${tracks.length} track${tracks.length === 1 ? "" : "s"}`}
+                              {`Playlist · ${allTracks.length} track${allTracks.length === 1 ? "" : "s"}`}
                             </p>
                           </div>
                         ) : (
@@ -2298,7 +2298,7 @@ export default function SystemPlaylistPage({
                                 ? setlistTrackCount != null
                                   ? `Playlist · ${setlistTrackCount} track${setlistTrackCount === 1 ? "" : "s"}`
                                   : "Playlist"
-                                : `Playlist · ${tracks.length} track${tracks.length === 1 ? "" : "s"}`}
+                                : `Playlist · ${allTracks.length} track${allTracks.length === 1 ? "" : "s"}`}
                             </p>
                             {detail.description && (
                               <p className="release-page__source">{detail.description}</p>

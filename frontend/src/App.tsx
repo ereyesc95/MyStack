@@ -69,7 +69,12 @@ import HobbiesModule from "./components/hobbies/HobbiesModule";
 import SeriesModule from "./components/series/SeriesModule";
 
 import { applyProfilePreferences, getStoredOrientation, saveOrientation } from "./themes";
-import { applyStoredThemeOrKeepAdaptive, clearMediaTheme } from "./mediaTheme";
+import {
+  applyStoredThemeOrKeepAdaptive,
+  beginProfileSwitchTheme,
+  clearMediaTheme,
+  endProfileSwitchTheme,
+} from "./mediaTheme";
 import { parsePlaylistsGridPath, parseUserPlaylistPath, pushArtistRoute, pushMusicCollectionRoute, pushMusicRootRoute, pushPlaylistsGridRoute, saveReleaseReferrer } from "./musicRoute";
 import {
   pushMoviesCatalogRoute,
@@ -91,6 +96,7 @@ import {
 import {
   parseHobbiesCollectionPath,
   parseHobbiesThemesPath,
+  pushHobbiesCollectionRoute,
   pushHobbiesRootRoute,
 } from "./hobbiesRoute";
 import {
@@ -435,6 +441,9 @@ export default function App() {
   function handleSwitchProfile() {
     if (profile?.user_id) {
       setHighlightProfileId(profile.user_id);
+      beginProfileSwitchTheme(profile.user_id);
+    } else {
+      beginProfileSwitchTheme();
     }
     setSwitchingProfile(true);
     setSourceModal(null);
@@ -754,6 +763,7 @@ export default function App() {
           onBack={
             switchingProfile
               ? () => {
+                  endProfileSwitchTheme(profile?.user_id);
                   setSwitchingProfile(false);
                   setHighlightProfileId(null);
                 }
@@ -1361,6 +1371,16 @@ export default function App() {
             onBackToPhotos={() => {
               pushPhotosRootRoute();
               setView({ kind: "photos" });
+            }}
+            onBackToHobbies={(collectionId) => {
+              clearMediaTheme(profile?.user_id);
+              if (collectionId != null && Number.isFinite(collectionId)) {
+                pushHobbiesCollectionRoute(collectionId);
+                setView({ kind: "hobbies", collectionId });
+                return;
+              }
+              pushHobbiesRootRoute();
+              setView({ kind: "hobbies", tab: "home" });
             }}
 
           />
@@ -2372,6 +2392,105 @@ export default function App() {
               clearMediaTheme(profile?.user_id);
               pushMusicCollectionRoute();
               setView({ kind: "music", tab: "collection" });
+            }}
+            onOpenArtist={(bandId) => {
+              pushArtistRoute({
+                bandId,
+                section: "overview",
+                overviewTab: "about",
+              });
+              setView({
+                kind: "music",
+                tab: "artists",
+                bandId,
+                artistSection: "overview",
+                artistOverviewTab: "about",
+              });
+            }}
+            onOpenMusicRelease={(bandId, releaseId) => {
+              pushArtistRoute({
+                bandId,
+                section: "audio",
+                overviewTab: "about",
+                releaseId,
+                releaseTab: "overview",
+              });
+              setView({
+                kind: "music",
+                tab: "artists",
+                bandId,
+                artistSection: "audio",
+                artistOverviewTab: "about",
+                releaseId,
+                releaseTab: "overview",
+              });
+            }}
+            onOpenSourceLeaf={(src) => {
+              clearMediaTheme(profile?.user_id);
+              const mod = (src.module || "").toLowerCase();
+              if (mod === "series") {
+                pushSeriesRoute({
+                  franchiseId: src.franchiseId,
+                  subseriesId: src.leafId || undefined,
+                  section: "overview",
+                  overviewTab: "about",
+                });
+                setView({
+                  kind: "series",
+                  franchiseId: src.franchiseId,
+                  subseriesId: src.leafId || undefined,
+                  section: "overview",
+                  overviewTab: "about",
+                });
+                return;
+              }
+              if (mod === "movies") {
+                pushMoviesRoute({
+                  franchiseId: src.franchiseId,
+                  filmId: src.leafId || undefined,
+                  section: "overview",
+                  overviewTab: "about",
+                });
+                setView({
+                  kind: "movies",
+                  franchiseId: src.franchiseId,
+                  filmId: src.leafId || undefined,
+                  section: "overview",
+                  overviewTab: "about",
+                });
+                return;
+              }
+              if (mod === "books") {
+                pushBooksRoute({
+                  franchiseId: src.franchiseId,
+                  bookId: src.leafId || undefined,
+                  section: "overview",
+                  overviewTab: "about",
+                });
+                setView({
+                  kind: "books",
+                  franchiseId: src.franchiseId,
+                  bookId: src.leafId || undefined,
+                  section: "overview",
+                  overviewTab: "about",
+                });
+                return;
+              }
+              if (mod === "games") {
+                pushGamesRoute({
+                  franchiseId: src.franchiseId,
+                  gameId: src.leafId || undefined,
+                  section: "overview",
+                  overviewTab: "about",
+                });
+                setView({
+                  kind: "games",
+                  franchiseId: src.franchiseId,
+                  gameId: src.leafId || undefined,
+                  section: "overview",
+                  overviewTab: "about",
+                });
+              }
             }}
             onOpenLinkedTarget={(module, tab) => {
               clearMediaTheme(profile?.user_id);
