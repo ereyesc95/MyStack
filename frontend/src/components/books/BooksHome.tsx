@@ -203,8 +203,15 @@ export default function BooksHome({
   const contentLimit = hasUniverses
     ? baseLimit + UNIVERSES_PANE_BONUS
     : baseLimit;
-  const contentShape = "portrait" as const;
   const { playLocally } = usePlayVideosPreference();
+  const { coarse, revealedId, onCardActivate } = useDashCardReveal();
+  /** Touch / phone / tablet-portrait: square idle → landscape on tap. */
+  const useSquareTiles =
+    coarse ||
+    layout === "mobile-portrait" ||
+    layout === "mobile-landscape" ||
+    layout === "tablet-portrait";
+  const contentShape = (useSquareTiles ? "square" : "portrait") as const;
 
   const pickCover = (s: {
     portrait_url?: string | null;
@@ -213,12 +220,19 @@ export default function BooksHome({
     banner_url?: string | null;
     landscape_url?: string | null;
   }) =>
-    s.portrait_url ||
-    s.cover_url ||
-    s.photo_url ||
-    s.landscape_url ||
-    s.banner_url ||
-    null;
+    useSquareTiles
+      ? s.cover_url ||
+        s.photo_url ||
+        s.portrait_url ||
+        s.landscape_url ||
+        s.banner_url ||
+        null
+      : s.portrait_url ||
+        s.cover_url ||
+        s.photo_url ||
+        s.landscape_url ||
+        s.banner_url ||
+        null;
 
   const topFranchises = slicePane(dash.top_franchises || [], contentLimit);
   const topBooks = slicePane(
@@ -247,7 +261,6 @@ export default function BooksHome({
   );
 
   const dashClass = DASH_LAYOUT_CLASS[layout];
-  const { coarse, revealedId, onCardActivate } = useDashCardReveal();
   const franchisesExpand = useDashPaneExpand(revealedId, coarse);
   const booksExpand = useDashPaneExpand(revealedId, coarse);
   const universesExpand = useDashPaneExpand(revealedId, coarse);

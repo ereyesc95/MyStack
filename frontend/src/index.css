@@ -3231,7 +3231,7 @@ input {
 
 /*
  * Mobile: fixed tile widths so panes scroll horizontally; tap-expand becomes a
- * wide 4:1 banner (desktop height-lock must not apply here).
+ * modest 16:9 landscape card (not a full-width banner).
  */
 .music-dashboard--mobile-portrait .dash-row--tracks,
 .music-dashboard--mobile-portrait .dash-row--icons,
@@ -3240,7 +3240,11 @@ input {
 .music-dashboard--mobile-landscape .dash-row--tracks,
 .music-dashboard--mobile-landscape .dash-row--icons,
 .music-dashboard--mobile-landscape .dash-row--genres,
-.music-dashboard--mobile-landscape .dash-row--flags {
+.music-dashboard--mobile-landscape .dash-row--flags,
+.music-dashboard--tablet-portrait .dash-row--tracks,
+.music-dashboard--tablet-portrait .dash-row--icons,
+.music-dashboard--tablet-portrait .dash-row--genres,
+.music-dashboard--tablet-portrait .dash-row--flags {
   overflow: visible;
 }
 .music-dashboard--mobile-portrait .dash-scroll--tracks,
@@ -3250,14 +3254,20 @@ input {
 .music-dashboard--mobile-landscape .dash-scroll--tracks,
 .music-dashboard--mobile-landscape .dash-scroll--icons,
 .music-dashboard--mobile-landscape .dash-scroll--genres,
-.music-dashboard--mobile-landscape .dash-scroll--flags {
+.music-dashboard--mobile-landscape .dash-scroll--flags,
+.music-dashboard--tablet-portrait .dash-scroll--tracks,
+.music-dashboard--tablet-portrait .dash-scroll--icons,
+.music-dashboard--tablet-portrait .dash-scroll--genres,
+.music-dashboard--tablet-portrait .dash-scroll--flags {
   overflow-x: auto !important;
   overflow-y: hidden !important;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x;
 }
 .music-dashboard--mobile-portrait .dash-scroll .dash-morph,
-.music-dashboard--mobile-portrait .dash-scroll .dash-placeholder-item {
+.music-dashboard--mobile-portrait .dash-scroll .dash-placeholder-item,
+.music-dashboard--tablet-portrait .dash-scroll .dash-morph,
+.music-dashboard--tablet-portrait .dash-scroll .dash-placeholder-item {
   flex: 0 0 calc((100% - 0.8rem) / 3) !important;
   width: calc((100% - 0.8rem) / 3) !important;
   max-width: calc((100% - 0.8rem) / 3) !important;
@@ -3274,46 +3284,159 @@ input {
   height: auto !important;
   align-self: center !important;
 }
+/*
+ * Touch / compact: modest landscape expand on tap (not ultra-wide banner).
+ * Idle Best / On Repeat / Top Records / Consoles stay square; circles stay round;
+ * Origins stay flag-ish until expanded. Every pane becomes 16:9 when tapped.
+ */
+@media (hover: none), (pointer: coarse) {
+  .music-dashboard .dash-scroll .dash-morph.is-expanded {
+    flex: 0 0 min(58vw, 15rem) !important;
+    width: min(58vw, 15rem) !important;
+    max-width: 68% !important;
+    min-width: min(44vw, 11rem) !important;
+    height: auto !important;
+    max-height: none !important;
+    align-self: center !important;
+    aspect-ratio: auto !important;
+    z-index: 3;
+  }
+  .music-dashboard .dash-scroll .dash-morph.is-expanded .dash-morph__frame {
+    aspect-ratio: 16 / 9 !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+  }
+  .music-dashboard .dash-scroll .dash-morph--square:not(.is-expanded) .dash-morph__frame,
+  .music-dashboard .dash-scroll .dash-morph--portrait:not(.is-expanded) .dash-morph__frame {
+    aspect-ratio: 1 / 1 !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+  .music-dashboard .dash-scroll .dash-morph--square:not(.is-expanded),
+  .music-dashboard .dash-scroll .dash-morph--portrait:not(.is-expanded) {
+    height: auto !important;
+    max-height: none !important;
+    aspect-ratio: auto !important;
+  }
+  .music-dashboard .dash-scroll--icons .dash-morph--circle:not(.is-expanded),
+  .music-dashboard .dash-scroll--genres .dash-morph--circle:not(.is-expanded) {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: min(28vw, 5.5rem) !important;
+    height: min(28vw, 5.5rem) !important;
+    max-height: min(28vw, 5.5rem) !important;
+    aspect-ratio: 1 !important;
+    align-self: center !important;
+  }
+  .music-dashboard .dash-morph--circle:not(.is-expanded) .dash-morph__frame {
+    aspect-ratio: 1 !important;
+    border-radius: 50% !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    margin-inline: auto;
+  }
+  .music-dashboard .dash-morph--circle.is-expanded,
+  .music-dashboard .dash-morph--flag.is-expanded,
+  .music-dashboard .dash-morph--has-flag.is-expanded {
+    height: auto !important;
+    max-height: none !important;
+    aspect-ratio: auto !important;
+  }
+  .music-dashboard .dash-morph--flag:not(.is-expanded) .dash-morph__frame,
+  .music-dashboard .dash-morph--has-flag:not(.is-expanded) .dash-morph__frame {
+    aspect-ratio: 5 / 4 !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+}
+
 .music-dashboard--mobile-portrait .dash-scroll .dash-morph.is-expanded,
-.music-dashboard--mobile-landscape .dash-scroll .dash-morph.is-expanded {
-  flex: 0 0 min(78vw, 22rem) !important;
-  width: min(78vw, 22rem) !important;
-  max-width: 85% !important;
-  min-width: min(72vw, 18rem) !important;
+.music-dashboard--mobile-landscape .dash-scroll .dash-morph.is-expanded,
+.music-dashboard--tablet-portrait .dash-scroll .dash-morph.is-expanded {
+  flex: 0 0 min(58vw, 15rem) !important;
+  width: min(58vw, 15rem) !important;
+  max-width: 68% !important;
+  min-width: min(44vw, 11rem) !important;
   height: auto !important;
   align-self: center !important;
   z-index: 3;
 }
 .music-dashboard--mobile-portrait .dash-morph.is-expanded .dash-morph__frame,
-.music-dashboard--mobile-landscape .dash-morph.is-expanded .dash-morph__frame {
-  aspect-ratio: 4 / 1 !important;
+.music-dashboard--mobile-landscape .dash-morph.is-expanded .dash-morph__frame,
+.music-dashboard--tablet-portrait .dash-morph.is-expanded .dash-morph__frame {
+  aspect-ratio: 16 / 9 !important;
+  width: 100% !important;
+  height: auto !important;
+  max-height: none !important;
+  border-radius: 0 !important;
+}
+.music-dashboard--mobile-portrait .dash-morph--square:not(.is-expanded) .dash-morph__frame,
+.music-dashboard--mobile-landscape .dash-morph--square:not(.is-expanded) .dash-morph__frame,
+.music-dashboard--tablet-portrait .dash-morph--square:not(.is-expanded) .dash-morph__frame,
+.music-dashboard--mobile-portrait .dash-morph--portrait:not(.is-expanded) .dash-morph__frame,
+.music-dashboard--mobile-landscape .dash-morph--portrait:not(.is-expanded) .dash-morph__frame,
+.music-dashboard--tablet-portrait .dash-morph--portrait:not(.is-expanded) .dash-morph__frame,
+.series-dashboard.music-dashboard--mobile-portrait .dash-scroll--icons .dash-morph:not(.is-expanded) .dash-morph__frame,
+.movies-dashboard.music-dashboard--mobile-portrait .dash-scroll--icons .dash-morph:not(.is-expanded) .dash-morph__frame,
+.books-dashboard.music-dashboard--mobile-portrait .dash-scroll--icons .dash-morph:not(.is-expanded) .dash-morph__frame,
+.games-dashboard.music-dashboard--mobile-portrait .dash-scroll--icons .dash-morph:not(.is-expanded) .dash-morph__frame,
+.series-dashboard.music-dashboard--mobile-landscape .dash-scroll--icons .dash-morph:not(.is-expanded) .dash-morph__frame,
+.movies-dashboard.music-dashboard--mobile-landscape .dash-scroll--icons .dash-morph:not(.is-expanded) .dash-morph__frame,
+.books-dashboard.music-dashboard--mobile-landscape .dash-scroll--icons .dash-morph:not(.is-expanded) .dash-morph__frame,
+.games-dashboard.music-dashboard--mobile-landscape .dash-scroll--icons .dash-morph:not(.is-expanded) .dash-morph__frame,
+.series-dashboard.music-dashboard--tablet-portrait .dash-scroll--icons .dash-morph:not(.is-expanded) .dash-morph__frame,
+.movies-dashboard.music-dashboard--tablet-portrait .dash-scroll--icons .dash-morph:not(.is-expanded) .dash-morph__frame,
+.books-dashboard.music-dashboard--tablet-portrait .dash-scroll--icons .dash-morph:not(.is-expanded) .dash-morph__frame,
+.games-dashboard.music-dashboard--tablet-portrait .dash-scroll--icons .dash-morph:not(.is-expanded) .dash-morph__frame {
+  aspect-ratio: 1 / 1 !important;
   width: 100% !important;
   height: auto !important;
   max-height: none !important;
 }
-.music-dashboard--mobile-portrait .dash-morph--square:not(.is-expanded) .dash-morph__frame,
-.music-dashboard--mobile-landscape .dash-morph--square:not(.is-expanded) .dash-morph__frame {
-  aspect-ratio: 1 !important;
-  width: 100% !important;
-  height: auto !important;
+.music-dashboard--mobile-portrait .dash-scroll--icons,
+.music-dashboard--mobile-portrait .dash-scroll--genres,
+.music-dashboard--mobile-landscape .dash-scroll--icons,
+.music-dashboard--mobile-landscape .dash-scroll--genres,
+.music-dashboard--tablet-portrait .dash-scroll--icons,
+.music-dashboard--tablet-portrait .dash-scroll--genres {
+  align-items: center !important;
 }
-.music-dashboard--mobile-portrait .dash-morph--portrait:not(.is-expanded) .dash-morph__frame,
-.music-dashboard--mobile-landscape .dash-morph--portrait:not(.is-expanded) .dash-morph__frame {
-  aspect-ratio: 2 / 3 !important;
-  width: 100% !important;
-  height: auto !important;
+.music-dashboard--mobile-portrait .dash-scroll--icons .dash-morph--circle:not(.is-expanded),
+.music-dashboard--mobile-portrait .dash-scroll--genres .dash-morph--circle:not(.is-expanded),
+.music-dashboard--mobile-landscape .dash-scroll--icons .dash-morph--circle:not(.is-expanded),
+.music-dashboard--mobile-landscape .dash-scroll--genres .dash-morph--circle:not(.is-expanded),
+.music-dashboard--tablet-portrait .dash-scroll--icons .dash-morph--circle:not(.is-expanded),
+.music-dashboard--tablet-portrait .dash-scroll--genres .dash-morph--circle:not(.is-expanded) {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: min(28vw, 5.5rem) !important;
+  height: min(28vw, 5.5rem) !important;
+  max-height: min(28vw, 5.5rem) !important;
+  aspect-ratio: 1 !important;
+  align-self: center !important;
 }
 .music-dashboard--mobile-portrait .dash-morph--circle:not(.is-expanded) .dash-morph__frame,
-.music-dashboard--mobile-landscape .dash-morph--circle:not(.is-expanded) .dash-morph__frame {
+.music-dashboard--mobile-landscape .dash-morph--circle:not(.is-expanded) .dash-morph__frame,
+.music-dashboard--tablet-portrait .dash-morph--circle:not(.is-expanded) .dash-morph__frame {
   aspect-ratio: 1 !important;
   border-radius: 50% !important;
   width: 100% !important;
-  height: auto !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  margin-inline: auto;
 }
 .music-dashboard--mobile-portrait .dash-morph--flag:not(.is-expanded) .dash-morph__frame,
 .music-dashboard--mobile-portrait .dash-morph--has-flag:not(.is-expanded) .dash-morph__frame,
 .music-dashboard--mobile-landscape .dash-morph--flag:not(.is-expanded) .dash-morph__frame,
-.music-dashboard--mobile-landscape .dash-morph--has-flag:not(.is-expanded) .dash-morph__frame {
+.music-dashboard--mobile-landscape .dash-morph--has-flag:not(.is-expanded) .dash-morph__frame,
+.music-dashboard--tablet-portrait .dash-morph--flag:not(.is-expanded) .dash-morph__frame,
+.music-dashboard--tablet-portrait .dash-morph--has-flag:not(.is-expanded) .dash-morph__frame {
   aspect-ratio: 5 / 4 !important;
   width: 100% !important;
   height: auto !important;

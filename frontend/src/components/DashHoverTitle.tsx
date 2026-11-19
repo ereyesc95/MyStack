@@ -67,6 +67,25 @@ export function useCoarsePointer(): boolean {
   return coarse;
 }
 
+/** Mobile: center a mid-pane card in its horizontal scroller (skip first/last). */
+function scrollDashCardToCenterIfMiddle(card: HTMLElement): void {
+  const scroller = card.closest(".dash-scroll") as HTMLElement | null;
+  if (!scroller) return;
+  const cards = Array.from(
+    scroller.querySelectorAll<HTMLElement>(":scope > [data-dash-card]")
+  );
+  if (cards.length < 3) return;
+  const index = cards.indexOf(card);
+  if (index <= 0 || index >= cards.length - 1) return;
+
+  const maxScroll = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+  const left = card.offsetLeft - scroller.clientWidth / 2 + card.clientWidth / 2;
+  scroller.scrollTo({
+    left: Math.max(0, Math.min(left, maxScroll)),
+    behavior: "smooth",
+  });
+}
+
 export function useDashCardReveal() {
   const coarse = useCoarsePointer();
   const [revealedId, setRevealedId] = useState<string | null>(null);
@@ -81,6 +100,22 @@ export function useDashCardReveal() {
     }
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
+  }, [coarse, revealedId]);
+
+  useEffect(() => {
+    if (!coarse || revealedId == null) return;
+    const card = document.querySelector<HTMLElement>(
+      `[data-dash-card="${CSS.escape(revealedId)}"]`
+    );
+    if (!card) return;
+    scrollDashCardToCenterIfMiddle(card);
+    // Re-center after expand width settles so landscape tile stays mid-pane.
+    const t1 = window.setTimeout(() => scrollDashCardToCenterIfMiddle(card), 180);
+    const t2 = window.setTimeout(() => scrollDashCardToCenterIfMiddle(card), 420);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
   }, [coarse, revealedId]);
 
   function onCardActivate(id: string, action: () => void) {
