@@ -592,7 +592,11 @@ def fill_missing_art_from_franchise_home(
     need_cover = not (card.get("cover_url") or card.get("portrait_url"))
     need_landscape = not card.get("landscape_url")
     need_banner = not card.get("banner_url")
-    need_logo = not (card.get("logo_url") or card.get("icon_url"))
+    need_logo = not (
+        card.get("logo_url")
+        or card.get("logo_collapsed_url")
+        or card.get("icon_url")
+    )
     if not (need_cover or need_landscape or need_banner or need_logo):
         return card
 
@@ -671,11 +675,29 @@ def fill_missing_art_from_franchise_home(
                 card["logo_url"] = logo
             if icon and not card.get("icon_url"):
                 card["icon_url"] = icon
+            if not card.get("logo_collapsed_url"):
+                from app.media_index import LOGO_COLLAPSED_STEM, _artwork_file
+                from app.gallery import _media_url as _g_media_url
+
+                for art_dir in (
+                    folder / "[Artwork]",
+                    folder / "Gallery" / "Branding",
+                ):
+                    if not art_dir.is_dir():
+                        continue
+                    collapsed = _artwork_file(art_dir, LOGO_COLLAPSED_STEM)
+                    if collapsed:
+                        card["logo_collapsed_url"] = _g_media_url(collapsed, root)
+                        break
             if not card.get("badge_url"):
                 badge = find_badge_file(folder, root)
                 if badge:
                     card["badge_url"] = badge
-            need_logo = not (card.get("logo_url") or card.get("icon_url"))
+            need_logo = not (
+                card.get("logo_url")
+                or card.get("logo_collapsed_url")
+                or card.get("icon_url")
+            )
         if not (need_cover or need_landscape or need_banner or need_logo):
             break
     return card

@@ -87,7 +87,7 @@ import {
   isGamesMobileGated,
   isMobileAllowedPlatform,
 } from "../../gamesMobile";
-import { useDeviceLayout } from "../../usePhoneLayout";
+import { isPhoneLayout, useDeviceLayout } from "../../usePhoneLayout";
 import GamesHome from "./GamesHome";
 import GamesFranchisePage from "./GamesFranchisePage";
 import GamesPlatformFilter from "./GamesPlatformFilter";
@@ -224,6 +224,7 @@ export default function GamesModule({
   const [platformFilter, setPlatformFilter] = useState<string | null>(null);
   const [ownership, setOwnership] = useState<OwnershipIndex | null>(null);
   const deviceLayout = useDeviceLayout();
+  const portraitMenuChrome = isPhoneLayout(deviceLayout);
   const mobileGated = isGamesMobileGated(deviceLayout);
 
   useEffect(() => {
@@ -1244,7 +1245,7 @@ export default function GamesModule({
                 });
               }}
             />
-            {showHomeWrapped ? (
+            {showHomeWrapped && !portraitMenuChrome ? (
               <button
                 type="button"
                 className="music-home-wrapped-btn"
@@ -1288,6 +1289,23 @@ export default function GamesModule({
                         .catch(() => undefined);
                     }
                   : undefined
+              }
+              menuChrome={
+                portraitMenuChrome && showHomeWrapped ? (
+                  <button
+                    type="button"
+                    className="music-home-wrapped-btn music-home-wrapped-btn--menu"
+                    title={`${wrappedYear} Wrapped`}
+                    aria-label={`${wrappedYear} Wrapped`}
+                    onClick={() => setWrappedOpen(true)}
+                  >
+                    <MyStackIcon
+                      className="music-home-wrapped-btn__mark menu-item-icon"
+                      size={15}
+                    />
+                    {`${wrappedYear} Wrapped`}
+                  </button>
+                ) : null
               }
             />
           </>

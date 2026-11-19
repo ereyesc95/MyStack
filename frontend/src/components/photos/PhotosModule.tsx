@@ -1012,7 +1012,7 @@ export default function PhotosModule({
                 }}
               />
             ) : null}
-            {showHomeWrapped ? (
+            {showHomeWrapped && !isPhone ? (
               <button
                 type="button"
                 className="music-home-wrapped-btn"
@@ -1046,6 +1046,23 @@ export default function PhotosModule({
                       setLinkModalOpen(true);
                     }
                   : undefined
+              }
+              menuChrome={
+                isPhone && showHomeWrapped ? (
+                  <button
+                    type="button"
+                    className="music-home-wrapped-btn music-home-wrapped-btn--menu"
+                    title={`${wrappedYear} Wrapped`}
+                    aria-label={`${wrappedYear} Wrapped`}
+                    onClick={() => setWrappedOpen(true)}
+                  >
+                    <MyStackIcon
+                      className="music-home-wrapped-btn__mark menu-item-icon"
+                      size={15}
+                    />
+                    {`${wrappedYear} Wrapped`}
+                  </button>
+                ) : null
               }
             />
           </>

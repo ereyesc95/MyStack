@@ -159,9 +159,9 @@ const MEDIA_OPTIONS: MediaOption[] = [
 
   { id: 700, kind: "photos", label: "Photos" },
 
-  { id: 750, kind: "files", label: "Files" },
+  { id: 750, kind: "hobbies", label: "Hobbies" },
 
-  { id: 800, kind: "hobbies", label: "Hobbies" },
+  { id: 800, kind: "files", label: "Files" },
 
 ];
 

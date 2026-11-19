@@ -16,13 +16,67 @@ from app.band_library import (
 )
 from app.country_assets import with_country_art
 from app.config import settings
-from app.gallery import pick_playlist_cover, resolve_artist_card
+from app.gallery import (
+    _artist_dir,
+    _gallery_subdir,
+    _list_era_brands,
+    _media_url,
+    pick_brand_closest_to_year,
+    pick_playlist_cover,
+    resolve_artist_card,
+)
 from app.media_index import release_id_from_path
 from app.user_playlist import resolve_playlist_cover_url
 from app.models import Band, Country, Genre, Playlist, PlaylistData, Reproduction, Subgenre
 from app.play_stats import is_quiz_play_title, subgenre_image_url
 
 FEAT_RE = re.compile(r"\s*[\(\[](?:feat\.?|ft\.?|featuring)[^\)\]]*[\)\]]", re.I)
+_RELEASE_YEAR_RE = re.compile(r"^(\d{4})")
+
+
+def _release_year_from_rel(release_rel: str | None) -> int | None:
+    if not release_rel:
+        return None
+    name = Path(str(release_rel).replace("\\", "/")).name
+    m = _RELEASE_YEAR_RE.match(name.strip())
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+
+def _artist_branding_for_year(
+    artist_name: str | None,
+    year: int | None,
+    media_root: Path | None,
+) -> tuple[str | None, str | None, str | None]:
+    """Return (logo_url, logo_collapsed_url, icon_url) for the release year."""
+    if not artist_name or not media_root:
+        return None, None, None
+    artist_dir = _artist_dir(media_root, artist_name)
+    if not artist_dir:
+        return None, None, None
+    brands = _list_era_brands(_gallery_subdir(artist_dir, "Branding"))
+    if not brands:
+        return None, None, None
+    y = year or 2000
+    logo = pick_brand_closest_to_year(brands, y, "logo", prefer_collapsed=False)
+    collapsed = pick_brand_closest_to_year(
+        brands, y, "logo", prefer_collapsed=True
+    )
+    # prefer_collapsed returns collapsed twin when present; if it returned the
+    # same normal logo, treat collapsed as missing.
+    logo_url = _media_url(logo.path, media_root) if logo else None
+    collapsed_url = None
+    if collapsed and logo and collapsed.path != logo.path:
+        collapsed_url = _media_url(collapsed.path, media_root)
+    elif collapsed and not logo:
+        collapsed_url = _media_url(collapsed.path, media_root)
+    icon = pick_brand_closest_to_year(brands, y, "icon", prefer_collapsed=False)
+    icon_url = _media_url(icon.path, media_root) if icon else None
+    return logo_url, collapsed_url, icon_url
 
 LIBRARY_MOST_PLAYED_NAME = "Most Played"
 LIBRARY_MOST_PLAYED_LIMIT = 100
@@ -235,10 +289,11 @@ def build_dashboard(db: Session, user_id: int) -> dict:
         cover_url = roles.get("cover_url") or (
             cover_url_for_track_path(r.rep_path, media_root) if media_root else None
         )
-        logo_url = icon_url = None
+        logo_url = logo_collapsed_url = icon_url = None
         if r.rep_artist_id and artist_name:
             acard = _resolve_artist_card_cached(artist_name, user_id=user_id)
             logo_url = acard.logo_url
+            logo_collapsed_url = acard.logo_collapsed_url
             icon_url = acard.icon_url
         nav_release_id, nav_band_id = _navigate_ids_for_play_path(
             db, r.rep_path, media_root
@@ -258,6 +313,7 @@ def build_dashboard(db: Session, user_id: int) -> dict:
                 "banner_url": roles.get("banner_url"),
                 "landscape_url": roles.get("landscape_url"),
                 "logo_url": logo_url,
+                "logo_collapsed_url": logo_collapsed_url,
                 "icon_url": icon_url,
                 "navigate_band_id": nav_band_id or r.rep_artist_id,
                 "navigate_release_id": nav_release_id,
@@ -292,12 +348,13 @@ def build_dashboard(db: Session, user_id: int) -> dict:
                 "landscape_url": card.landscape_url,
                 "banner_url": card.banner_url,
                 "logo_url": card.logo_url,
+                "logo_collapsed_url": card.logo_collapsed_url,
                 "icon_url": card.icon_url,
                 "show_name_on_hover": False,
             }
         )
 
-    top_releases = _build_top_releases(db, reps, media_root)
+    top_releases = _build_top_releases(db, reps, media_root, user_id=user_id or 0)
 
     genre_counts: Counter[int] = Counter()
     country_counts: Counter[int] = Counter()
@@ -479,6 +536,7 @@ def _build_top_releases_from_plays(
     limit: int = 10,
     allowed_categories: frozenset[str] | None = None,
     require_navigable: bool = False,
+    user_id: int = 0,
 ) -> list[dict]:
     """Aggregate play weights by release folder; one card per album (editions collapsed).
 
@@ -666,25 +724,66 @@ def _build_top_releases_from_plays(
             if media_root is None or not _release_dir_exists(media_root, release_rel):
                 continue
         artist_name = None
+        artist_logo_url = artist_logo_collapsed_url = artist_icon_url = None
+        release_year = _release_year_from_rel(release_rel)
         if artist_id:
             band = db.get(Band, artist_id)
             artist_name = band.bnd_name if band else None
+            if artist_name:
+                (
+                    artist_logo_url,
+                    artist_logo_collapsed_url,
+                    artist_icon_url,
+                ) = _artist_branding_for_year(
+                    artist_name, release_year, media_root
+                )
+                if not artist_logo_url and not artist_icon_url:
+                    acard = _resolve_artist_card_cached(
+                        artist_name, user_id=user_id
+                    )
+                    artist_logo_url = acard.logo_url
+                    artist_logo_collapsed_url = acard.logo_collapsed_url
+                    artist_icon_url = acard.icon_url
         roles: dict[str, str | None] = {}
         if media_root:
-            roles = artwork_role_urls_for_track_path(meta["path"], media_root)
-            if not any(roles.values()):
-                roles = artwork_role_urls_for_track_path(
+            # Prefer album / Standard Edition art so Top Records hover gets
+            # Cover - Banner + Logo even when the play path is a sparse edition.
+            rel_path = Path(media_root) / release_rel.replace("\\", "/")
+            if rel_path.is_dir():
+                roles = artwork_role_urls_for_dir(rel_path, media_root)
+            # Fill gaps from the play path, but never overwrite album art and
+            # never pull banner/logo from a different release folder.
+            track_roles = artwork_role_urls_for_track_path(meta["path"], media_root)
+            if not any(
+                track_roles.get(k)
+                for k in ("banner_url", "landscape_url", "cover_url", "logo_url")
+            ):
+                track_roles = artwork_role_urls_for_track_path(
                     _normalize_legacy_audio_rel(meta["path"]), media_root
                 )
-            if not any(roles.values()):
-                rel_path = Path(media_root) / release_rel.replace("\\", "/")
-                if rel_path.is_dir():
-                    roles = artwork_role_urls_for_dir(rel_path, media_root)
+            album_key = release_rel.replace("\\", "/").casefold().rstrip("/")
+            for key, val in track_roles.items():
+                if roles.get(key) or not val:
+                    continue
+                if key in ("banner_url", "logo_url", "logo_collapsed_url"):
+                    # Reject cross-album bleed (path must stay under release_rel).
+                    from urllib.parse import unquote, urlparse
+
+                    raw = unquote(urlparse(val).path if "://" in val else val)
+                    # /api/media/file?path=... handled via query in full URL
+                    if "path=" in val:
+                        from urllib.parse import parse_qs
+
+                        qs = parse_qs(urlparse(val).query)
+                        raw = unquote((qs.get("path") or [""])[0])
+                    raw_n = raw.replace("\\", "/").casefold().lstrip("/")
+                    if album_key and album_key not in raw_n:
+                        continue
+                roles[key] = val
         cover_url = roles.get("cover_url") or (
             cover_url_for_track_path(meta["path"], media_root) if media_root else None
         )
-        # Prefer release [Artwork]/Logo — not the artist logo.
-        logo_url = roles.get("logo_url")
+        # Prefer release [Artwork] Logo / Logo - Collapsed — not the artist logo.
         top_releases.append(
             {
                 "id": release_id,
@@ -695,8 +794,12 @@ def _build_top_releases_from_plays(
                 "cover_url": cover_url,
                 "banner_url": roles.get("banner_url"),
                 "landscape_url": roles.get("landscape_url"),
-                "logo_url": logo_url,
+                "logo_url": roles.get("logo_url"),
+                "logo_collapsed_url": roles.get("logo_collapsed_url"),
                 "icon_url": None,
+                "artist_logo_url": artist_logo_url,
+                "artist_logo_collapsed_url": artist_logo_collapsed_url,
+                "artist_icon_url": artist_icon_url,
             }
         )
     return top_releases
@@ -706,6 +809,8 @@ def _build_top_releases(
     db: Session,
     reps: list[Reproduction],
     media_root: Path | None,
+    *,
+    user_id: int = 0,
 ) -> list[dict]:
     """Aggregate dashboard play weights by release folder (top 10)."""
     plays: list[dict] = []
@@ -725,7 +830,12 @@ def _build_top_releases(
             }
         )
     return _build_top_releases_from_plays(
-        db, media_root, plays, limit=10, require_navigable=False
+        db,
+        media_root,
+        plays,
+        limit=10,
+        require_navigable=False,
+        user_id=user_id,
     )
 
 

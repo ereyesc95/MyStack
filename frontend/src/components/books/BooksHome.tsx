@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import type { SeriesDashboard, Universe } from "../../types";
 import { EMPTY_SERIES_DASHBOARD } from "../../types";
+import { openCatalogVideo } from "../../openCatalogVideo";
+import { usePlayVideosPreference } from "../../playVideosPreference";
 import DashMorphCard from "../DashMorphCard";
 import { useDashCardReveal } from "../DashHoverTitle";
 import {
@@ -18,14 +20,19 @@ function hasTouchScreen(): boolean {
   return navigator.maxTouchPoints > 0;
 }
 
-const DESKTOP_PANE_ITEMS = 11;
+const DESKTOP_PANE_ITEMS = 13;
+const DESKTOP_WIDE_PANE_ITEMS = 16;
+const DESKTOP_WIDE_MIN_WIDTH = 1600;
 const TABLET_LANDSCAPE_ITEMS = 8;
 const TABLET_PORTRAIT_ITEMS = 6;
 const MOBILE_LANDSCAPE_ITEMS = 6;
 const MOBILE_PORTRAIT_ITEMS = 4;
+/** Extra portrait tiles when Universes row is present (shorter panes). */
+const UNIVERSES_PANE_BONUS = 2;
 
 type DashLayout =
   | "desktop"
+  | "desktop-wide"
   | "tablet-landscape"
   | "tablet-portrait"
   | "mobile-landscape"
@@ -46,12 +53,12 @@ function resolveDashLayout(): DashLayout {
     ) {
       return "tablet-landscape";
     }
-    return "desktop";
+    return width >= DESKTOP_WIDE_MIN_WIDTH ? "desktop-wide" : "desktop";
   }
 
   if (width <= PHONE_PORTRAIT_MAX_WIDTH) return "mobile-portrait";
   if (width <= TABLET_PORTRAIT_MAX_WIDTH) return "tablet-portrait";
-  return "desktop";
+  return width >= DESKTOP_WIDE_MIN_WIDTH ? "desktop-wide" : "desktop";
 }
 
 function useDashboardLayout(): DashLayout {
@@ -79,6 +86,8 @@ function paneItemLimit(layout: DashLayout) {
       return MOBILE_PORTRAIT_ITEMS;
     case "mobile-landscape":
       return MOBILE_LANDSCAPE_ITEMS;
+    case "desktop-wide":
+      return DESKTOP_WIDE_PANE_ITEMS;
     default:
       return DESKTOP_PANE_ITEMS;
   }
@@ -86,6 +95,7 @@ function paneItemLimit(layout: DashLayout) {
 
 const DASH_LAYOUT_CLASS: Record<DashLayout, string> = {
   desktop: "",
+  "desktop-wide": "",
   "tablet-landscape": " music-dashboard--tablet-landscape",
   "tablet-portrait": " music-dashboard--tablet-portrait",
   "mobile-landscape": " music-dashboard--mobile-landscape",
@@ -100,33 +110,25 @@ function placeholderCount(itemCount: number, limit: number) {
   return Math.max(0, limit - itemCount);
 }
 
-type PlaceholderVariant = "square" | "landscape" | "circle" | "flag";
+type PlaceholderVariant = "square" | "landscape" | "portrait" | "circle" | "flag";
 
 function DashPlaceholder({ variant }: { variant: PlaceholderVariant }) {
-  if (variant === "landscape") {
-    return (
-      <div className="dash-icon-item dash-placeholder-item" aria-hidden>
-        <span className="dash-icon-item-cover dash-placeholder dash-placeholder--landscape" />
-      </div>
-    );
-  }
-  if (variant === "square") {
-    return (
-      <div className="dash-track dash-placeholder-item" aria-hidden>
-        <span className="dash-track-art dash-placeholder dash-placeholder--square" />
-      </div>
-    );
-  }
-  if (variant === "circle") {
-    return (
-      <div className="dash-genre dash-placeholder-item" aria-hidden>
-        <span className="dash-genre-ring dash-placeholder dash-placeholder--circle" />
-      </div>
-    );
-  }
+  const shape =
+    variant === "square"
+      ? "square"
+      : variant === "circle"
+        ? "circle"
+        : variant === "flag"
+          ? "flag"
+          : variant === "portrait"
+            ? "portrait"
+            : "landscape";
   return (
-    <div className="dash-country dash-placeholder-item" aria-hidden>
-      <span className="dash-country-flag dash-placeholder dash-placeholder--flag" />
+    <div
+      className={`dash-morph dash-morph--${shape} dash-placeholder-item`}
+      aria-hidden
+    >
+      <span className="dash-morph__frame dash-placeholder" />
     </div>
   );
 }
@@ -196,9 +198,13 @@ export default function BooksHome({
 }: Props) {
   const dash = data ?? EMPTY_SERIES_DASHBOARD;
   const layout = useDashboardLayout();
-  const paneLimit = paneItemLimit(layout);
-  const useBannerArt = layout === "mobile-landscape";
-  const contentShape = useBannerArt ? "landscape" : "portrait";
+  const baseLimit = paneItemLimit(layout);
+  const hasUniverses = universes.length > 0;
+  const contentLimit = hasUniverses
+    ? baseLimit + UNIVERSES_PANE_BONUS
+    : baseLimit;
+  const contentShape = "portrait" as const;
+  const { playLocally } = usePlayVideosPreference();
 
   const pickCover = (s: {
     portrait_url?: string | null;
@@ -206,36 +212,39 @@ export default function BooksHome({
     photo_url?: string | null;
     banner_url?: string | null;
     landscape_url?: string | null;
-  }) => {
-    if (useBannerArt) {
-      return (
-        s.banner_url ||
-        s.landscape_url ||
-        s.portrait_url ||
-        s.cover_url ||
-        s.photo_url ||
-        null
-      );
-    }
-    return s.portrait_url || s.cover_url || s.photo_url || null;
-  };
+  }) =>
+    s.portrait_url ||
+    s.cover_url ||
+    s.photo_url ||
+    s.landscape_url ||
+    s.banner_url ||
+    null;
 
-  const topFranchises = slicePane(dash.top_franchises || [], paneLimit);
+  const topFranchises = slicePane(dash.top_franchises || [], contentLimit);
   const topBooks = slicePane(
     ((dash as { top_books?: BooksDashboardBook[] }).top_books ||
       dash.top_series ||
       []) as BooksDashboardBook[],
-    paneLimit
+    contentLimit
   );
-  const topUniverses = slicePane(universes, paneLimit);
-  const topGenres = slicePane(dash.top_genres, paneLimit);
-  const topCountries = slicePane(dash.top_countries, paneLimit);
+  const topUniverses = slicePane(universes, contentLimit);
+  const topGenres = slicePane(dash.top_genres, contentLimit);
+  const topCountries = slicePane(dash.top_countries, contentLimit);
 
-  const franchisePlaceholders = placeholderCount(topFranchises.length, paneLimit);
-  const bookPlaceholders = placeholderCount(topBooks.length, paneLimit);
-  const universePlaceholders = placeholderCount(topUniverses.length, paneLimit);
-  const genrePlaceholders = placeholderCount(topGenres.length, paneLimit);
-  const countryPlaceholders = placeholderCount(topCountries.length, paneLimit);
+  const franchisePlaceholders = placeholderCount(
+    topFranchises.length,
+    contentLimit
+  );
+  const bookPlaceholders = placeholderCount(topBooks.length, contentLimit);
+  const universePlaceholders = placeholderCount(
+    topUniverses.length,
+    contentLimit
+  );
+  const genrePlaceholders = placeholderCount(topGenres.length, contentLimit);
+  const countryPlaceholders = placeholderCount(
+    topCountries.length,
+    contentLimit
+  );
 
   const dashClass = DASH_LAYOUT_CLASS[layout];
   const { coarse, revealedId, onCardActivate } = useDashCardReveal();
@@ -280,7 +289,7 @@ export default function BooksHome({
       <>
       <section className="dash-row dash-row--icons">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-best"
+          logo="/api/assets/icons/pane-sagas"
           title="BEST SAGAS"
           subtitle="Your top franchises"
         />
@@ -297,6 +306,9 @@ export default function BooksHome({
                 bannerUrl={s.banner_url}
                 landscapeUrl={s.landscape_url}
                 logoUrl={s.logo_url}
+                logoCollapsedUrl={
+                  (s as { logo_collapsed_url?: string | null }).logo_collapsed_url
+                }
                 iconUrl={s.icon_url}
                 expanded={franchisesExpand.expandedId === cid}
                 revealed={revealedId === cid}
@@ -307,8 +319,8 @@ export default function BooksHome({
             );
           })}
           <PlaceholderTiles
-            count={topFranchises.length ? franchisePlaceholders : paneLimit}
-            variant="landscape"
+            count={topFranchises.length ? franchisePlaceholders : contentLimit}
+            variant={contentShape}
           />
         </div>
       </section>
@@ -323,6 +335,8 @@ export default function BooksHome({
           {topBooks.map((s) => {
             const cid = `book-${s.id}`;
             const label = (s.title || s.name || "").trim();
+            const openUrl =
+              (s as { open_url?: string | null }).open_url || null;
             return (
               <DashMorphCard
                 key={s.id}
@@ -333,7 +347,18 @@ export default function BooksHome({
                 bannerUrl={s.banner_url}
                 landscapeUrl={s.landscape_url}
                 logoUrl={s.logo_url}
+                logoCollapsedUrl={
+                  (s as { logo_collapsed_url?: string | null }).logo_collapsed_url
+                }
                 iconUrl={s.icon_url}
+                actionLabel={openUrl ? "Read book" : null}
+                onAction={
+                  openUrl
+                    ? () => {
+                        void openCatalogVideo({ openUrl, playLocally });
+                      }
+                    : undefined
+                }
                 expanded={booksExpand.expandedId === cid}
                 revealed={revealedId === cid}
                 onEnter={booksExpand.onEnter}
@@ -345,8 +370,8 @@ export default function BooksHome({
             );
           })}
           <PlaceholderTiles
-            count={topBooks.length ? bookPlaceholders : paneLimit}
-            variant="landscape"
+            count={topBooks.length ? bookPlaceholders : contentLimit}
+            variant={contentShape}
           />
         </div>
       </section>
@@ -371,6 +396,10 @@ export default function BooksHome({
                   bannerUrl={u.banner_url}
                   landscapeUrl={u.landscape_url}
                   logoUrl={u.logo_url}
+                  logoCollapsedUrl={
+                    (u as { logo_collapsed_url?: string | null })
+                      .logo_collapsed_url
+                  }
                   expanded={universesExpand.expandedId === cid}
                   revealed={revealedId === cid}
                   onEnter={universesExpand.onEnter}
@@ -382,8 +411,8 @@ export default function BooksHome({
               );
             })}
             <PlaceholderTiles
-              count={topUniverses.length ? universePlaceholders : paneLimit}
-              variant="landscape"
+              count={topUniverses.length ? universePlaceholders : contentLimit}
+              variant={contentShape}
             />
           </div>
         </section>
@@ -416,7 +445,7 @@ export default function BooksHome({
             );
           })}
           <PlaceholderTiles
-            count={topGenres.length ? genrePlaceholders : paneLimit}
+            count={topGenres.length ? genrePlaceholders : contentLimit}
             variant="circle"
           />
         </div>
@@ -436,7 +465,7 @@ export default function BooksHome({
                 key={c.name}
                 id={cid}
                 title={c.name}
-                shape="landscape"
+                shape="flag"
                 flagIso={c.iso}
                 expanded={countriesExpand.expandedId === cid}
                 revealed={revealedId === cid}
@@ -449,7 +478,7 @@ export default function BooksHome({
             );
           })}
           <PlaceholderTiles
-            count={topCountries.length ? countryPlaceholders : paneLimit}
+            count={topCountries.length ? countryPlaceholders : contentLimit}
             variant="flag"
           />
         </div>

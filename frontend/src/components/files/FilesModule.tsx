@@ -25,6 +25,7 @@ import {
 import { withMediaAccess } from "../../mediaFileUrl";
 import { trackModuleActivity } from "../../moduleActivity";
 import { wrappedSeasonYear } from "../../moduleWrappedCache";
+import { usePhoneLayout } from "../../usePhoneLayout";
 import ModuleWrapped, {
   type ModuleWrappedBrowseTarget,
 } from "../ModuleWrapped";
@@ -118,6 +119,8 @@ export default function FilesModule({
   const [wrappedOpen, setWrappedOpen] = useState(false);
   const [openAlert, setOpenAlert] = useState<string | null>(null);
   const wrappedYear = wrappedSeasonYear();
+  const isPhone = usePhoneLayout();
+  const showHomeWrapped = wrappedYear != null;
   const searchRef = useRef<HTMLInputElement>(null);
   const searchRootRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -486,7 +489,7 @@ export default function FilesModule({
                 onChange={(e) => void handleUpload(e.target.files)}
               />
             ) : null}
-            {wrappedYear != null ? (
+            {showHomeWrapped && !isPhone ? (
               <button
                 type="button"
                 className="music-home-wrapped-btn"
@@ -508,6 +511,23 @@ export default function FilesModule({
               onImport={onImport}
               onSync={onSync ?? (() => {})}
               onChooseSource={onChooseSource}
+              menuChrome={
+                isPhone && showHomeWrapped ? (
+                  <button
+                    type="button"
+                    className="music-home-wrapped-btn music-home-wrapped-btn--menu"
+                    title={`${wrappedYear} Wrapped`}
+                    aria-label={`${wrappedYear} Wrapped`}
+                    onClick={() => setWrappedOpen(true)}
+                  >
+                    <MyStackIcon
+                      className="music-home-wrapped-btn__mark menu-item-icon"
+                      size={15}
+                    />
+                    {`${wrappedYear} Wrapped`}
+                  </button>
+                ) : null
+              }
               showManageFiles={isAdmin}
               onFilesUpload={
                 activeTab ? () => uploadRef.current?.click() : undefined

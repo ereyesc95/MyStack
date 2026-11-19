@@ -2889,6 +2889,7 @@ export default function MusicModule({
             data={dashboard}
             loading={dashLoading}
             playingPath={homePlayingPath}
+            isPlaying={homeAudio.playing}
             playerBarVisible={false}
             onPlayTrack={handlePlay}
             onArtist={(id) => {

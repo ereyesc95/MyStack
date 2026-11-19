@@ -165,6 +165,7 @@ export type DashboardTrack = {
   banner_url?: string | null;
   landscape_url?: string | null;
   logo_url?: string | null;
+  logo_collapsed_url?: string | null;
   icon_url?: string | null;
   navigate_band_id?: number | null;
   navigate_release_id?: string | null;
@@ -180,7 +181,11 @@ export type DashboardRelease = {
   banner_url?: string | null;
   landscape_url?: string | null;
   logo_url?: string | null;
+  logo_collapsed_url?: string | null;
   icon_url?: string | null;
+  artist_logo_url?: string | null;
+  artist_logo_collapsed_url?: string | null;
+  artist_icon_url?: string | null;
 };
 
 export type MusicDashboard = {

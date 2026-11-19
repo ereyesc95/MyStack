@@ -64,6 +64,7 @@ import {
   moduleHomePlaybackClassNames,
   PlaybackCoverAtmosphere,
 } from "../../usePlaybackCoverBg";
+import { usePhoneLayout } from "../../usePhoneLayout";
 import type { MediaOption } from "../ModuleTopBar";
 import ModuleTopBar from "../ModuleTopBar";
 import AppMenu from "../AppMenu";
@@ -435,6 +436,9 @@ export default function HobbiesModule({
   const [activeHubTab, setActiveHubTab] = useState<HobbiesHubTab>(hubTab);
   const [wrappedOpen, setWrappedOpen] = useState(false);
   const wrappedYear = wrappedSeasonYear();
+  const isPhone = usePhoneLayout();
+  const showHomeWrapped =
+    wrappedYear != null && activeId == null && activeHubTab === "home";
   const [collectionMenu, setCollectionMenu] =
     useState<HobbyCollectionMenu | null>(null);
   const [editorOpen, setEditorOpen] = useState<
@@ -769,7 +773,7 @@ export default function HobbiesModule({
                 onChange={setHubOrientation}
               />
             ) : null}
-            {wrappedYear != null && activeId == null && activeHubTab === "home" ? (
+            {showHomeWrapped && !isPhone ? (
               <button
                 type="button"
                 className="music-home-wrapped-btn"
@@ -831,6 +835,23 @@ export default function HobbiesModule({
               onImport={onImport}
               onSync={onSync ?? (() => {})}
               onChooseSource={onChooseSource}
+              menuChrome={
+                isPhone && showHomeWrapped ? (
+                  <button
+                    type="button"
+                    className="music-home-wrapped-btn music-home-wrapped-btn--menu"
+                    title={`${wrappedYear} Wrapped`}
+                    aria-label={`${wrappedYear} Wrapped`}
+                    onClick={() => setWrappedOpen(true)}
+                  >
+                    <MyStackIcon
+                      className="music-home-wrapped-btn__mark menu-item-icon"
+                      size={15}
+                    />
+                    {`${wrappedYear} Wrapped`}
+                  </button>
+                ) : null
+              }
               onNewHobbyCollection={
                 activeId == null && activeHubTab === "home"
                   ? () => openCollectionEditor("new")

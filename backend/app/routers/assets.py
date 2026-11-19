@@ -26,6 +26,7 @@ PANE_SLUGS = (
     "pane-on-repeat",
     "pane-icons",
     "pane-best",
+    "pane-sagas",
     "pane-top-records",
     "pane-universes",
     "pane-vibes",

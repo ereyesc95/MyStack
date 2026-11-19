@@ -189,10 +189,17 @@ def build_movies_dashboard(
                 "play_count": count,
                 "photo_url": film.get("cover_url"),
                 "cover_url": film.get("cover_url"),
+                "portrait_url": film.get("portrait_url"),
+                "landscape_url": film.get("landscape_url"),
+                "banner_url": film.get("banner_url"),
                 "logo_url": film.get("logo_url"),
+                "logo_collapsed_url": film.get("logo_collapsed_url"),
                 "icon_url": film.get("icon_url"),
                 "show_name_on_hover": not (film.get("logo_url") or film.get("icon_url")),
                 "work_id": film.get("work_id"),
+                "open_url": film.get("open_url"),
+                "open_mode": film.get("open_mode"),
+                "open_label": "Play movie" if film.get("open_url") else None,
             }
         )
 
@@ -216,10 +223,17 @@ def build_movies_dashboard(
                     "play_count": 0,
                     "photo_url": f.get("cover_url"),
                     "cover_url": f.get("cover_url"),
+                    "portrait_url": f.get("portrait_url"),
+                    "landscape_url": f.get("landscape_url"),
+                    "banner_url": f.get("banner_url"),
                     "logo_url": f.get("logo_url"),
+                    "logo_collapsed_url": f.get("logo_collapsed_url"),
                     "icon_url": f.get("icon_url"),
                     "show_name_on_hover": not (f.get("logo_url") or f.get("icon_url")),
                     "work_id": f.get("work_id"),
+                    "open_url": f.get("open_url"),
+                    "open_mode": f.get("open_mode"),
+                    "open_label": "Play movie" if f.get("open_url") else None,
                 }
             )
             seen.add(fid)

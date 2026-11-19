@@ -195,12 +195,77 @@ def cover_url_for_track_path(path: str | None, media_root: Path) -> str | None:
     return _find_cover_front_artwork(file_path.parent, media_root.resolve())
 
 
+def _is_audio_category_folder(name: str) -> bool:
+    low = (name or "").casefold()
+    if low in {v.casefold() for v in AUDIO_CATEGORIES.values()}:
+        return True
+    return low in {"audio", "video", "library", "gallery", "music", "media"}
+
+
+def _looks_like_release_or_edition(folder: Path) -> bool:
+    """True for dated release folders / edition folders — not Albums/artist roots."""
+    from app.playlist_tracks import _is_edition_or_disc_name
+
+    if _is_edition_or_disc_name(folder.name):
+        return True
+    if DATE_PREFIX_RE.match(folder.name.strip()):
+        return True
+    try:
+        for child in folder.iterdir():
+            if child.is_dir() and _is_edition_or_disc_name(child.name):
+                return True
+    except OSError:
+        return False
+    return False
+
+
 def _iter_artwork_dirs(start: Path):
+    """Yield [Artwork] dirs walking up from start.
+
+    When a folder has no direct [Artwork] (common for album roots that only
+    nest art under Standard Edition / CD version), fall through to preferred
+    edition/version artwork before walking to the parent.
+
+    Never resolve Standard Edition under category folders (Albums/EPs/…) —
+    that would steal a sibling release's artwork.
+    """
+    from app.release_overview import _resolve_standard_edition, _standard_artwork_dir
+    from app.release_versions import resolve_artwork_dir_preferring_cd_version
+
     cur = start
+    seen: set[str] = set()
+
+    def _yield_art(art: Path | None):
+        if not art or not art.is_dir():
+            return False
+        try:
+            key = str(art.resolve())
+        except OSError:
+            key = str(art)
+        if key in seen:
+            return False
+        seen.add(key)
+        return True
+
     for _ in range(8):
+        if _is_audio_category_folder(cur.name) or len(cur.name) == 1:
+            break
         artwork = _find_artwork_subdir(cur)
-        if artwork:
+        if artwork and _yield_art(artwork):
             yield artwork
+        elif _looks_like_release_or_edition(cur):
+            preferred = resolve_artwork_dir_preferring_cd_version(cur)
+            if preferred and _yield_art(preferred):
+                yield preferred
+            else:
+                try:
+                    std = _resolve_standard_edition(cur)
+                except OSError:
+                    std = cur
+                if std != cur:
+                    std_art = _standard_artwork_dir(std) or _find_artwork_subdir(std)
+                    if std_art and _yield_art(std_art):
+                        yield std_art
         parent = cur.parent
         if parent == cur:
             break
@@ -216,10 +281,10 @@ def artwork_role_urls_for_dir(
         resolve_cover_front_file,
         resolve_landscape_stem_file,
     )
-    from app.media_index import _artwork_file
+    from app.media_index import LOGO_COLLAPSED_STEM, LOGO_STEM, _artwork_file
 
     root = media_root.resolve()
-    banner = landscape = cover = logo = None
+    banner = landscape = cover = logo = logo_collapsed = None
     for artwork in _iter_artwork_dirs(folder):
         if not banner:
             found = resolve_banner_stem_file(artwork)
@@ -233,35 +298,62 @@ def artwork_role_urls_for_dir(
             found = resolve_cover_front_file(artwork)
             if found:
                 cover = _media_url(found, root)
+        if not logo_collapsed:
+            found = _artwork_file(artwork, LOGO_COLLAPSED_STEM)
+            if found:
+                logo_collapsed = _media_url(found, root)
         if not logo:
-            found = _artwork_file(artwork, "Logo")
+            found = _artwork_file(artwork, LOGO_STEM)
             if found:
                 logo = _media_url(found, root)
-        if banner and landscape and cover and logo:
+        if banner and landscape and cover and logo and logo_collapsed:
             break
     return {
         "banner_url": banner,
         "landscape_url": landscape,
         "cover_url": cover,
         "logo_url": logo,
+        "logo_collapsed_url": logo_collapsed,
     }
 
 
 def artwork_role_urls_for_track_path(
     path: str | None, media_root: Path
 ) -> dict[str, str | None]:
+    """Roles for a track: prefer its edition [Artwork], then Standard Edition fill."""
     empty = {
         "banner_url": None,
         "landscape_url": None,
         "cover_url": None,
         "logo_url": None,
+        "logo_collapsed_url": None,
     }
     if not path:
         return empty
     file_path = resolve_track_file_path(path, media_root)
     if not file_path:
         return empty
-    return artwork_role_urls_for_dir(file_path.parent, media_root)
+    roles = artwork_role_urls_for_dir(file_path.parent, media_root)
+    # Explicit Standard Edition fill when the track's edition is missing wide art.
+    if not roles.get("banner_url") or not roles.get("landscape_url"):
+        try:
+            from app.media_index import _release_dir_from_content_folder
+            from app.release_overview import (
+                _resolve_standard_edition,
+                _standard_artwork_dir,
+            )
+
+            release_dir = _release_dir_from_content_folder(file_path.parent)
+            std = _resolve_standard_edition(release_dir)
+            std_art = _standard_artwork_dir(std) or _find_artwork_subdir(std)
+            if std_art:
+                fill = artwork_role_urls_for_dir(std_art.parent, media_root)
+                for key, val in fill.items():
+                    if not roles.get(key) and val:
+                        roles[key] = val
+        except OSError:
+            pass
+    return roles
 
 
 def _album_title_from_folder(name: str) -> str:

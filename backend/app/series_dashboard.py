@@ -67,6 +67,7 @@ def _iter_catalog_subseries(franchises: list[dict]) -> list[dict]:
             sid = s.get("id")
             if not sid:
                 continue
+            open_url = s.get("open_url") or f.get("open_url")
             out.append(
                 {
                     "id": f"{fid}::{sid}",
@@ -80,11 +81,20 @@ def _iter_catalog_subseries(franchises: list[dict]) -> list[dict]:
                     "banner_url": s.get("banner_url") or s.get("landscape_url"),
                     "photo_url": s.get("portrait_url") or s.get("cover_url") or f.get("portrait_url") or f.get("cover_url"),
                     "cover_url": s.get("portrait_url") or s.get("cover_url") or f.get("portrait_url") or f.get("cover_url"),
-                    "logo_url": s.get("logo_url"),
-                    "icon_url": s.get("icon_url"),
+                    "logo_url": s.get("logo_url") or f.get("logo_url"),
+                    "logo_collapsed_url": s.get("logo_collapsed_url")
+                    or f.get("logo_collapsed_url"),
+                    "icon_url": s.get("icon_url") or f.get("icon_url"),
                     "show_name_on_hover": True,
                     "date_iso": s.get("date_iso"),
                     "season_count": int(s.get("season_count") or 0),
+                    "open_url": open_url,
+                    "open_mode": s.get("open_mode") or f.get("open_mode"),
+                    "open_label": (
+                        s.get("open_label")
+                        or f.get("open_label")
+                        or ("Play episode 1" if open_url else None)
+                    ),
                 }
             )
     return out
@@ -186,6 +196,7 @@ def build_series_dashboard(
                 "photo_url": card.get("portrait_url") or card.get("cover_url"),
                 "cover_url": card.get("portrait_url") or card.get("cover_url"),
                 "logo_url": card.get("logo_url"),
+                "logo_collapsed_url": card.get("logo_collapsed_url"),
                 "icon_url": card.get("icon_url"),
                 "show_name_on_hover": True,
                 "is_music_franchise": bool(card.get("is_music_franchise")),
@@ -219,6 +230,7 @@ def build_series_dashboard(
                     "photo_url": f.get("portrait_url") or f.get("cover_url"),
                     "cover_url": f.get("portrait_url") or f.get("cover_url"),
                     "logo_url": f.get("logo_url"),
+                    "logo_collapsed_url": f.get("logo_collapsed_url"),
                     "icon_url": f.get("icon_url"),
                     "show_name_on_hover": True,
                     "is_music_franchise": bool(f.get("is_music_franchise")),
@@ -271,6 +283,7 @@ def build_series_dashboard(
             card = by_id.get(fid)
             if not card:
                 continue
+            open_url = card.get("open_url")
             top_series.append(
                 {
                     "id": fid,
@@ -285,8 +298,13 @@ def build_series_dashboard(
                     "photo_url": card.get("portrait_url") or card.get("cover_url"),
                     "cover_url": card.get("portrait_url") or card.get("cover_url"),
                     "logo_url": card.get("logo_url"),
+                    "logo_collapsed_url": card.get("logo_collapsed_url"),
                     "icon_url": card.get("icon_url"),
                     "show_name_on_hover": True,
+                    "open_url": open_url,
+                    "open_mode": card.get("open_mode"),
+                    "open_label": card.get("open_label")
+                    or ("Play episode 1" if open_url else None),
                 }
             )
 
@@ -313,6 +331,7 @@ def build_series_dashboard(
                 fid = f.get("id")
                 if not fid or fid in seen or (f.get("subseries") or []):
                     continue
+                open_url = f.get("open_url")
                 top_series.append(
                     {
                         "id": fid,
@@ -326,8 +345,13 @@ def build_series_dashboard(
                         "photo_url": f.get("portrait_url") or f.get("cover_url"),
                         "cover_url": f.get("portrait_url") or f.get("cover_url"),
                         "logo_url": f.get("logo_url"),
+                        "logo_collapsed_url": f.get("logo_collapsed_url"),
                         "icon_url": f.get("icon_url"),
                         "show_name_on_hover": True,
+                        "open_url": open_url,
+                        "open_mode": f.get("open_mode"),
+                        "open_label": f.get("open_label")
+                        or ("Play episode 1" if open_url else None),
                     }
                 )
                 seen.add(fid)
@@ -417,6 +441,11 @@ def build_series_dashboard(
     top_series = enrich_home_cards(
         db, top_series, media_root=media_root, orientation="portrait"
     )
+    for card in top_series:
+        if not isinstance(card, dict):
+            continue
+        if card.get("open_url") and not card.get("open_label"):
+            card["open_label"] = "Play episode 1"
 
     return {
         "top_episodes": top_episodes,
