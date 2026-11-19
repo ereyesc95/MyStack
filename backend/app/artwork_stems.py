@@ -131,6 +131,16 @@ def resolve_cover_landscape_file(artwork: Path | None) -> Path | None:
     return resolve_catalog_wide_file(artwork)
 
 
+def resolve_banner_stem_file(artwork: Path | None) -> Path | None:
+    """Cover - Banner only (dashboard hover morph prefers true banners)."""
+    return _first_stem_in_dirs(_dirs(artwork), (COVER_BANNER_STEM,))
+
+
+def resolve_landscape_stem_file(artwork: Path | None) -> Path | None:
+    """Cover - Landscape only."""
+    return _first_stem_in_dirs(_dirs(artwork), (COVER_LANDSCAPE_STEM,))
+
+
 def resolve_cover_portrait_file(artwork: Path | None) -> Path | None:
     """Catalog portrait card: Portrait → Front → Album → Landscape → Banner."""
     return resolve_catalog_cover_file(artwork)

@@ -1,8 +1,12 @@
-import { useLayoutEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import type { SeriesDashboard, Universe } from "../../types";
 import { EMPTY_SERIES_DASHBOARD } from "../../types";
-import { DashHoverTitle, useDashCardReveal } from "../DashHoverTitle";
-import MyStackIcon from "../MyStackIcon";
+import DashMorphCard from "../DashMorphCard";
+import { useDashCardReveal } from "../DashHoverTitle";
+import {
+  prefetchDashArt,
+  useDashPaneExpand,
+} from "../useDashPaneExpand";
 
 const PHONE_MAX_WIDTH = 900;
 const PHONE_PORTRAIT_MAX_WIDTH = 480;
@@ -14,11 +18,11 @@ function hasTouchScreen(): boolean {
   return navigator.maxTouchPoints > 0;
 }
 
-const DESKTOP_PANE_ITEMS = 10;
-const TABLET_LANDSCAPE_ITEMS = 7;
-const TABLET_PORTRAIT_ITEMS = 5;
-const MOBILE_LANDSCAPE_ITEMS = 10;
-const MOBILE_PORTRAIT_ITEMS = 10;
+const DESKTOP_PANE_ITEMS = 11;
+const TABLET_LANDSCAPE_ITEMS = 8;
+const TABLET_PORTRAIT_ITEMS = 6;
+const MOBILE_LANDSCAPE_ITEMS = 6;
+const MOBILE_PORTRAIT_ITEMS = 4;
 
 type DashLayout =
   | "desktop"
@@ -97,40 +101,6 @@ function placeholderCount(itemCount: number, limit: number) {
 }
 
 type PlaceholderVariant = "square" | "landscape" | "circle" | "flag";
-
-function DashCover({
-  url,
-  position = "top",
-  children,
-}: {
-  url?: string | null;
-  position?: "top" | "center";
-  children?: ReactNode;
-}) {
-  if (url) {
-    return (
-      <span className="dash-icon-item-cover">
-        <span
-          className="card-bg-layer"
-          style={{
-            backgroundImage: `url("${url}")`,
-            backgroundPosition:
-              position === "center" ? "center center" : "center top",
-          }}
-        />
-        <span className="dash-icon-item-cover__scrim" aria-hidden />
-        {children}
-      </span>
-    );
-  }
-  return (
-    <span className="dash-icon-item-cover dash-icon-item-cover--empty">
-      <MyStackIcon className="dash-icon-item-cover__mark" size={22} />
-      <span className="dash-icon-item-cover__scrim" aria-hidden />
-      {children}
-    </span>
-  );
-}
 
 function DashPlaceholder({ variant }: { variant: PlaceholderVariant }) {
   if (variant === "landscape") {
@@ -228,6 +198,7 @@ export default function BooksHome({
   const layout = useDashboardLayout();
   const paneLimit = paneItemLimit(layout);
   const useBannerArt = layout === "mobile-landscape";
+  const contentShape = useBannerArt ? "landscape" : "portrait";
 
   const pickCover = (s: {
     portrait_url?: string | null;
@@ -267,7 +238,38 @@ export default function BooksHome({
   const countryPlaceholders = placeholderCount(topCountries.length, paneLimit);
 
   const dashClass = DASH_LAYOUT_CLASS[layout];
-  const { revealedId, onCardActivate } = useDashCardReveal();
+  const { coarse, revealedId, onCardActivate } = useDashCardReveal();
+  const franchisesExpand = useDashPaneExpand(revealedId, coarse);
+  const booksExpand = useDashPaneExpand(revealedId, coarse);
+  const universesExpand = useDashPaneExpand(revealedId, coarse);
+  const genresExpand = useDashPaneExpand(revealedId, coarse);
+  const countriesExpand = useDashPaneExpand(revealedId, coarse);
+
+  useEffect(() => {
+    prefetchDashArt([
+      ...topFranchises.flatMap((s) => [
+        s.banner_url,
+        s.landscape_url,
+        pickCover(s),
+        s.logo_url,
+        s.icon_url,
+      ]),
+      ...topBooks.flatMap((s) => [
+        s.banner_url,
+        s.landscape_url,
+        pickCover(s),
+        s.logo_url,
+        s.icon_url,
+      ]),
+      ...topUniverses.flatMap((u) => [
+        u.banner_url,
+        u.landscape_url,
+        pickCover(u),
+        u.logo_url,
+      ]),
+      ...topGenres.map((g) => g.image_url),
+    ]);
+  }, [topFranchises, topBooks, topUniverses, topGenres, topCountries]);
 
   return (
     <div
@@ -278,35 +280,30 @@ export default function BooksHome({
       <>
       <section className="dash-row dash-row--icons">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-on-repeat"
+          logo="/api/assets/icons/pane-best"
           title="BEST SAGAS"
           subtitle="Your top franchises"
         />
         <div className="dash-scroll dash-scroll--icons">
           {topFranchises.map((s) => {
-            const cover = pickCover(s);
+            const cid = `franchise-${s.id}`;
             return (
-              <button
+              <DashMorphCard
                 key={s.id}
-                type="button"
-                data-dash-card={`franchise-${s.id}`}
-                className={`dash-icon-item${
-                  revealedId === `franchise-${s.id}` ? " is-revealed" : ""
-                }`}
-                onClick={onCardActivate(`franchise-${s.id}`, () =>
-                  onFranchise(s.id)
-                )}
-              >
-                <DashCover
-                  url={cover}
-                  position={useBannerArt ? "center" : "top"}
-                >
-                  <DashHoverTitle
-                    title={s.name}
-                    revealed={revealedId === `franchise-${s.id}`}
-                  />
-                </DashCover>
-              </button>
+                id={cid}
+                title={s.name}
+                shape={contentShape}
+                coverUrl={pickCover(s)}
+                bannerUrl={s.banner_url}
+                landscapeUrl={s.landscape_url}
+                logoUrl={s.logo_url}
+                iconUrl={s.icon_url}
+                expanded={franchisesExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                onEnter={franchisesExpand.onEnter}
+                onLeave={franchisesExpand.onLeave}
+                onActivate={onCardActivate(cid, () => onFranchise(s.id))}
+              />
             );
           })}
           <PlaceholderTiles
@@ -318,36 +315,33 @@ export default function BooksHome({
 
       <section className="dash-row dash-row--icons">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-icons"
+          logo="/api/assets/icons/pane-best"
           title="BEST BOOKS"
           subtitle="Your top books"
         />
         <div className="dash-scroll dash-scroll--icons">
           {topBooks.map((s) => {
-            const cover = pickCover(s);
+            const cid = `book-${s.id}`;
             const label = (s.title || s.name || "").trim();
             return (
-              <button
+              <DashMorphCard
                 key={s.id}
-                type="button"
-                data-dash-card={`book-${s.id}`}
-                className={`dash-icon-item${
-                  revealedId === `book-${s.id}` ? " is-revealed" : ""
-                }`}
-                onClick={onCardActivate(`book-${s.id}`, () =>
+                id={cid}
+                title={label}
+                shape={contentShape}
+                coverUrl={pickCover(s)}
+                bannerUrl={s.banner_url}
+                landscapeUrl={s.landscape_url}
+                logoUrl={s.logo_url}
+                iconUrl={s.icon_url}
+                expanded={booksExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                onEnter={booksExpand.onEnter}
+                onLeave={booksExpand.onLeave}
+                onActivate={onCardActivate(cid, () =>
                   onBook(s.id, s.work_id)
                 )}
-              >
-                <DashCover
-                  url={cover}
-                  position={useBannerArt ? "center" : "top"}
-                >
-                  <DashHoverTitle
-                    title={label}
-                    revealed={revealedId === `book-${s.id}`}
-                  />
-                </DashCover>
-              </button>
+              />
             );
           })}
           <PlaceholderTiles
@@ -360,35 +354,31 @@ export default function BooksHome({
       {topUniverses.length > 0 ? (
       <section className="dash-row dash-row--icons">
           <DashPaneLabel
-            logo="/api/assets/icons/pane-on-repeat"
+            logo="/api/assets/icons/pane-universes"
             title="UNIVERSES"
             subtitle="Shared story worlds"
           />
           <div className="dash-scroll dash-scroll--icons">
             {topUniverses.map((u) => {
-              const cover = pickCover(u);
+              const cid = `universe-${u.id}`;
               return (
-                <button
+                <DashMorphCard
                   key={u.id}
-                  type="button"
-                  data-dash-card={`universe-${u.id}`}
-                  className={`dash-icon-item${
-                    revealedId === `universe-${u.id}` ? " is-revealed" : ""
-                  }`}
-                  onClick={onCardActivate(`universe-${u.id}`, () =>
+                  id={cid}
+                  title={u.name}
+                  shape={contentShape}
+                  coverUrl={pickCover(u)}
+                  bannerUrl={u.banner_url}
+                  landscapeUrl={u.landscape_url}
+                  logoUrl={u.logo_url}
+                  expanded={universesExpand.expandedId === cid}
+                  revealed={revealedId === cid}
+                  onEnter={universesExpand.onEnter}
+                  onLeave={universesExpand.onLeave}
+                  onActivate={onCardActivate(cid, () =>
                     onOpenUniverse?.(u.id)
                   )}
-                >
-                  <DashCover
-                    url={cover}
-                    position={useBannerArt ? "center" : "top"}
-                  >
-                    <DashHoverTitle
-                      title={u.name}
-                      revealed={revealedId === `universe-${u.id}`}
-                    />
-                  </DashCover>
-                </button>
+                />
               );
             })}
             <PlaceholderTiles
@@ -406,34 +396,25 @@ export default function BooksHome({
           subtitle="Genres on rotation"
         />
         <div className="dash-scroll dash-scroll--genres">
-          {topGenres.map((g) => (
-            <button
-              key={g.id ?? g.name}
-              type="button"
-              data-dash-card={`genre-${g.id ?? g.name}`}
-              className={`dash-genre${
-                revealedId === `genre-${g.id ?? g.name}` ? " is-revealed" : ""
-              }`}
-              onClick={onCardActivate(`genre-${g.id ?? g.name}`, () =>
-                onGenre?.(g.id)
-              )}
-            >
-              <span className="dash-genre-ring">
-                <span
-                  className="dash-genre-ring-bg card-bg-layer"
-                  style={
-                    g.image_url
-                      ? { backgroundImage: `url("${g.image_url}")` }
-                      : undefined
-                  }
-                />
-                <DashHoverTitle
-                  title={g.name}
-                  revealed={revealedId === `genre-${g.id ?? g.name}`}
-                />
-              </span>
-            </button>
-          ))}
+          {topGenres.map((g) => {
+            const cid = `genre-${g.id ?? g.name}`;
+            return (
+              <DashMorphCard
+                key={String(g.id ?? g.name)}
+                id={cid}
+                title={g.name}
+                shape="circle"
+                coverUrl={g.image_url}
+                bannerUrl={g.image_url}
+                landscapeUrl={g.image_url}
+                expanded={genresExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                onEnter={genresExpand.onEnter}
+                onLeave={genresExpand.onLeave}
+                onActivate={onCardActivate(cid, () => onGenre?.(g.id))}
+              />
+            );
+          })}
           <PlaceholderTiles
             count={topGenres.length ? genrePlaceholders : paneLimit}
             variant="circle"
@@ -443,32 +424,30 @@ export default function BooksHome({
 
       <section className="dash-row dash-row--flags">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-global"
+          logo="/api/assets/icons/pane-origins"
           title="ORIGINS"
           subtitle="Origin of your content"
         />
         <div className="dash-scroll dash-scroll--flags">
-          {topCountries.map((c) => (
-            <button
-              key={c.name}
-              type="button"
-              data-dash-card={`country-${c.name}`}
-              className={`dash-country${
-                revealedId === `country-${c.name}` ? " is-revealed" : ""
-              }`}
-              onClick={onCardActivate(`country-${c.name}`, () =>
-                onCountry?.({ id: c.id, name: c.name })
-              )}
-            >
-              <span className="dash-country-flag">
-                {c.iso ? <span className={`fi fi-${c.iso}`} /> : null}
-                <DashHoverTitle
-                  title={c.name}
-                  revealed={revealedId === `country-${c.name}`}
-                />
-              </span>
-            </button>
-          ))}
+          {topCountries.map((c) => {
+            const cid = `country-${c.name}`;
+            return (
+              <DashMorphCard
+                key={c.name}
+                id={cid}
+                title={c.name}
+                shape="landscape"
+                flagIso={c.iso}
+                expanded={countriesExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                onEnter={countriesExpand.onEnter}
+                onLeave={countriesExpand.onLeave}
+                onActivate={onCardActivate(cid, () =>
+                  onCountry?.({ id: c.id, name: c.name })
+                )}
+              />
+            );
+          })}
           <PlaceholderTiles
             count={topCountries.length ? countryPlaceholders : paneLimit}
             variant="flag"

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import type {
   MoviesFilmCard,
   SeriesDashboard,
@@ -6,8 +6,12 @@ import type {
   Universe,
 } from "../../types";
 import { EMPTY_SERIES_DASHBOARD } from "../../types";
-import { DashHoverTitle, useDashCardReveal } from "../DashHoverTitle";
-import MyStackIcon from "../MyStackIcon";
+import DashMorphCard from "../DashMorphCard";
+import { useDashCardReveal } from "../DashHoverTitle";
+import {
+  prefetchDashArt,
+  useDashPaneExpand,
+} from "../useDashPaneExpand";
 
 const PHONE_MAX_WIDTH = 900;
 const PHONE_PORTRAIT_MAX_WIDTH = 480;
@@ -19,11 +23,11 @@ function hasTouchScreen(): boolean {
   return navigator.maxTouchPoints > 0;
 }
 
-const DESKTOP_PANE_ITEMS = 10;
-const TABLET_LANDSCAPE_ITEMS = 7;
-const TABLET_PORTRAIT_ITEMS = 5;
-const MOBILE_LANDSCAPE_ITEMS = 10;
-const MOBILE_PORTRAIT_ITEMS = 10;
+const DESKTOP_PANE_ITEMS = 11;
+const TABLET_LANDSCAPE_ITEMS = 8;
+const TABLET_PORTRAIT_ITEMS = 6;
+const MOBILE_LANDSCAPE_ITEMS = 6;
+const MOBILE_PORTRAIT_ITEMS = 4;
 
 type DashLayout =
   | "desktop"
@@ -102,40 +106,6 @@ function placeholderCount(itemCount: number, limit: number) {
 }
 
 type PlaceholderVariant = "landscape" | "square" | "circle";
-
-function DashCover({
-  url,
-  position = "top",
-  children,
-}: {
-  url?: string | null;
-  position?: "top" | "center";
-  children?: ReactNode;
-}) {
-  if (url) {
-    return (
-      <span className="dash-icon-item-cover">
-        <span
-          className="card-bg-layer"
-          style={{
-            backgroundImage: `url("${url}")`,
-            backgroundPosition:
-              position === "center" ? "center center" : "center top",
-          }}
-        />
-        <span className="dash-icon-item-cover__scrim" aria-hidden />
-        {children}
-      </span>
-    );
-  }
-  return (
-    <span className="dash-icon-item-cover dash-icon-item-cover--empty">
-      <MyStackIcon className="dash-icon-item-cover__mark" size={22} />
-      <span className="dash-icon-item-cover__scrim" aria-hidden />
-      {children}
-    </span>
-  );
-}
 
 function DashPlaceholder({ variant }: { variant: PlaceholderVariant }) {
   if (variant === "square") {
@@ -227,7 +197,13 @@ export default function GamesHome({
   const layout = useDashboardLayout();
   const paneLimit = paneItemLimit(layout);
   const useBannerArt = layout === "mobile-landscape";
-  const { revealedId, onCardActivate } = useDashCardReveal();
+  const contentShape = useBannerArt ? "landscape" : "portrait";
+  const { coarse, revealedId, onCardActivate } = useDashCardReveal();
+  const franchisesExpand = useDashPaneExpand(revealedId, coarse);
+  const gamesExpand = useDashPaneExpand(revealedId, coarse);
+  const universesExpand = useDashPaneExpand(revealedId, coarse);
+  const genresExpand = useDashPaneExpand(revealedId, coarse);
+  const platformsExpand = useDashPaneExpand(revealedId, coarse);
 
   const pickCover = (s: {
     portrait_url?: string | null;
@@ -268,6 +244,45 @@ export default function GamesHome({
 
   const dashClass = DASH_LAYOUT_CLASS[layout];
 
+  useEffect(() => {
+    prefetchDashArt([
+      ...topFranchises.flatMap((s) => [
+        s.banner_url,
+        s.landscape_url,
+        pickCover(s),
+        s.logo_url,
+        s.icon_url,
+      ]),
+      ...topGames.flatMap((g) => [
+        g.banner_url,
+        g.landscape_url,
+        pickCover(g),
+        g.logo_url,
+        g.icon_url,
+      ]),
+      ...topUniverses.flatMap((u) => [
+        u.banner_url,
+        u.landscape_url,
+        pickCover(u),
+        u.logo_url,
+      ]),
+      ...topGenres.map((g) => g.image_url),
+      ...platformRow.flatMap((p) => [
+        p.banner_url,
+        p.landscape_url,
+        p.cover_url,
+        p.logo_url,
+        p.icon_url,
+      ]),
+    ]);
+  }, [
+    topFranchises,
+    topGames,
+    topUniverses,
+    topGenres,
+    platformRow,
+  ]);
+
   return (
     <div
       className={`music-dashboard series-dashboard games-dashboard${dashClass}${
@@ -276,35 +291,30 @@ export default function GamesHome({
     >
       <section className="dash-row dash-row--icons">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-on-repeat"
+          logo="/api/assets/icons/pane-best"
           title="BEST SAGAS"
           subtitle="Your top franchises"
         />
         <div className="dash-scroll dash-scroll--icons">
           {topFranchises.map((s) => {
-            const cover = pickCover(s);
+            const cid = `franchise-${s.id}`;
             return (
-              <button
+              <DashMorphCard
                 key={s.id}
-                type="button"
-                data-dash-card={`franchise-${s.id}`}
-                className={`dash-icon-item${
-                  revealedId === `franchise-${s.id}` ? " is-revealed" : ""
-                }`}
-                onClick={onCardActivate(`franchise-${s.id}`, () =>
-                  onFranchise(s.id)
-                )}
-              >
-                <DashCover
-                  url={cover}
-                  position={useBannerArt ? "center" : "top"}
-                >
-                  <DashHoverTitle
-                    title={s.name}
-                    revealed={revealedId === `franchise-${s.id}`}
-                  />
-                </DashCover>
-              </button>
+                id={cid}
+                title={s.name}
+                shape={contentShape}
+                coverUrl={pickCover(s)}
+                bannerUrl={s.banner_url}
+                landscapeUrl={s.landscape_url}
+                logoUrl={s.logo_url}
+                iconUrl={s.icon_url}
+                expanded={franchisesExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                onEnter={franchisesExpand.onEnter}
+                onLeave={franchisesExpand.onLeave}
+                onActivate={onCardActivate(cid, () => onFranchise(s.id))}
+              />
             );
           })}
           <PlaceholderTiles
@@ -316,35 +326,32 @@ export default function GamesHome({
 
       <section className="dash-row dash-row--icons">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-icons"
+          logo="/api/assets/icons/pane-best"
           title="BEST GAMES"
           subtitle="Your top video games"
         />
         <div className="dash-scroll dash-scroll--icons">
           {topGames.map((g) => {
-            const cover = pickCover(g);
+            const cid = `game-${g.id}`;
             return (
-              <button
+              <DashMorphCard
                 key={g.id}
-                type="button"
-                data-dash-card={`game-${g.id}`}
-                className={`dash-icon-item${
-                  revealedId === `game-${g.id}` ? " is-revealed" : ""
-                }`}
-                onClick={onCardActivate(`game-${g.id}`, () =>
+                id={cid}
+                title={g.title}
+                shape={contentShape}
+                coverUrl={pickCover(g)}
+                bannerUrl={g.banner_url}
+                landscapeUrl={g.landscape_url}
+                logoUrl={g.logo_url}
+                iconUrl={g.icon_url}
+                expanded={gamesExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                onEnter={gamesExpand.onEnter}
+                onLeave={gamesExpand.onLeave}
+                onActivate={onCardActivate(cid, () =>
                   onGame(g.id, g.work_id)
                 )}
-              >
-                <DashCover
-                  url={cover}
-                  position={useBannerArt ? "center" : "top"}
-                >
-                  <DashHoverTitle
-                    title={g.title}
-                    revealed={revealedId === `game-${g.id}`}
-                  />
-                </DashCover>
-              </button>
+              />
             );
           })}
           <PlaceholderTiles
@@ -357,35 +364,29 @@ export default function GamesHome({
       {topUniverses.length > 0 && onOpenUniverse ? (
         <section className="dash-row dash-row--icons">
           <DashPaneLabel
-            logo="/api/assets/icons/pane-on-repeat"
+            logo="/api/assets/icons/pane-universes"
             title="UNIVERSES"
             subtitle="Shared story worlds"
           />
           <div className="dash-scroll dash-scroll--icons">
             {topUniverses.map((u) => {
-              const cover = pickCover(u);
+              const cid = `universe-${u.id}`;
               return (
-                <button
+                <DashMorphCard
                   key={u.id}
-                  type="button"
-                  data-dash-card={`universe-${u.id}`}
-                  className={`dash-icon-item${
-                    revealedId === `universe-${u.id}` ? " is-revealed" : ""
-                  }`}
-                  onClick={onCardActivate(`universe-${u.id}`, () =>
-                    onOpenUniverse(u.id)
-                  )}
-                >
-                  <DashCover
-                    url={cover}
-                    position={useBannerArt ? "center" : "top"}
-                  >
-                    <DashHoverTitle
-                      title={u.name}
-                      revealed={revealedId === `universe-${u.id}`}
-                    />
-                  </DashCover>
-                </button>
+                  id={cid}
+                  title={u.name}
+                  shape={contentShape}
+                  coverUrl={pickCover(u)}
+                  bannerUrl={u.banner_url}
+                  landscapeUrl={u.landscape_url}
+                  logoUrl={u.logo_url}
+                  expanded={universesExpand.expandedId === cid}
+                  revealed={revealedId === cid}
+                  onEnter={universesExpand.onEnter}
+                  onLeave={universesExpand.onLeave}
+                  onActivate={onCardActivate(cid, () => onOpenUniverse(u.id))}
+                />
               );
             })}
             <PlaceholderTiles
@@ -403,34 +404,25 @@ export default function GamesHome({
           subtitle="Genres on rotation"
         />
         <div className="dash-scroll dash-scroll--genres">
-          {topGenres.map((g) => (
-            <button
-              key={g.id ?? g.name}
-              type="button"
-              data-dash-card={`genre-${g.id ?? g.name}`}
-              className={`dash-genre${
-                revealedId === `genre-${g.id ?? g.name}` ? " is-revealed" : ""
-              }`}
-              onClick={onCardActivate(`genre-${g.id ?? g.name}`, () =>
-                onGenre?.(g.id)
-              )}
-            >
-              <span className="dash-genre-ring">
-                <span
-                  className="dash-genre-ring-bg card-bg-layer"
-                  style={
-                    g.image_url
-                      ? { backgroundImage: `url("${g.image_url}")` }
-                      : undefined
-                  }
-                />
-                <DashHoverTitle
-                  title={g.name}
-                  revealed={revealedId === `genre-${g.id ?? g.name}`}
-                />
-              </span>
-            </button>
-          ))}
+          {topGenres.map((g) => {
+            const cid = `genre-${g.id ?? g.name}`;
+            return (
+              <DashMorphCard
+                key={String(g.id ?? g.name)}
+                id={cid}
+                title={g.name}
+                shape="circle"
+                coverUrl={g.image_url}
+                bannerUrl={g.image_url}
+                landscapeUrl={g.image_url}
+                expanded={genresExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                onEnter={genresExpand.onEnter}
+                onLeave={genresExpand.onLeave}
+                onActivate={onCardActivate(cid, () => onGenre?.(g.id))}
+              />
+            );
+          })}
           <PlaceholderTiles
             count={topGenres.length ? genrePlaceholders : paneLimit}
             variant="circle"
@@ -440,57 +432,35 @@ export default function GamesHome({
 
       <section className="dash-row dash-row--tracks dash-row--platforms">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-global"
-          title="GAMING SYSTEMS"
+          logo="/api/assets/icons/pane-consoles"
+          title="CONSOLES"
           subtitle="Your games per platform"
         />
         <div className="dash-scroll dash-scroll--tracks dash-scroll--platforms">
           {platformRow.map((p) => {
+            const cid = `platform-${p.id}`;
             const cover =
-              p.cover_url ||
-              "/api/assets/platforms/default.png";
-            const brandSrc = p.logo_url || p.icon_url || null;
-            const cardId = `platform-${p.id}`;
+              p.cover_url || "/api/assets/platforms/default.png";
             return (
-              <button
+              <DashMorphCard
                 key={p.id}
-                type="button"
-                data-dash-card={cardId}
-                className={`dash-track dash-platform${
-                  revealedId === cardId ? " is-revealed" : ""
-                }`}
+                id={cid}
                 title={p.name}
-                onClick={onCardActivate(cardId, () =>
+                shape="square"
+                coverUrl={cover}
+                bannerUrl={p.banner_url}
+                landscapeUrl={p.landscape_url}
+                logoUrl={p.logo_url}
+                iconUrl={p.icon_url}
+                expanded={platformsExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                className="dash-track dash-platform"
+                onEnter={platformsExpand.onEnter}
+                onLeave={platformsExpand.onLeave}
+                onActivate={onCardActivate(cid, () =>
                   onPlatform?.(p.id, p.name)
                 )}
-              >
-                <span className="dash-track-art dash-platform__art">
-                  <span
-                    className="dash-track-art-bg card-bg-layer"
-                    style={{ backgroundImage: `url("${cover}")` }}
-                  />
-                  <span className="dash-platform__dim" aria-hidden />
-                  <span className="dash-platform__hover">
-                    {brandSrc ? (
-                      <img
-                        src={brandSrc}
-                        alt=""
-                        className={
-                          p.logo_url
-                            ? "dash-platform__logo"
-                            : "dash-platform__icon"
-                        }
-                        draggable={false}
-                      />
-                    ) : (
-                      <DashHoverTitle
-                        title={p.name}
-                        revealed={revealedId === cardId}
-                      />
-                    )}
-                  </span>
-                </span>
-              </button>
+              />
             );
           })}
           {!platformRow.length ? (

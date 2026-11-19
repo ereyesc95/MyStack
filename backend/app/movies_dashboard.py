@@ -254,13 +254,17 @@ def build_movies_dashboard(
         crow = db.scalars(
             select(Country).where(Country.cou_iso.ilike(iso))
         ).first()
+        from app.country_assets import with_country_art
+
         top_countries.append(
-            {
-                "id": crow.cou_id if crow else None,
-                "name": (crow.cou_name if crow else iso.upper()),
-                "iso": (crow.cou_iso or iso).lower() if crow else iso,
-                "play_count": count,
-            }
+            with_country_art(
+                {
+                    "id": crow.cou_id if crow else None,
+                    "name": (crow.cou_name if crow else iso.upper()),
+                    "iso": (crow.cou_iso or iso).lower() if crow else iso,
+                    "play_count": count,
+                }
+            )
         )
 
     top_franchises = enrich_home_cards(

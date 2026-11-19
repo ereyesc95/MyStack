@@ -195,6 +195,75 @@ def cover_url_for_track_path(path: str | None, media_root: Path) -> str | None:
     return _find_cover_front_artwork(file_path.parent, media_root.resolve())
 
 
+def _iter_artwork_dirs(start: Path):
+    cur = start
+    for _ in range(8):
+        artwork = _find_artwork_subdir(cur)
+        if artwork:
+            yield artwork
+        parent = cur.parent
+        if parent == cur:
+            break
+        cur = parent
+
+
+def artwork_role_urls_for_dir(
+    folder: Path, media_root: Path
+) -> dict[str, str | None]:
+    """banner / landscape / cover / logo URLs from [Artwork] walking up from folder."""
+    from app.artwork_stems import (
+        resolve_banner_stem_file,
+        resolve_cover_front_file,
+        resolve_landscape_stem_file,
+    )
+    from app.media_index import _artwork_file
+
+    root = media_root.resolve()
+    banner = landscape = cover = logo = None
+    for artwork in _iter_artwork_dirs(folder):
+        if not banner:
+            found = resolve_banner_stem_file(artwork)
+            if found:
+                banner = _media_url(found, root)
+        if not landscape:
+            found = resolve_landscape_stem_file(artwork)
+            if found:
+                landscape = _media_url(found, root)
+        if not cover:
+            found = resolve_cover_front_file(artwork)
+            if found:
+                cover = _media_url(found, root)
+        if not logo:
+            found = _artwork_file(artwork, "Logo")
+            if found:
+                logo = _media_url(found, root)
+        if banner and landscape and cover and logo:
+            break
+    return {
+        "banner_url": banner,
+        "landscape_url": landscape,
+        "cover_url": cover,
+        "logo_url": logo,
+    }
+
+
+def artwork_role_urls_for_track_path(
+    path: str | None, media_root: Path
+) -> dict[str, str | None]:
+    empty = {
+        "banner_url": None,
+        "landscape_url": None,
+        "cover_url": None,
+        "logo_url": None,
+    }
+    if not path:
+        return empty
+    file_path = resolve_track_file_path(path, media_root)
+    if not file_path:
+        return empty
+    return artwork_role_urls_for_dir(file_path.parent, media_root)
+
+
 def _album_title_from_folder(name: str) -> str:
     m = DATE_PREFIX_RE.match(name.strip())
     if m:

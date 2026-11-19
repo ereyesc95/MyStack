@@ -162,6 +162,10 @@ export type DashboardTrack = {
   path: string | null;
   release: string | null;
   cover_url?: string | null;
+  banner_url?: string | null;
+  landscape_url?: string | null;
+  logo_url?: string | null;
+  icon_url?: string | null;
   navigate_band_id?: number | null;
   navigate_release_id?: string | null;
 };
@@ -173,6 +177,10 @@ export type DashboardRelease = {
   artist_name: string | null;
   play_count: number;
   cover_url?: string | null;
+  banner_url?: string | null;
+  landscape_url?: string | null;
+  logo_url?: string | null;
+  icon_url?: string | null;
 };
 
 export type MusicDashboard = {
@@ -185,7 +193,15 @@ export type MusicDashboard = {
     play_count: number;
     image_url?: string | null;
   }[];
-  top_countries: { id?: number; name: string; play_count: number; iso: string }[];
+  top_countries: {
+    id?: number;
+    name: string;
+    play_count: number;
+    iso: string;
+    banner_url?: string | null;
+    landscape_url?: string | null;
+    cover_url?: string | null;
+  }[];
 };
 
 export const EMPTY_DASHBOARD: MusicDashboard = {

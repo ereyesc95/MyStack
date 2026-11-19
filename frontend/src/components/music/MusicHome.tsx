@@ -1,8 +1,12 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { MusicDashboard } from "../../types";
 import { EMPTY_DASHBOARD } from "../../types";
-import { DashHoverTitle, useDashCardReveal } from "../DashHoverTitle";
-import DashIconCard from "./DashIconCard";
+import DashMorphCard from "../DashMorphCard";
+import { useDashCardReveal } from "../DashHoverTitle";
+import {
+  prefetchDashArt,
+  useDashPaneExpand,
+} from "../useDashPaneExpand";
 
 const PHONE_MAX_WIDTH = 900;
 const PHONE_PORTRAIT_MAX_WIDTH = 480;
@@ -15,11 +19,11 @@ function hasTouchScreen(): boolean {
   return navigator.maxTouchPoints > 0;
 }
 
-const DESKTOP_PANE_ITEMS = 10;
-const TABLET_LANDSCAPE_ITEMS = 7;
-const TABLET_PORTRAIT_ITEMS = 5;
-const MOBILE_LANDSCAPE_ITEMS = 10;
-const MOBILE_PORTRAIT_ITEMS = 10;
+const DESKTOP_PANE_ITEMS = 11;
+const TABLET_LANDSCAPE_ITEMS = 8;
+const TABLET_PORTRAIT_ITEMS = 6;
+const MOBILE_LANDSCAPE_ITEMS = 6;
+const MOBILE_PORTRAIT_ITEMS = 4;
 
 type DashLayout =
   | "desktop"
@@ -227,7 +231,34 @@ export default function MusicHome({
     playerBarVisible ? " music-dashboard--player-active" : ""
   }`;
   const tracksScrollRef = useRef<HTMLDivElement>(null);
-  const { revealedId, onCardActivate } = useDashCardReveal();
+  const { coarse, revealedId, onCardActivate } = useDashCardReveal();
+  const tracksExpand = useDashPaneExpand(revealedId, coarse);
+  const artistsExpand = useDashPaneExpand(revealedId, coarse);
+  const releasesExpand = useDashPaneExpand(revealedId, coarse);
+  const genresExpand = useDashPaneExpand(revealedId, coarse);
+  const countriesExpand = useDashPaneExpand(revealedId, coarse);
+
+  useEffect(() => {
+    prefetchDashArt([
+      ...topTracks.flatMap((t) => [t.banner_url, t.landscape_url, t.cover_url]),
+      ...topArtists.flatMap((a) => [
+        a.banner_url,
+        a.landscape_url,
+        a.photo_url,
+      ]),
+      ...topReleases.flatMap((r) => [
+        r.banner_url,
+        r.landscape_url,
+        r.cover_url,
+      ]),
+      ...topGenres.map((g) => g.image_url),
+      ...topCountries.flatMap((c) => [
+        c.banner_url,
+        c.landscape_url,
+        c.cover_url,
+      ]),
+    ]);
+  }, [topTracks, topArtists, topReleases, topGenres, topCountries]);
 
   useLayoutEffect(() => {
     if (
@@ -263,41 +294,35 @@ export default function MusicHome({
           subtitle="Most played tracks"
         />
         <div className="dash-scroll dash-scroll--tracks" ref={tracksScrollRef}>
-          {topTracks.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              data-dash-card={`track-${t.id}`}
-              className={`dash-track${
-                playingPath && t.path === playingPath ? " active" : ""
-              }${revealedId === `track-${t.id}` ? " is-revealed" : ""}`}
-              data-track-path={t.path ?? undefined}
-              onClick={onCardActivate(`track-${t.id}`, () => {
-                if (t.path) onPlayTrack(t.path, t.artist_id, t.title);
-              })}
-            >
-              <span className="dash-track-art">
-                <span
-                  className="dash-track-art-bg card-bg-layer"
-                  style={
-                    t.cover_url
-                      ? { backgroundImage: `url("${t.cover_url}")` }
-                      : undefined
-                  }
-                />
-                <DashHoverTitle
-                  title={(t.title_full ?? t.title ?? "")
-                    .replace(/\s*\[[^\]]*]/g, "")
-                    .trim()}
-                  subtitle={(t.artist_name_full ?? t.artist_name ?? "").replace(
-                    /■/g,
-                    ","
-                  )}
-                  revealed={revealedId === `track-${t.id}`}
-                />
-              </span>
-            </button>
-          ))}
+          {topTracks.map((t) => {
+            const cid = `track-${t.id}`;
+            const title = (t.title_full ?? t.title ?? "")
+              .replace(/\s*\[[^\]]*]/g, "")
+              .trim();
+            return (
+              <DashMorphCard
+                key={t.id}
+                id={cid}
+                title={title || "Track"}
+                shape="square"
+                coverUrl={t.cover_url}
+                bannerUrl={t.banner_url}
+                landscapeUrl={t.landscape_url}
+                logoUrl={t.logo_url}
+                iconUrl={t.icon_url}
+                titleOverBrand
+                expanded={tracksExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                active={Boolean(playingPath && t.path === playingPath)}
+                className="dash-track"
+                onEnter={tracksExpand.onEnter}
+                onLeave={tracksExpand.onLeave}
+                onActivate={onCardActivate(cid, () => {
+                  if (t.path) onPlayTrack(t.path, t.artist_id, t.title);
+                })}
+              />
+            );
+          })}
           <PlaceholderTiles
             count={topTracks.length ? trackPlaceholders : paneLimit}
             variant="square"
@@ -307,20 +332,37 @@ export default function MusicHome({
 
       <section className="dash-row dash-row--icons">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-icons"
-          title="ICONS"
+          logo="/api/assets/icons/pane-best"
+          title="BEST ARTISTS"
           subtitle="Your top artists"
         />
         <div className="dash-scroll dash-scroll--icons">
-          {topArtists.map((a) => (
-            <DashIconCard
-              key={a.id}
-              artist={a}
-              preferPortrait={layout === "mobile-portrait"}
-              revealed={revealedId === `artist-${a.id}`}
-              onClick={onCardActivate(`artist-${a.id}`, () => onArtist(a.id))}
-            />
-          ))}
+          {topArtists.map((a) => {
+            const cid = `artist-${a.id}`;
+            const preferPortrait = layout === "mobile-portrait";
+            const cover =
+              (preferPortrait
+                ? a.portrait_url || a.photo_url
+                : a.photo_url || a.portrait_url) || null;
+            return (
+              <DashMorphCard
+                key={a.id}
+                id={cid}
+                title={(a.name ?? "Untitled").replace(/■/g, ",").replace(/█/g, "'")}
+                shape="circle"
+                coverUrl={cover}
+                bannerUrl={a.banner_url}
+                landscapeUrl={a.landscape_url}
+                logoUrl={a.logo_url}
+                iconUrl={a.icon_url}
+                expanded={artistsExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                onEnter={artistsExpand.onEnter}
+                onLeave={artistsExpand.onLeave}
+                onActivate={onCardActivate(cid, () => onArtist(a.id))}
+              />
+            );
+          })}
           <PlaceholderTiles
             count={topArtists.length ? artistPlaceholders : paneLimit}
             variant="icon-circle"
@@ -330,44 +372,39 @@ export default function MusicHome({
 
       <section className="dash-row dash-row--tracks">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-icons"
+          logo="/api/assets/icons/pane-top-records"
           title="TOP RECORDS"
           subtitle="Most played releases"
         />
         <div className="dash-scroll dash-scroll--tracks">
-          {topReleases.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              data-dash-card={`release-${r.id}`}
-              className={`dash-track${
-                revealedId === `release-${r.id}` ? " is-revealed" : ""
-              }`}
-              onClick={onCardActivate(`release-${r.id}`, () => {
-                if (r.artist_id != null) {
-                  onRelease(r.artist_id, r.id, {
-                    artistName: r.artist_name,
-                    title: r.title,
-                  });
-                }
-              })}
-            >
-              <span className="dash-track-art">
-                <span
-                  className="dash-track-art-bg card-bg-layer"
-                  style={
-                    r.cover_url
-                      ? { backgroundImage: `url("${r.cover_url}")` }
-                      : undefined
+          {topReleases.map((r) => {
+            const cid = `release-${r.id}`;
+            return (
+              <DashMorphCard
+                key={r.id}
+                id={cid}
+                title={r.title ?? ""}
+                shape="square"
+                coverUrl={r.cover_url}
+                bannerUrl={r.banner_url}
+                landscapeUrl={r.landscape_url}
+                logoUrl={r.logo_url}
+                iconUrl={r.icon_url}
+                expanded={releasesExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                onEnter={releasesExpand.onEnter}
+                onLeave={releasesExpand.onLeave}
+                onActivate={onCardActivate(cid, () => {
+                  if (r.artist_id != null) {
+                    onRelease(r.artist_id, r.id, {
+                      artistName: r.artist_name,
+                      title: r.title,
+                    });
                   }
-                />
-                <DashHoverTitle
-                  title={r.title ?? ""}
-                  revealed={revealedId === `release-${r.id}`}
-                />
-              </span>
-            </button>
-          ))}
+                })}
+              />
+            );
+          })}
           <PlaceholderTiles
             count={topReleases.length ? releasePlaceholders : paneLimit}
             variant="square"
@@ -382,34 +419,25 @@ export default function MusicHome({
           subtitle="Genres on rotation"
         />
         <div className="dash-scroll dash-scroll--genres">
-          {topGenres.map((g) => (
-            <button
-              key={g.id ?? g.name}
-              type="button"
-              data-dash-card={`genre-${g.id ?? g.name}`}
-              className={`dash-genre${
-                revealedId === `genre-${g.id ?? g.name}` ? " is-revealed" : ""
-              }`}
-              onClick={onCardActivate(`genre-${g.id ?? g.name}`, () =>
-                onGenre(Number(g.id))
-              )}
-            >
-              <span className="dash-genre-ring">
-                <span
-                  className="dash-genre-ring-bg card-bg-layer"
-                  style={
-                    g.image_url
-                      ? { backgroundImage: `url("${g.image_url}")` }
-                      : undefined
-                  }
-                />
-                <DashHoverTitle
-                  title={g.name}
-                  revealed={revealedId === `genre-${g.id ?? g.name}`}
-                />
-              </span>
-            </button>
-          ))}
+          {topGenres.map((g) => {
+            const cid = `genre-${g.id ?? g.name}`;
+            return (
+              <DashMorphCard
+                key={String(g.id ?? g.name)}
+                id={cid}
+                title={g.name}
+                shape="circle"
+                coverUrl={g.image_url}
+                bannerUrl={g.image_url}
+                landscapeUrl={g.image_url}
+                expanded={genresExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                onEnter={genresExpand.onEnter}
+                onLeave={genresExpand.onLeave}
+                onActivate={onCardActivate(cid, () => onGenre(Number(g.id)))}
+              />
+            );
+          })}
           <PlaceholderTiles
             count={topGenres.length ? genrePlaceholders : paneLimit}
             variant="circle"
@@ -419,32 +447,33 @@ export default function MusicHome({
 
       <section className="dash-row dash-row--flags">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-global"
-          title="GLOBAL SOUND"
+          logo="/api/assets/icons/pane-origins"
+          title="ORIGINS"
           subtitle="Origins of your music"
         />
         <div className="dash-scroll dash-scroll--flags">
-          {topCountries.map((c) => (
-            <button
-              key={c.name}
-              type="button"
-              data-dash-card={`country-${c.name}`}
-              className={`dash-country${
-                revealedId === `country-${c.name}` ? " is-revealed" : ""
-              }`}
-              onClick={onCardActivate(`country-${c.name}`, () =>
-                onCountry({ id: c.id, name: c.name })
-              )}
-            >
-              <span className="dash-country-flag">
-                {c.iso && <span className={`fi fi-${c.iso}`} />}
-                <DashHoverTitle
-                  title={c.name}
-                  revealed={revealedId === `country-${c.name}`}
-                />
-              </span>
-            </button>
-          ))}
+          {topCountries.map((c) => {
+            const cid = `country-${c.name}`;
+            return (
+              <DashMorphCard
+                key={c.name}
+                id={cid}
+                title={c.name}
+                shape="landscape"
+                coverUrl={c.cover_url}
+                bannerUrl={c.banner_url}
+                landscapeUrl={c.landscape_url}
+                flagIso={c.iso}
+                expanded={countriesExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                onEnter={countriesExpand.onEnter}
+                onLeave={countriesExpand.onLeave}
+                onActivate={onCardActivate(cid, () =>
+                  onCountry({ id: c.id, name: c.name })
+                )}
+              />
+            );
+          })}
           <PlaceholderTiles
             count={topCountries.length ? countryPlaceholders : paneLimit}
             variant="flag"

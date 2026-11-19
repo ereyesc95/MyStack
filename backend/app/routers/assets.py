@@ -22,9 +22,20 @@ MEDIA_SLUGS = (
     "files",
     "hobbies",
 )
-PANE_SLUGS = ("pane-on-repeat", "pane-icons", "pane-vibes", "pane-global")
+PANE_SLUGS = (
+    "pane-on-repeat",
+    "pane-icons",
+    "pane-best",
+    "pane-top-records",
+    "pane-universes",
+    "pane-vibes",
+    "pane-global",
+    "pane-origins",
+    "pane-consoles",
+)
 NESTED_PREFIXES = (
     "continent",
+    "countries",
     "genre",
     "subgenre",
     "decade",

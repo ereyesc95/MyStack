@@ -8,7 +8,13 @@ from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.band_library import cover_url_for_track_path, title_from_track_path
+from app.band_library import (
+    artwork_role_urls_for_dir,
+    artwork_role_urls_for_track_path,
+    cover_url_for_track_path,
+    title_from_track_path,
+)
+from app.country_assets import with_country_art
 from app.config import settings
 from app.gallery import pick_playlist_cover, resolve_artist_card
 from app.media_index import release_id_from_path
@@ -221,9 +227,19 @@ def build_dashboard(db: Session, user_id: int) -> dict:
             band = db.get(Band, r.rep_artist_id)
             artist_name = band.bnd_name if band else None
         raw_title = _effective_track_title(r)
-        cover_url = (
+        roles = (
+            artwork_role_urls_for_track_path(r.rep_path, media_root)
+            if media_root
+            else {}
+        )
+        cover_url = roles.get("cover_url") or (
             cover_url_for_track_path(r.rep_path, media_root) if media_root else None
         )
+        logo_url = icon_url = None
+        if r.rep_artist_id and artist_name:
+            acard = _resolve_artist_card_cached(artist_name, user_id=user_id)
+            logo_url = acard.logo_url
+            icon_url = acard.icon_url
         nav_release_id, nav_band_id = _navigate_ids_for_play_path(
             db, r.rep_path, media_root
         )
@@ -239,6 +255,10 @@ def build_dashboard(db: Session, user_id: int) -> dict:
                 "path": r.rep_path,
                 "release": r.rep_release,
                 "cover_url": cover_url,
+                "banner_url": roles.get("banner_url"),
+                "landscape_url": roles.get("landscape_url"),
+                "logo_url": logo_url,
+                "icon_url": icon_url,
                 "navigate_band_id": nav_band_id or r.rep_artist_id,
                 "navigate_release_id": nav_release_id,
             }
@@ -269,6 +289,8 @@ def build_dashboard(db: Session, user_id: int) -> dict:
                 "play_count": count,
                 "photo_url": photo,
                 "portrait_url": card.portrait_url or photo,
+                "landscape_url": card.landscape_url,
+                "banner_url": card.banner_url,
                 "logo_url": card.logo_url,
                 "icon_url": card.icon_url,
                 "show_name_on_hover": False,
@@ -310,12 +332,14 @@ def build_dashboard(db: Session, user_id: int) -> dict:
         row = db.get(Country, cid)
         if row and row.cou_name:
             top_countries.append(
-                {
-                    "id": cid,
-                    "name": row.cou_name,
-                    "iso": (row.cou_iso or "").lower(),
-                    "play_count": count,
-                }
+                with_country_art(
+                    {
+                        "id": cid,
+                        "name": row.cou_name,
+                        "iso": (row.cou_iso or "").lower(),
+                        "play_count": count,
+                    }
+                )
             )
 
     return {
@@ -645,16 +669,22 @@ def _build_top_releases_from_plays(
         if artist_id:
             band = db.get(Band, artist_id)
             artist_name = band.bnd_name if band else None
-        cover_url = (
-            cover_url_for_track_path(meta["path"], media_root)
-            if media_root
-            else None
+        roles: dict[str, str | None] = {}
+        if media_root:
+            roles = artwork_role_urls_for_track_path(meta["path"], media_root)
+            if not any(roles.values()):
+                roles = artwork_role_urls_for_track_path(
+                    _normalize_legacy_audio_rel(meta["path"]), media_root
+                )
+            if not any(roles.values()):
+                rel_path = Path(media_root) / release_rel.replace("\\", "/")
+                if rel_path.is_dir():
+                    roles = artwork_role_urls_for_dir(rel_path, media_root)
+        cover_url = roles.get("cover_url") or (
+            cover_url_for_track_path(meta["path"], media_root) if media_root else None
         )
-        # Prefer cover from the resolved on-disk layout (without /Audio/)
-        if media_root and not cover_url:
-            cover_url = cover_url_for_track_path(
-                _normalize_legacy_audio_rel(meta["path"]), media_root
-            )
+        # Prefer release [Artwork]/Logo — not the artist logo.
+        logo_url = roles.get("logo_url")
         top_releases.append(
             {
                 "id": release_id,
@@ -663,6 +693,10 @@ def _build_top_releases_from_plays(
                 "artist_name": artist_name,
                 "play_count": count,
                 "cover_url": cover_url,
+                "banner_url": roles.get("banner_url"),
+                "landscape_url": roles.get("landscape_url"),
+                "logo_url": logo_url,
+                "icon_url": None,
             }
         )
     return top_releases
