@@ -75,7 +75,7 @@ import {
   clearMediaTheme,
   endProfileSwitchTheme,
 } from "./mediaTheme";
-import { parsePlaylistsGridPath, parseUserPlaylistPath, pushArtistRoute, pushMusicCollectionRoute, pushMusicRootRoute, pushPlaylistsGridRoute, saveReleaseReferrer } from "./musicRoute";
+import { parsePlaylistsGridPath, parseUserPlaylistPath, pushArtistRoute, pushMusicCollectionRoute, pushMusicRootRoute, pushPlaylistsGridRoute, pushUserPlaylistRoute, saveReleaseReferrer } from "./musicRoute";
 import {
   pushMoviesCatalogRoute,
   pushMoviesRootRoute,
@@ -399,6 +399,90 @@ export default function App() {
     return () => {
       cancelled = true;
       window.removeEventListener("popstate", onPopState);
+    };
+  }, []);
+
+  useEffect(() => {
+    function onOpenUserPlaylist(e: Event) {
+      const detail = (e as CustomEvent<{ playlistId?: number; module?: string }>)
+        .detail;
+      const id = detail?.playlistId;
+      if (typeof id !== "number" || !Number.isFinite(id)) return;
+      pushUserPlaylistRoute(id);
+      setView({ kind: "music", tab: "playlists", playlistId: id });
+    }
+    function onOpenModuleHome(e: Event) {
+      const mod = String(
+        (e as CustomEvent<{ module?: string }>).detail?.module || ""
+      ).toLowerCase();
+      if (mod === "series") {
+        pushSeriesRootRoute();
+        setView({
+          kind: "series",
+          franchiseId: undefined,
+          subseriesId: undefined,
+          section: undefined,
+          overviewTab: undefined,
+          universeId: undefined,
+        });
+        return;
+      }
+      if (mod === "movies") {
+        pushMoviesRootRoute();
+        setView({
+          kind: "movies",
+          franchiseId: undefined,
+          filmId: undefined,
+          section: undefined,
+          overviewTab: undefined,
+          universeId: undefined,
+        });
+        return;
+      }
+      if (mod === "books") {
+        pushBooksRootRoute();
+        setView({
+          kind: "books",
+          franchiseId: undefined,
+          bookId: undefined,
+          section: undefined,
+          overviewTab: undefined,
+          universeId: undefined,
+        });
+        return;
+      }
+      if (mod === "games") {
+        pushGamesRootRoute();
+        setView({
+          kind: "games",
+          franchiseId: undefined,
+          gameId: undefined,
+          section: undefined,
+          overviewTab: undefined,
+          universeId: undefined,
+        });
+        return;
+      }
+      pushMusicRootRoute();
+      setView({ kind: "music", tab: "home", playlistId: undefined });
+    }
+    window.addEventListener(
+      "mystack:open-user-playlist",
+      onOpenUserPlaylist as EventListener
+    );
+    window.addEventListener(
+      "mystack:open-module-home",
+      onOpenModuleHome as EventListener
+    );
+    return () => {
+      window.removeEventListener(
+        "mystack:open-user-playlist",
+        onOpenUserPlaylist as EventListener
+      );
+      window.removeEventListener(
+        "mystack:open-module-home",
+        onOpenModuleHome as EventListener
+      );
     };
   }, []);
 

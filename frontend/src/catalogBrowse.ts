@@ -30,6 +30,40 @@ export function resolveSubgenreId(
       if (first?.id != null) return first.id;
     }
   }
+  // Soft match: IGDB "Platform" → catalog "Platformer" (prefer shortest).
+  type SoftHit = { id: number; name: string };
+  const soft: SoftHit[] = [];
+  for (const group of groups) {
+    for (const item of group.items || []) {
+      const name = (item.name || "").trim();
+      const lc = name.toLowerCase();
+      if (
+        item.id != null &&
+        (lc.startsWith(want) ||
+          want.startsWith(lc) ||
+          lc.includes(want) ||
+          want.includes(lc))
+      ) {
+        soft.push({ id: item.id, name });
+      }
+    }
+  }
+  if (soft.length) {
+    soft.sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name));
+    return soft[0].id;
+  }
+  for (const group of groups) {
+    const gname = (group.genre || "").trim().toLowerCase();
+    if (
+      gname.startsWith(want) ||
+      want.startsWith(gname) ||
+      gname.includes(want) ||
+      want.includes(gname)
+    ) {
+      const first = group.items?.[0];
+      if (first?.id != null) return first.id;
+    }
+  }
   return "";
 }
 

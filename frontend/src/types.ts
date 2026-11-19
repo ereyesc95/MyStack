@@ -280,6 +280,7 @@ export type ModuleWrapped = {
   franchises_tab?: string | null;
   videos_tab?: string | null;
   tracks_tab?: string;
+  platforms_tab?: string | null;
   vibes_tab: string;
   items_rank: string;
   groups_rank: string;
@@ -291,6 +292,7 @@ export type ModuleWrapped = {
   top_franchises?: ModuleWrappedItem[];
   top_videos?: ModuleWrappedItem[];
   top_tracks?: ModuleWrappedTrack[];
+  top_platforms?: ModuleWrappedItem[];
   top_vibes: ModuleWrappedItem[];
   hide_item_covers?: boolean;
   browse_top: {

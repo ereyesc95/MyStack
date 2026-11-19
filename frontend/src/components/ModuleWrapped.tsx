@@ -23,13 +23,30 @@ import type {
 } from "../types";
 import { musicStreamUrl } from "../musicStreamUrl";
 import {
+  clearUserPlaylistDetailCache,
+  prefetchUserPlaylistDetail,
+} from "../userPlaylistDetailCache";
+import {
+  isWrappedModuleFilled,
+  markWrappedModuleFilled,
+  normalizeWrappedModule,
+  saveWrappedPlaylistEntry,
+} from "../wrappedPlaylistNav";
+import {
   diskCreditFromTitle,
   trackMainTitle,
 } from "./music/release/releaseTrackPanelMeta";
-import { IconCheck, IconPlus, IconTrophy } from "./MenuIcons";
+import { IconContinueArrow, IconPlus, IconTrophy } from "./MenuIcons";
 import ModalPortal, { useModalClose } from "./ModalPortal";
 
-type TabId = "items" | "videos" | "groups" | "franchises" | "tracks" | "vibes";
+type TabId =
+  | "items"
+  | "videos"
+  | "groups"
+  | "franchises"
+  | "tracks"
+  | "platforms"
+  | "vibes";
 
 export type ModuleWrappedBrowseTarget = {
   module: ModuleWrappedKind;
@@ -47,9 +64,13 @@ type Props = {
   onOpenItem?: (item: ModuleWrappedItem) => void;
   /** Open a franchise / folder / collection from groups (or browse CTA). */
   onBrowseTop?: (target: ModuleWrappedBrowseTarget) => void;
+  /** Games: open catalog filtered to a platform. */
+  onOpenPlatform?: (item: ModuleWrappedItem) => void;
   onOpenVibe?: (item: ModuleWrappedItem) => void;
   /** Refresh Music playlists after filling `{year} Wrapped`. */
   onPlaylistCreated?: () => void;
+  /** Jump to the `{year} Wrapped` user playlist after fill. */
+  onOpenPlaylist?: (playlistId: number) => void;
 };
 
 /** Capitalize first letter of each word without lowercasing the rest (keeps `(Don't…)`). */
@@ -123,10 +144,24 @@ function ModuleWrappedPanel({
   onClose,
   onOpenItem,
   onBrowseTop,
+  onOpenPlatform,
   onOpenVibe,
   onPlaylistCreated,
+  onOpenPlaylist,
 }: Props) {
-  const cached = getCachedModuleWrapped(module, year);
+  // Drop stale Games cache from before platforms/vibes were split.
+  const cachedRaw = getCachedModuleWrapped(module, year);
+  const cached =
+    module === "games" &&
+    cachedRaw &&
+    !Array.isArray(cachedRaw.top_platforms) &&
+    (cachedRaw.top_vibes || []).some((v) =>
+      /nintendo|playstation|xbox|sega|game boy|nes|snes/i.test(
+        String(v.title || v.name || "")
+      )
+    )
+      ? null
+      : cachedRaw;
   const [data, setData] = useState<ModuleWrapped | null>(cached);
   const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState<string | null>(null);
@@ -134,7 +169,12 @@ function ModuleWrappedPanel({
   const [playlistId, setPlaylistId] = useState<number | null>(null);
   const [playlistBusy, setPlaylistBusy] = useState(false);
   const [playlistError, setPlaylistError] = useState<string | null>(null);
-  const [playlistFilled, setPlaylistFilled] = useState(false);
+  const [playlistFilled, setPlaylistFilled] = useState(() =>
+    isWrappedModuleFilled(year, module)
+  );
+  const [playlistCheckDone, setPlaylistCheckDone] = useState(() =>
+    isWrappedModuleFilled(year, module)
+  );
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -196,19 +236,76 @@ function ModuleWrappedPanel({
 
   useEffect(() => {
     let cancelled = false;
-    void fetchUserPlaylists()
-      .then((list) => {
+    const knownFilled = isWrappedModuleFilled(year, module);
+    if (knownFilled) {
+      setPlaylistFilled(true);
+      setPlaylistCheckDone(true);
+    } else {
+      setPlaylistCheckDone(false);
+    }
+
+    async function resolvePlaylistState() {
+      try {
+        const payload = await fetchUserPlaylists().catch(() => ({ items: [] }));
         if (cancelled) return;
+        const list = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.items)
+            ? payload.items
+            : [];
         const hit = list.find(
-          (p) => (p.name || "").trim().toLowerCase() === playlistName.toLowerCase()
+          (p) =>
+            (p.name || "").trim().toLowerCase() === playlistName.toLowerCase()
         );
-        if (hit?.id != null) setPlaylistId(hit.id);
-      })
-      .catch(() => undefined);
+        if (hit?.id == null) {
+          if (!cancelled) {
+            setPlaylistId(null);
+            setPlaylistFilled(false);
+            setPlaylistCheckDone(true);
+            try {
+              sessionStorage.removeItem(
+                `mystack_wrapped_fill_v1:${year}:${String(module).toLowerCase()}`
+              );
+            } catch {
+              /* ignore */
+            }
+          }
+          return;
+        }
+        if (!cancelled) setPlaylistId(hit.id);
+        if (knownFilled) {
+          if (!cancelled) setPlaylistCheckDone(true);
+          return;
+        }
+        const detail = await prefetchUserPlaylistDetail(hit.id, {
+          force: true,
+        }).catch(() => null);
+        if (cancelled) return;
+        const mod = normalizeWrappedModule(module);
+        const fromApi = (detail?.wrapped_modules || []).map((m) =>
+          normalizeWrappedModule(m)
+        );
+        const fromTracks = (detail?.tracks || []).map((t) =>
+          normalizeWrappedModule(t.module)
+        );
+        const present = new Set([...fromApi, ...fromTracks]);
+        const filled = present.has(mod);
+        if (filled) markWrappedModuleFilled(year, module);
+        setPlaylistFilled(filled);
+        setPlaylistCheckDone(true);
+      } catch {
+        if (!cancelled) {
+          setPlaylistFilled(knownFilled);
+          setPlaylistCheckDone(true);
+        }
+      }
+    }
+
+    void resolvePlaylistState();
     return () => {
       cancelled = true;
     };
-  }, [playlistName]);
+  }, [module, playlistName, year]);
 
   const items = useMemo(
     () => (data?.top_items || []).slice(0, 100),
@@ -228,6 +325,10 @@ function ModuleWrappedPanel({
   );
   const tracks = useMemo(
     () => (data?.top_tracks || []).slice(0, 100),
+    [data]
+  );
+  const platforms = useMemo(
+    () => (data?.top_platforms || []).slice(0, 40),
     [data]
   );
   const vibes = useMemo(
@@ -255,6 +356,9 @@ function ModuleWrappedPanel({
     if (showTracksTab) {
       defs.push(["tracks", data?.tracks_tab || "Top tracks"]);
     }
+    if (platforms.length > 0) {
+      defs.push(["platforms", data?.platforms_tab || "Platforms"]);
+    }
     if (vibes.length > 0) {
       defs.push(["vibes", data?.vibes_tab || "Vibes"]);
     }
@@ -266,6 +370,7 @@ function ModuleWrappedPanel({
     groups.length,
     franchises.length,
     showTracksTab,
+    platforms.length,
     vibes.length,
   ]);
 
@@ -330,6 +435,7 @@ function ModuleWrappedPanel({
     groups.length,
     franchises.length,
     tracks.length,
+    platforms.length,
     vibes.length,
     playlistId,
     playlistBusy,
@@ -344,7 +450,12 @@ function ModuleWrappedPanel({
       let id = playlistId;
       if (id == null) {
         // Re-check so Music + Series/Movies fills share one `{year} Wrapped`.
-        const list = await fetchUserPlaylists().catch(() => []);
+        const payload = await fetchUserPlaylists().catch(() => ({ items: [] }));
+        const list = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.items)
+            ? payload.items
+            : [];
         const hit = list.find(
           (p) =>
             (p.name || "").trim().toLowerCase() === playlistName.toLowerCase()
@@ -364,18 +475,27 @@ function ModuleWrappedPanel({
           setPlaylistId(id);
         }
       }
+      let added = 0;
       for (const t of tracks) {
-        if (!t.path) continue;
-        await addTrackToPlaylist(id, {
+        const path = (t.path || "").trim();
+        if (!path) continue;
+        const res = await addTrackToPlaylist(id, {
           title: t.title_full || t.title || "Track",
           artist: t.artist_name || "",
           release: t.release || "",
-          path: t.path,
+          path,
           allow_wrapped_fill: true,
           module,
         });
+        if (res?.ok) added += 1;
       }
+      if (added === 0) {
+        throw new Error("No tracks could be added to the playlist");
+      }
+      clearUserPlaylistDetailCache(id);
+      markWrappedModuleFilled(year, module);
       setPlaylistFilled(true);
+      setPlaylistCheckDone(true);
       onPlaylistCreated?.();
       window.dispatchEvent(new CustomEvent("playlists-changed"));
     } catch (e) {
@@ -383,6 +503,22 @@ function ModuleWrappedPanel({
     } finally {
       setPlaylistBusy(false);
     }
+  }
+
+  function goToWrappedPlaylist() {
+    if (playlistId == null) return;
+    clearUserPlaylistDetailCache(playlistId);
+    const id = playlistId;
+    const mod = normalizeWrappedModule(module);
+    saveWrappedPlaylistEntry({ playlistId: id, module: mod });
+    requestClose(() => {
+      onOpenPlaylist?.(id);
+      window.dispatchEvent(
+        new CustomEvent("mystack:open-user-playlist", {
+          detail: { playlistId: id, module: mod },
+        })
+      );
+    });
   }
 
   const featuredItem = items[0];
@@ -395,6 +531,8 @@ function ModuleWrappedPanel({
   const restFranchises = franchises.slice(1);
   const featuredTrack = tracks[0];
   const restTracks = tracks.slice(1);
+  const featuredPlatform = platforms[0];
+  const restPlatforms = platforms.slice(1);
   const featuredVibe = vibes[0];
   const restVibes = vibes.slice(1);
 
@@ -733,28 +871,35 @@ function ModuleWrappedPanel({
             {playlistError ? (
               <p className="error music-wrapped__playlist-err">{playlistError}</p>
             ) : null}
-            <button
-              type="button"
-              className={`btn music-wrapped__playlist-btn${
-                playlistFilled ? " music-wrapped__playlist-btn--done" : ""
-              }`}
-              disabled={playlistBusy || playlistFilled}
-              onClick={() => void addWrappedPlaylist()}
-            >
-              {playlistFilled ? (
-                <>
-                  <IconCheck className="music-wrapped__playlist-icon" />
-                  Added to your playlists
-                </>
-              ) : playlistBusy ? (
-                "Adding…"
-              ) : (
-                <>
-                  <IconPlus className="music-wrapped__playlist-icon" />
-                  Add to your playlists
-                </>
-              )}
-            </button>
+            {playlistCheckDone || playlistFilled ? (
+              <button
+                type="button"
+                className={`btn music-wrapped__playlist-btn${
+                  playlistFilled ? " music-wrapped__playlist-btn--done" : ""
+                }`}
+                disabled={
+                  playlistBusy || (playlistFilled && playlistId == null)
+                }
+                onClick={() => {
+                  if (playlistFilled) goToWrappedPlaylist();
+                  else void addWrappedPlaylist();
+                }}
+              >
+                {playlistFilled ? (
+                  <>
+                    Go to playlist
+                    <IconContinueArrow className="music-wrapped__playlist-icon" />
+                  </>
+                ) : playlistBusy ? (
+                  "Adding…"
+                ) : (
+                  <>
+                    <IconPlus className="music-wrapped__playlist-icon" />
+                    Add to your playlists
+                  </>
+                )}
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -878,6 +1023,98 @@ function ModuleWrappedPanel({
                 ? renderTrackList(featuredTrack, restTracks, true)
                 : null}
 
+              {tab === "platforms" && platforms.length > 0 ? (
+                <div className="music-wrapped__pane">
+                  {featuredPlatform ? (
+                    <button
+                      type="button"
+                      className="music-wrapped__feature"
+                      onClick={() => {
+                        requestClose(() => onOpenPlatform?.(featuredPlatform));
+                      }}
+                    >
+                      {featuredPlatform.image_url || featuredPlatform.cover_url ? (
+                        featuredPlatform.image_url &&
+                        !featuredPlatform.cover_url ? (
+                          <span
+                            className="music-wrapped__feature-art music-wrapped__feature-art--genre"
+                            style={{
+                              backgroundImage: `url("${featuredPlatform.image_url}")`,
+                            }}
+                          />
+                        ) : (
+                          <img
+                            className={vibeArtClass}
+                            src={
+                              featuredPlatform.cover_url ||
+                              featuredPlatform.image_url ||
+                              ""
+                            }
+                            alt=""
+                          />
+                        )
+                      ) : (
+                        <span
+                          className={`${vibeArtClass} music-wrapped__art-fallback`}
+                        />
+                      )}
+                      <span className="music-wrapped__feature-meta">
+                        <span className="music-wrapped__feature-rank">
+                          #1 Platform
+                        </span>
+                        <strong>{featuredPlatform.title}</strong>
+                        <em>
+                          {featuredPlatform.play_count} {countLabel}
+                        </em>
+                      </span>
+                    </button>
+                  ) : null}
+                  {restPlatforms.length > 0 ? (
+                    <ul className="music-wrapped__grid">
+                      {restPlatforms.map((g, i) => (
+                        <li key={String(g.id)}>
+                          <button
+                            type="button"
+                            className="music-wrapped__grid-card"
+                            onClick={() => {
+                              requestClose(() => onOpenPlatform?.(g));
+                            }}
+                          >
+                            {g.image_url && !g.cover_url ? (
+                              <span
+                                className="music-wrapped__grid-genre"
+                                style={{
+                                  backgroundImage: `url("${g.image_url}")`,
+                                }}
+                              />
+                            ) : g.cover_url || g.photo_url ? (
+                              <img
+                                className="music-wrapped__grid-card-art--round"
+                                src={g.cover_url || g.photo_url || ""}
+                                alt=""
+                              />
+                            ) : (
+                              <span className="music-wrapped__art-fallback music-wrapped__art-fallback--round" />
+                            )}
+                            <span>
+                              <strong>
+                                <span className="music-wrapped__grid-rank">
+                                  #{i + 2}
+                                </span>{" "}
+                                {g.title}
+                              </strong>
+                              <em>
+                                {g.play_count} {countLabel}
+                              </em>
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+
               {tab === "vibes" && vibes.length > 0 ? (
                 <div className="music-wrapped__pane">
                   {featuredVibe ? (
@@ -941,9 +1178,7 @@ function ModuleWrappedPanel({
                           module === "hobbies" ||
                           module === "photos"
                             ? "#1 Only once"
-                            : module === "games"
-                              ? "#1 Platform"
-                              : "#1 Vibe"}
+                            : "#1 Vibe"}
                         </span>
                         <strong>{featuredVibe.title}</strong>
                         <em>

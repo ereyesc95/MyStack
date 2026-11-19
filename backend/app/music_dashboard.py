@@ -1300,6 +1300,19 @@ def get_user_playlist_detail(
             yr = str(merged["release_date"])[:4]
             if yr.isdigit():
                 merged["year"] = yr
+        # Fill artist_name from owning band when playlist row lacks it.
+        if not (merged.get("artist_name") or "").strip():
+            nav = merged.get("navigate_band_id")
+            if nav is not None:
+                try:
+                    from app.models import Band
+
+                    band = db.get(Band, int(nav))
+                    name = (band.bnd_name or "").strip() if band else ""
+                    if name:
+                        merged["artist_name"] = name
+                except Exception:
+                    pass
         tracks.append(merged)
 
     if is_snapshot:

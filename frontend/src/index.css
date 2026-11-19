@@ -2103,9 +2103,36 @@ input {
   opacity: 0.55;
   font-variant-numeric: tabular-nums;
 }
-.wrapped-playlist-module .module-top-bar__media-module,
-.wrapped-playlist-module .module-top-bar__media-label {
-  color: color-mix(in srgb, var(--accent) 72%, var(--text) 28%);
+/* Wrapped playlist module picker: sit above center tabs so the menu isn't clipped. */
+.wrapped-playlist-module {
+  position: relative;
+  z-index: 70;
+  overflow: visible;
+}
+.module-top-bar:has(.wrapped-playlist-module) {
+  overflow: visible;
+  z-index: 50;
+}
+.wrapped-playlist-module .module-top-bar__media-module {
+  color: var(--text);
+}
+.wrapped-playlist-module .module-top-bar__media-menu {
+  min-width: 11.5rem;
+  width: max-content;
+  overflow: visible;
+  z-index: 80;
+}
+.wrapped-playlist-module .module-top-bar__media-menu button {
+  color: var(--text);
+  background: transparent;
+}
+.wrapped-playlist-module .module-top-bar__media-menu button:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.wrapped-playlist-module .module-top-bar__media-menu button.active {
+  color: var(--text);
+  background: var(--accent);
 }
 .music-wrapped__feature-meta {
   display: flex;
@@ -2211,10 +2238,11 @@ input {
   color: #fff;
   border-color: transparent;
   opacity: 1;
-  cursor: default;
+  cursor: pointer;
 }
 .music-wrapped__playlist-btn:disabled.music-wrapped__playlist-btn--done {
   opacity: 1;
+  cursor: default;
 }
 .music-wrapped__playlist-icon {
   width: 0.95rem;
@@ -5015,8 +5043,8 @@ input {
   overflow: hidden;
   /* Shared phase so logo + bg keyframes stay locked (set inline on mount). */
   --welcome-pulse-delay: 0ms;
-  /* Keep pulse visible when Switch Profile opens over a themed module page. */
-  --welcome-pulse-accent: #00d4c8;
+  /* Follow active theme accent (home theme on welcome / after Switch Profile). */
+  --welcome-pulse-accent: var(--accent, #00d4c8);
 }
 
 /* Don't let one-shot modal enter animations replace welcome/switch pulses. */

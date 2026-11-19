@@ -17,8 +17,17 @@ import {
 } from "../../listeningWrappedCache";
 import { musicStreamUrl } from "../../musicStreamUrl";
 import type { ListeningWrapped } from "../../types";
-import { IconCheck, IconPlus } from "../MenuIcons";
+import { IconContinueArrow, IconPlus } from "../MenuIcons";
 import ModalPortal, { useModalClose } from "../ModalPortal";
+import {
+  clearUserPlaylistDetailCache,
+  prefetchUserPlaylistDetail,
+} from "../../userPlaylistDetailCache";
+import {
+  isWrappedModuleFilled,
+  markWrappedModuleFilled,
+  saveWrappedPlaylistEntry,
+} from "../../wrappedPlaylistNav";
 import {
   diskCreditFromTitle,
   trackMainTitle,
@@ -39,6 +48,8 @@ type Props = {
   onGenre?: (id: number) => void;
   /** Refresh Playlists tab after creating the Wrapped playlist. */
   onPlaylistCreated?: () => void;
+  /** Jump to the `{year} Wrapped` user playlist after fill. */
+  onOpenPlaylist?: (playlistId: number) => void;
 };
 
 type PreviewTrack = {
@@ -103,6 +114,7 @@ function MusicWrappedPanel({
   onArtist,
   onGenre,
   onPlaylistCreated,
+  onOpenPlaylist,
 }: Props) {
   const cached = getCachedListeningWrapped(year);
   const [data, setData] = useState<ListeningWrapped | null>(cached);
@@ -112,6 +124,12 @@ function MusicWrappedPanel({
   const [playlistId, setPlaylistId] = useState<number | null>(null);
   const [playlistBusy, setPlaylistBusy] = useState(false);
   const [playlistError, setPlaylistError] = useState<string | null>(null);
+  const [playlistFilled, setPlaylistFilled] = useState(() =>
+    isWrappedModuleFilled(year, "music")
+  );
+  const [playlistCheckDone, setPlaylistCheckDone] = useState(() =>
+    isWrappedModuleFilled(year, "music")
+  );
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -246,19 +264,61 @@ function MusicWrappedPanel({
 
   useEffect(() => {
     let cancelled = false;
-    void fetchUserPlaylists()
-      .then(({ items }) => {
+    const knownFilled = isWrappedModuleFilled(year, "music");
+    if (knownFilled) {
+      setPlaylistFilled(true);
+      setPlaylistCheckDone(true);
+    } else {
+      setPlaylistCheckDone(false);
+    }
+
+    async function resolvePlaylistState() {
+      try {
+        const { items } = await fetchUserPlaylists();
         if (cancelled) return;
         const hit = items.find(
-          (p) => (p.name || "").trim().toLowerCase() === playlistName.toLowerCase()
+          (p) =>
+            (p.name || "").trim().toLowerCase() === playlistName.toLowerCase()
         );
-        if (hit) setPlaylistId(hit.id);
-      })
-      .catch(() => undefined);
+        if (!hit) {
+          setPlaylistId(null);
+          setPlaylistFilled(false);
+          setPlaylistCheckDone(true);
+          return;
+        }
+        setPlaylistId(hit.id);
+        if (knownFilled) {
+          setPlaylistCheckDone(true);
+          return;
+        }
+        const detail = await prefetchUserPlaylistDetail(hit.id, {
+          force: true,
+        }).catch(() => null);
+        if (cancelled) return;
+        const fromApi = (detail?.wrapped_modules || []).map((m) =>
+          String(m || "").toLowerCase()
+        );
+        const hasMusicTrack = (detail?.tracks || []).some((t) => {
+          const m = String(t.module || "music").toLowerCase();
+          return m === "music";
+        });
+        const musicFilled = fromApi.includes("music") || hasMusicTrack;
+        if (musicFilled) markWrappedModuleFilled(year, "music");
+        setPlaylistFilled(musicFilled);
+        setPlaylistCheckDone(true);
+      } catch {
+        if (!cancelled) {
+          setPlaylistFilled(knownFilled);
+          setPlaylistCheckDone(true);
+        }
+      }
+    }
+
+    void resolvePlaylistState();
     return () => {
       cancelled = true;
     };
-  }, [playlistName]);
+  }, [playlistName, year]);
 
   const tracks = useMemo(
     () => (data?.top_tracks || []).slice(0, 100),
@@ -329,36 +389,65 @@ function MusicWrappedPanel({
   ]);
 
   async function addWrappedPlaylist() {
-    if (playlistId != null || playlistBusy || !tracks.length) return;
+    if (playlistFilled || playlistBusy || !tracks.length) return;
     setPlaylistBusy(true);
     setPlaylistError(null);
     try {
-      const created = await createUserPlaylist({
-        name: playlistName,
-        description: `Your most played tracks in ${year} are here!`,
-      });
-      if (!created.ok || created.id == null) {
-        throw new Error(created.error || "Could not create playlist");
+      let id = playlistId;
+      if (id == null) {
+        const created = await createUserPlaylist({
+          name: playlistName,
+          description: `Your most played tracks in ${year} are here!`,
+        });
+        if (!created.ok || created.id == null) {
+          throw new Error(created.error || "Could not create playlist");
+        }
+        id = created.id;
+        setPlaylistId(id);
       }
-      const id = created.id;
+      let added = 0;
       for (const t of tracks) {
-        if (!t.path) continue;
-        await addTrackToPlaylist(id, {
+        const path = (t.path || "").trim();
+        if (!path) continue;
+        const res = await addTrackToPlaylist(id, {
           title: t.title_full || t.title || "Track",
           artist: t.artist_name || "",
           release: t.release || "",
-          path: t.path,
+          path,
           allow_wrapped_fill: true,
           module: "music",
         });
+        if (res?.ok) added += 1;
       }
-      setPlaylistId(id);
+      if (added === 0) {
+        throw new Error("No tracks could be added to the playlist");
+      }
+      clearUserPlaylistDetailCache(id);
+      markWrappedModuleFilled(year, "music");
+      setPlaylistFilled(true);
+      setPlaylistCheckDone(true);
       onPlaylistCreated?.();
+      window.dispatchEvent(new CustomEvent("playlists-changed"));
     } catch (e) {
       setPlaylistError(e instanceof Error ? e.message : String(e));
     } finally {
       setPlaylistBusy(false);
     }
+  }
+
+  function goToWrappedPlaylist() {
+    if (playlistId == null) return;
+    clearUserPlaylistDetailCache(playlistId);
+    const id = playlistId;
+    saveWrappedPlaylistEntry({ playlistId: id, module: "music" });
+    requestClose(() => {
+      onOpenPlaylist?.(id);
+      window.dispatchEvent(
+        new CustomEvent("mystack:open-user-playlist", {
+          detail: { playlistId: id, module: "music" },
+        })
+      );
+    });
   }
 
   const featuredTrack = tracks[0];
@@ -523,30 +612,38 @@ function MusicWrappedPanel({
                           {playlistError}
                         </p>
                       ) : null}
-                      <button
-                        type="button"
-                        className={`btn music-wrapped__playlist-btn${
-                          playlistId != null
-                            ? " music-wrapped__playlist-btn--done"
-                            : ""
-                        }`}
-                        disabled={playlistBusy || playlistId != null}
-                        onClick={() => void addWrappedPlaylist()}
-                      >
-                        {playlistId != null ? (
-                          <>
-                            <IconCheck className="music-wrapped__playlist-icon" />
-                            Added to your playlists
-                          </>
-                        ) : playlistBusy ? (
-                          "Adding…"
-                        ) : (
-                          <>
-                            <IconPlus className="music-wrapped__playlist-icon" />
-                            Add to your playlists
-                          </>
-                        )}
-                      </button>
+                      {playlistCheckDone || playlistFilled ? (
+                        <button
+                          type="button"
+                          className={`btn music-wrapped__playlist-btn${
+                            playlistFilled
+                              ? " music-wrapped__playlist-btn--done"
+                              : ""
+                          }`}
+                          disabled={
+                            playlistBusy ||
+                            (playlistFilled && playlistId == null)
+                          }
+                          onClick={() => {
+                            if (playlistFilled) goToWrappedPlaylist();
+                            else void addWrappedPlaylist();
+                          }}
+                        >
+                          {playlistFilled ? (
+                            <>
+                              Go to playlist
+                              <IconContinueArrow className="music-wrapped__playlist-icon" />
+                            </>
+                          ) : playlistBusy ? (
+                            "Adding…"
+                          ) : (
+                            <>
+                              <IconPlus className="music-wrapped__playlist-icon" />
+                              Add to your playlists
+                            </>
+                          )}
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

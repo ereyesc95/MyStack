@@ -63,7 +63,8 @@ _MODULE_COPY: dict[str, dict[str, str]] = {
         "items_tab": "On repeat",
         "groups_tab": "Top franchises",
         "franchises_tab": "Top franchises",
-        "vibes_tab": "Platforms",
+        "platforms_tab": "Platforms",
+        "vibes_tab": "Vibes",
         "items_rank": "#1 On repeat",
         "groups_rank": "#1 Franchise",
         "franchises_rank": "#1 Franchise",
@@ -292,6 +293,142 @@ def _year_rows(
             )
         ).all()
     )
+
+
+def _canonicalize_game_genre_label(db: Session, name: str) -> str:
+    """Map IGDB-ish labels (e.g. Platform) onto seeded Games catalog names."""
+    raw = (name or "").strip()
+    if not raw:
+        return raw
+    try:
+        from sqlalchemy import select
+
+        from app.models import Genre, Subgenre
+        from app.seed_games import GAMES_MEDIA_TYPE
+
+        want = raw.casefold()
+
+        def _best(labels: list[str]) -> str | None:
+            exact = [x for x in labels if x.casefold() == want]
+            if exact:
+                return exact[0]
+            soft = [
+                x
+                for x in labels
+                if x.casefold().startswith(want) or want.startswith(x.casefold())
+            ]
+            if not soft:
+                return None
+            # Prefer shortest ("Platformer" over "Platform Fighter").
+            soft.sort(key=lambda x: (len(x), x.casefold()))
+            return soft[0]
+
+        subs = [
+            (s.sgn_name or "").strip()
+            for s in db.scalars(
+                select(Subgenre).where(Subgenre.sgn_media_type_id == GAMES_MEDIA_TYPE)
+            ).all()
+            if (s.sgn_name or "").strip()
+        ]
+        hit = _best(subs)
+        if hit:
+            return hit
+        parents = [
+            (g.gen_name or "").strip()
+            for g in db.scalars(
+                select(Genre).where(Genre.gen_media_type_id == GAMES_MEDIA_TYPE)
+            ).all()
+            if (g.gen_name or "").strip()
+        ]
+        hit = _best(parents)
+        if hit:
+            return hit
+    except Exception:
+        pass
+    return raw
+
+
+def _lookup_game_platform_and_genres(
+    db: Session, meta: ModuleActivityDay | None
+) -> tuple[str | None, list[str]]:
+    """Return (platform, genre names) for a games activity row."""
+    plat: str | None = None
+    genres: list[str] = []
+    path = ((meta.mad_path if meta else None) or "").replace("\\", "/").strip("/")
+    parts = [p for p in path.split("/") if p]
+    if len(parts) >= 2 and parts[0].casefold() == "games":
+        try:
+            from app.games_index import _normalize_platform_name
+
+            plat = _normalize_platform_name(parts[1]) or parts[1]
+        except Exception:
+            plat = parts[1]
+
+    eid = ((meta.mad_entity_id if meta else None) or "").strip()
+    detail: dict[str, Any] | None = None
+    # Prefer leaf about/metadata (has IGDB genres) before sparse catalog cards.
+    if eid.startswith("game_"):
+        try:
+            from pathlib import Path
+
+            from app.config import settings
+            from app.games_store import load_game_about
+
+            root = Path(settings.media_root) if settings.media_root else None
+            folder = ((meta.mad_path if meta else None) or "").replace("\\", "/").strip("/")
+            game_dir = (root / folder) if root and folder else None
+            about = load_game_about(
+                game_dir if game_dir and game_dir.is_dir() else None,
+                game_id=eid,
+                folder_path=folder or None,
+                work_slug=(meta.mad_franchise_id if meta else None),
+                db=db,
+            )
+            if about:
+                detail = dict(about)
+                detail["id"] = eid
+        except Exception:
+            detail = None
+    if not detail and eid.startswith("game_"):
+        try:
+            from app.games_index import build_game_detail
+
+            detail = build_game_detail(eid)
+        except Exception:
+            detail = None
+    if not detail:
+        try:
+            from pathlib import Path
+
+            from app.config import settings
+            from app.module_catalog_cache import peek_catalog_payload
+
+            root = Path(settings.media_root) if settings.media_root else None
+            payload = (
+                peek_catalog_payload("games", media_root=root) if root else None
+            ) or {}
+            for card in payload.get("games") or []:
+                if isinstance(card, dict) and card.get("id") == eid:
+                    detail = card
+                    break
+        except Exception:
+            detail = None
+
+    if detail:
+        if not plat:
+            plat = (detail.get("platform") or "").strip() or None
+        raw = detail.get("genre_names") or detail.get("genres") or []
+        for item in raw:
+            if isinstance(item, dict):
+                name = (item.get("name") or "").strip()
+            else:
+                name = str(item).strip()
+            if not name:
+                continue
+            label = _canonicalize_game_genre_label(db, name)
+            if label and label not in genres:
+                genres.append(label)
+    return plat, genres
 
 
 def _item_row(
@@ -855,6 +992,7 @@ def build_module_wrapped(
         "franchises_tab": copy.get("franchises_tab"),
         "videos_tab": copy.get("videos_tab"),
         "tracks_tab": "Top tracks",
+        "platforms_tab": copy.get("platforms_tab"),
         "vibes_tab": copy.get("vibes_tab", "Vibes"),
         "items_rank": copy.get("items_rank", "#1"),
         "groups_rank": copy.get("groups_rank", "#1"),
@@ -866,6 +1004,7 @@ def build_module_wrapped(
         "top_franchises": [],
         "top_videos": [],
         "top_tracks": [],
+        "top_platforms": [],
         "top_vibes": [],
         "browse_top": None,
         "hide_item_covers": mod == "files",
@@ -1323,9 +1462,57 @@ def build_module_wrapped(
         except Exception:
             pass
 
+    top_platforms: list[dict[str, Any]] = []
     top_vibes: list[dict[str, Any]] = []
     once_limit = 10 if mod in {"files", "photos"} else 40
-    if mod in {"files", "hobbies", "photos"}:
+    if mod == "games":
+        # Platforms were historically stored in vibe_key; genres come from leaf meta.
+        platform_counts: Counter[str] = Counter()
+        platform_labels: dict[str, str] = {}
+        genre_counts: Counter[str] = Counter()
+        genre_labels: dict[str, str] = {}
+        for eid, n in item_counts.items():
+            meta = item_meta.get(eid)
+            recorded = (meta.mad_vibe_key or "").strip() if meta else ""
+            plat, genres = _lookup_game_platform_and_genres(db, meta)
+            # Prefer disk/DB platform; fall back to recorded vibe (older plays).
+            use_plat = plat or recorded
+            if use_plat:
+                platform_counts[use_plat] += n
+                platform_labels[use_plat] = use_plat
+            for g in genres:
+                genre_counts[g] += n
+                genre_labels[g] = g
+            # Do not fall back to mad_vibe_key for genres — that field
+            # historically stored the platform name, not a genre.
+        for pk, count in platform_counts.most_common(15):
+            cover = None
+            try:
+                from app.platform_assets import platform_card_urls
+
+                art = platform_card_urls(platform_labels.get(pk) or pk)
+                cover = art.get("cover_url") or art.get("icon_url")
+            except Exception:
+                cover = None
+            top_platforms.append(
+                _item_row(
+                    id=pk,
+                    title=platform_labels.get(pk) or pk,
+                    play_count=count,
+                    cover_url=cover,
+                    vibe_key=pk,
+                )
+            )
+        for gk, count in genre_counts.most_common(15):
+            top_vibes.append(
+                _item_row(
+                    id=gk,
+                    title=genre_labels.get(gk) or gk,
+                    play_count=count,
+                    vibe_key=gk,
+                )
+            )
+    elif mod in {"files", "hobbies", "photos"}:
         once = [
             (eid, 1)
             for eid, total in year_item_totals.items()
@@ -1417,6 +1604,7 @@ def build_module_wrapped(
         "franchises_tab": copy.get("franchises_tab"),
         "videos_tab": copy.get("videos_tab"),
         "tracks_tab": "Top tracks",
+        "platforms_tab": copy.get("platforms_tab"),
         "vibes_tab": copy["vibes_tab"],
         "items_rank": copy["items_rank"],
         "groups_rank": copy["groups_rank"],
@@ -1428,6 +1616,7 @@ def build_module_wrapped(
         "top_franchises": top_franchises,
         "top_videos": top_videos,
         "top_tracks": top_tracks,
+        "top_platforms": top_platforms,
         "top_vibes": top_vibes,
         "browse_top": None,
         "hide_item_covers": mod == "files",

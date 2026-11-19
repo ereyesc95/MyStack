@@ -31,6 +31,10 @@ import {
 import { prefetchTrackCredits, getCachedTrackCredits } from "../../../releaseTrackCreditsCache";
 import { pushArtistRoute, pushUserPlaylistRoute } from "../../../musicRoute";
 import {
+  getWrappedPlaylistEntry,
+  takeWrappedPlaylistEntry,
+} from "../../../wrappedPlaylistNav";
+import {
   applyAlbumTheme,
   applyMediaTheme,
   beginAdaptivePageSession,
@@ -591,8 +595,17 @@ export default function SystemPlaylistPage({
 
     if (isUserPlaylist && userPlaylistId != null) {
       void loadUser();
+      const onPlaylistsChanged = () => {
+        void prefetchUserPlaylistDetail(userPlaylistId, { force: true })
+          .then((d) => {
+            if (!cancelled) setDetail(d);
+          })
+          .catch(() => {});
+      };
+      window.addEventListener("playlists-changed", onPlaylistsChanged);
       return () => {
         cancelled = true;
+        window.removeEventListener("playlists-changed", onPlaylistsChanged);
       };
     }
     const loadGlobalLiveShows = async () => {
@@ -650,20 +663,48 @@ export default function SystemPlaylistPage({
       /^\d{4}\s+Wrapped$/i.test((detail?.name || "").trim()));
   const wrappedModules = useMemo(() => {
     if (!isListeningWrapped) return [] as string[];
-    const fromApi = (detail?.wrapped_modules || []).filter(Boolean);
-    if (fromApi.length) return fromApi;
-    return ["music"];
-  }, [isListeningWrapped, detail?.wrapped_modules]);
-  const [wrappedModule, setWrappedModule] = useState("music");
+    const order = ["music", "series", "movies", "books", "games"];
+    const present = new Set<string>();
+    for (const m of detail?.wrapped_modules || []) {
+      const key = String(m || "")
+        .trim()
+        .toLowerCase();
+      if (key) present.add(key);
+    }
+    for (const t of allTracks) {
+      present.add(String(t.module || "music").trim().toLowerCase() || "music");
+    }
+    const mods = order.filter((m) => present.has(m));
+    return mods.length > 0 ? mods : ["music"];
+  }, [isListeningWrapped, detail?.wrapped_modules, allTracks]);
+  const wrappedEntryModule = useMemo(() => {
+    if (!isListeningWrapped || userPlaylistId == null) return null;
+    const entry = getWrappedPlaylistEntry();
+    if (!entry || entry.playlistId !== userPlaylistId) return null;
+    return entry.module;
+  }, [isListeningWrapped, userPlaylistId]);
+  const [wrappedModule, setWrappedModule] = useState(
+    () => wrappedEntryModule || "music"
+  );
   const [wrappedModuleOpen, setWrappedModuleOpen] = useState(false);
   const wrappedModuleRef = useRef<HTMLDivElement>(null);
+  const wrappedEntryAppliedRef = useRef(false);
 
   useEffect(() => {
     if (!wrappedModules.length) return;
+    if (
+      wrappedEntryModule &&
+      wrappedModules.includes(wrappedEntryModule) &&
+      !wrappedEntryAppliedRef.current
+    ) {
+      wrappedEntryAppliedRef.current = true;
+      setWrappedModule(wrappedEntryModule);
+      return;
+    }
     if (!wrappedModules.includes(wrappedModule)) {
       setWrappedModule(wrappedModules[0]);
     }
-  }, [wrappedModules, wrappedModule]);
+  }, [wrappedModules, wrappedModule, wrappedEntryModule]);
 
   useEffect(() => {
     if (!wrappedModuleOpen) return;
@@ -1231,6 +1272,39 @@ export default function SystemPlaylistPage({
       .catch(() => {});
   }, [isUserPlaylist, userPlaylistId]);
 
+  const wrappedReturn = useMemo(() => {
+    if (!isListeningWrapped || userPlaylistId == null) return null;
+    const entry = getWrappedPlaylistEntry();
+    if (!entry || entry.playlistId !== userPlaylistId) return null;
+    const labels: Record<string, string> = {
+      music: "MUSIC",
+      series: "SERIES",
+      movies: "MOVIES",
+      books: "BOOKS",
+      games: "GAMES",
+    };
+    return {
+      module: entry.module,
+      label: labels[entry.module] || entry.module.toUpperCase(),
+    };
+  }, [isListeningWrapped, userPlaylistId]);
+
+  const effectiveBackLabel = wrappedReturn?.label || backLabel;
+
+  const handleBack = useCallback(() => {
+    if (wrappedReturn) {
+      const entry = takeWrappedPlaylistEntry();
+      const mod = entry?.module || wrappedReturn.module;
+      window.dispatchEvent(
+        new CustomEvent("mystack:open-module-home", {
+          detail: { module: mod },
+        })
+      );
+      return;
+    }
+    onBack();
+  }, [onBack, wrappedReturn]);
+
   const handleDeletePlaylist = useCallback(() => {
     if (!isUserPlaylist || userPlaylistId == null || detail?.editable === false) return;
     setDeleteError(null);
@@ -1246,7 +1320,7 @@ export default function SystemPlaylistPage({
         clearUserPlaylistDetailCache(userPlaylistId);
         setDeleteConfirmOpen(false);
         onPlaylistDeleted?.();
-        onBack();
+        handleBack();
       })
       .catch((err: unknown) => {
         setDeleteError(
@@ -1255,9 +1329,9 @@ export default function SystemPlaylistPage({
       })
       .finally(() => setDeleteBusy(false));
   }, [
+    handleBack,
     detail?.editable,
     isUserPlaylist,
-    onBack,
     onPlaylistDeleted,
     userPlaylistId,
   ]);
@@ -1380,6 +1454,77 @@ export default function SystemPlaylistPage({
         });
       };
 
+      // Wrapped / user playlists: resolve the playing track's artist (logo/icon),
+      // never fall back to the playlist title (e.g. "2026 Wrapped").
+      if (isUserPlaylist && showTrackPanel) {
+        const track = playingTrack as ArtistPlaylistTrack | null;
+        const bandFromTrack =
+          typeof track?.navigate_band_id === "number"
+            ? track.navigate_band_id
+            : null;
+        const nameFromTrack = (
+          track?.artist_name ||
+          trackPerformerName ||
+          ""
+        ).trim();
+        if (bandFromTrack) {
+          try {
+            const ov = await prefetchBandOverview(bandFromTrack, "landscape");
+            if (cancelled) return;
+            applyOverview(
+              bandFromTrack,
+              ov?.name || nameFromTrack || "Artist",
+              ov,
+              true
+            );
+            return;
+          } catch {
+            /* try name resolve next */
+          }
+        }
+        if (nameFromTrack) {
+          try {
+            const resolved = await resolveArtistName(nameFromTrack);
+            if (cancelled) return;
+            if (resolved.band_id) {
+              const ov = await prefetchBandOverview(
+                resolved.band_id,
+                "landscape"
+              );
+              if (cancelled) return;
+              applyOverview(
+                resolved.band_id,
+                resolved.name || nameFromTrack,
+                ov,
+                true
+              );
+              return;
+            }
+            setPanelBrand({
+              bandId: 0,
+              name: nameFromTrack,
+              iconUrl: null,
+              logoUrl: null,
+              inLibrary: false,
+            });
+            return;
+          } catch {
+            if (!cancelled) {
+              setPanelBrand({
+                bandId: 0,
+                name: nameFromTrack,
+                iconUrl: null,
+                logoUrl: null,
+                inLibrary: false,
+              });
+            }
+            return;
+          }
+        }
+        if (!cancelled) setPanelBrand(null);
+        return;
+      }
+
       if (showTrackPanel && trackPerformerName) {
         const performerName = trackPerformerName;
         try {
@@ -1450,14 +1595,20 @@ export default function SystemPlaylistPage({
     bandId,
     brandDateIso,
     isUserPlaylist,
+    playingTrack,
     showTrackPanel,
     trackPerformerName,
   ]);
 
   const panelBrandName =
     panelBrand?.name ??
-    (trackPerformerName && showTrackPanel
-      ? trackPerformerName
+    (showTrackPanel
+      ? trackPerformerName ||
+        (isUserPlaylist
+          ? (playingTrack as ArtistPlaylistTrack | null)?.artist_name || null
+          : null) ||
+        (!isUserPlaylist ? artistName : null) ||
+        "Artist"
       : isUserPlaylist
         ? (detail?.name ?? "Playlist")
         : artistName);
@@ -1630,8 +1781,8 @@ export default function SystemPlaylistPage({
             <button
               type="button"
               className="release-page__back"
-              onClick={onBack}
-              aria-label="Back to Playlists"
+              onClick={handleBack}
+              aria-label={`Back to ${effectiveBackLabel}`}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path
@@ -1643,7 +1794,7 @@ export default function SystemPlaylistPage({
                   strokeLinejoin="round"
                 />
               </svg>
-              <span>{backLabel}</span>
+              <span>{effectiveBackLabel}</span>
             </button>
           </div>
           <div className="release-page__top-center">
@@ -2024,13 +2175,17 @@ export default function SystemPlaylistPage({
                         <button
                           type="button"
                           className={`release-page__artist-link release-page__artist-link--text${
-                            showTrackPanel && trackPerformerName
+                            showTrackPanel &&
+                            trackPerformerName &&
+                            !isUserPlaylist
                               ? " release-page__artist-link--brand-name"
                               : ""
                           }`}
                           onClick={openPanelBrand}
                         >
-                          {showTrackPanel && trackPerformerName
+                          {showTrackPanel &&
+                          trackPerformerName &&
+                          !isUserPlaylist
                             ? panelBrandName.toLocaleUpperCase()
                             : panelBrandName}
                         </button>
