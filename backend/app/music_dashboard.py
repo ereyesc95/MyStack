@@ -413,12 +413,53 @@ def _resolve_dashboard_release_ids(
     return fallback_id, artist_id
 
 
-def _build_top_releases(
+# Wrapped Top Records: studio-ish folders only (exclude Singles + Compilations).
+WRAPPED_TOP_RECORD_CATEGORIES = frozenset(
+    {
+        "albums",
+        "extended plays",
+        "demos",
+        "live albums",
+        "soundtracks",
+    }
+)
+
+
+def _category_folder_from_release_rel(release_rel: str) -> str | None:
+    """Return Albums / Singles / … folder name under Music/{L}/{Artist}/[Audio]/."""
+    parts = [p for p in release_rel.replace("\\", "/").strip("/").split("/") if p]
+    if len(parts) < 4 or parts[0].casefold() != "music":
+        return None
+    idx = 3
+    if len(parts) > idx and parts[idx].casefold() == "audio":
+        idx += 1
+    if idx >= len(parts):
+        return None
+    return parts[idx]
+
+
+def _release_dir_exists(media_root: Path, release_rel: str) -> bool:
+    rel = release_rel.replace("\\", "/").strip("/")
+    candidates = (
+        media_root / rel,
+        media_root / _normalize_legacy_audio_rel(rel),
+    )
+    return any(c.is_dir() for c in candidates)
+
+
+def _build_top_releases_from_plays(
     db: Session,
-    reps: list[Reproduction],
     media_root: Path | None,
+    plays: list[dict],
+    *,
+    limit: int = 10,
+    allowed_categories: frozenset[str] | None = None,
+    require_navigable: bool = False,
 ) -> list[dict]:
-    """Aggregate play weights by release folder; one card per album (editions collapsed)."""
+    """Aggregate play weights by release folder; one card per album (editions collapsed).
+
+    Each play dict: path (str), weight (int), artist_id (optional), release_hint (optional).
+    """
     from app.band_library import (
         AUDIO_CATEGORIES,
         _album_title_from_folder,
@@ -493,11 +534,11 @@ def _build_top_releases(
                 )
         return release_rel or None, title
 
-    for r in reps:
-        weight = _dashboard_rep_weight(r)
-        if weight <= 0 or is_quiz_play_title(r.rep_title):
+    for item in plays:
+        weight = int(item.get("weight") or 0)
+        if weight <= 0:
             continue
-        path = (r.rep_path or "").strip().replace("\\", "/")
+        path = (item.get("path") or "").strip().replace("\\", "/")
         if not path:
             continue
 
@@ -508,8 +549,12 @@ def _build_top_releases(
             Path(release_rel).name
         ):
             continue
+        if allowed_categories is not None:
+            cat = _category_folder_from_release_rel(release_rel)
+            if not cat or cat.casefold() not in allowed_categories:
+                continue
         if not title:
-            title = (r.rep_release or "").strip() or None
+            title = (item.get("release_hint") or "").strip() or None
             if title and ":" in title:
                 # Drop edition suffix like "Album: Deluxe Edition"
                 head, _, tail = title.partition(":")
@@ -518,6 +563,7 @@ def _build_top_releases(
                 ):
                     title = head.strip()
 
+        artist_id = item.get("artist_id")
         key = release_rel.casefold().rstrip("/")
         release_counts[key] += weight
         existing = release_meta.get(key)
@@ -525,7 +571,7 @@ def _build_top_releases(
             release_meta[key] = {
                 "release_rel": release_rel,
                 "title": title,
-                "artist_id": r.rep_artist_id,
+                "artist_id": artist_id,
                 "path": path,
             }
         else:
@@ -537,8 +583,8 @@ def _build_top_releases(
                 )
             ):
                 existing["title"] = title
-            if r.rep_artist_id and not existing.get("artist_id"):
-                existing["artist_id"] = r.rep_artist_id
+            if artist_id and not existing.get("artist_id"):
+                existing["artist_id"] = artist_id
 
     # Collapse any remaining duplicates that share artist + normalized title
     merged_counts: Counter[str] = Counter()
@@ -562,8 +608,9 @@ def _build_top_releases(
         merged_meta[key] = meta
 
     top_releases: list[dict] = []
-    for key, count in merged_counts.most_common(40):
-        if len(top_releases) >= 10:
+    scan_cap = max(limit * 4, 40)
+    for key, count in merged_counts.most_common(scan_cap):
+        if len(top_releases) >= limit:
             break
         meta = merged_meta.get(key)
         if not meta:
@@ -589,6 +636,11 @@ def _build_top_releases(
             title=title,
             release_rel=release_rel,
         )
+        if require_navigable:
+            if not release_id or artist_id is None:
+                continue
+            if media_root is None or not _release_dir_exists(media_root, release_rel):
+                continue
         artist_name = None
         if artist_id:
             band = db.get(Band, artist_id)
@@ -614,6 +666,33 @@ def _build_top_releases(
             }
         )
     return top_releases
+
+
+def _build_top_releases(
+    db: Session,
+    reps: list[Reproduction],
+    media_root: Path | None,
+) -> list[dict]:
+    """Aggregate dashboard play weights by release folder (top 10)."""
+    plays: list[dict] = []
+    for r in reps:
+        weight = _dashboard_rep_weight(r)
+        if weight <= 0 or is_quiz_play_title(r.rep_title):
+            continue
+        path = (r.rep_path or "").strip().replace("\\", "/")
+        if not path:
+            continue
+        plays.append(
+            {
+                "path": path,
+                "weight": weight,
+                "artist_id": r.rep_artist_id,
+                "release_hint": r.rep_release,
+            }
+        )
+    return _build_top_releases_from_plays(
+        db, media_root, plays, limit=10, require_navigable=False
+    )
 
 
 def _parse_country_id(field: str | None) -> int | None:

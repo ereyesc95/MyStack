@@ -194,7 +194,13 @@ def _year_rows(db: Session, user_id: int, year: int) -> list[ListeningDayPlay]:
 def build_wrapped(db: Session, user_id: int, *, year: int | None = None) -> dict[str, Any]:
     """Year listening recap from dated plays (empty until plays after feature ship)."""
     from app.band_library import cover_url_for_track_path
-    from app.music_dashboard import _clean_track_title, _parse_country_id, _resolve_subgenre_name
+    from app.music_dashboard import (
+        WRAPPED_TOP_RECORD_CATEGORIES,
+        _build_top_releases_from_plays,
+        _clean_track_title,
+        _parse_country_id,
+        _resolve_subgenre_name,
+    )
 
     y = year or date.today().year
     rows = _year_rows(db, user_id, y)
@@ -266,6 +272,26 @@ def build_wrapped(db: Session, user_id: int, *, year: int | None = None) -> dict
             }
         )
 
+    release_plays: list[dict] = []
+    for path, count in path_counts.items():
+        meta = path_meta.get(path)
+        release_plays.append(
+            {
+                "path": path,
+                "weight": count,
+                "artist_id": meta.ldp_artist_id if meta else None,
+                "release_hint": meta.ldp_release if meta else None,
+            }
+        )
+    top_releases = _build_top_releases_from_plays(
+        db,
+        media_root,
+        release_plays,
+        limit=15,
+        allowed_categories=WRAPPED_TOP_RECORD_CATEGORIES,
+        require_navigable=True,
+    )
+
     genre_counts: Counter[int] = Counter()
     country_counts: Counter[int] = Counter()
     for aid, weight in artist_counts.items():
@@ -315,6 +341,7 @@ def build_wrapped(db: Session, user_id: int, *, year: int | None = None) -> dict
         "longest_streak": streaks["longest_streak"],
         "top_tracks": top_tracks,
         "top_artists": top_artists,
+        "top_releases": top_releases,
         "top_genres": top_genres,
         "top_countries": top_countries,
         "empty": total_plays == 0,

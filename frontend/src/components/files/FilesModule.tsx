@@ -32,6 +32,7 @@ import type { ModuleWrappedItem } from "../../types";
 import type { MediaOption } from "../ModuleTopBar";
 import ModuleTopBar from "../ModuleTopBar";
 import AppMenu from "../AppMenu";
+import MyStackIcon from "../MyStackIcon";
 import ConfirmDialog from "../ConfirmDialog";
 import ModalPortal from "../ModalPortal";
 import {
@@ -493,6 +494,10 @@ export default function FilesModule({
                 aria-label={`${wrappedYear} Wrapped`}
                 onClick={() => setWrappedOpen(true)}
               >
+                <MyStackIcon
+                  className="music-home-wrapped-btn__mark"
+                  size={13}
+                />
                 {`${wrappedYear} Wrapped`}
               </button>
             ) : null}

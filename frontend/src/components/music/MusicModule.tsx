@@ -120,6 +120,7 @@ import {
   IconStar,
   IconUniverse,
 } from "../MenuIcons";
+import MyStackIcon from "../MyStackIcon";
 import { trackMainTitle } from "./release/releaseTrackPanelMeta";
 import {
   isMobilePortraitLayout,
@@ -1923,11 +1924,11 @@ export default function MusicModule({
                   aria-label={`${wrappedYear} Wrapped`}
                   onClick={() => setWrappedOpen(true)}
                 >
-                  {wrappedIconOnly ? (
-                    <IconHeadphones />
-                  ) : (
-                    `${wrappedYear} Wrapped`
-                  )}
+                  <MyStackIcon
+                    className="music-home-wrapped-btn__mark"
+                    size={wrappedIconOnly ? 15 : 13}
+                  />
+                  {wrappedIconOnly ? null : `${wrappedYear} Wrapped`}
                 </button>
               ) : null}
               <AppMenu
@@ -1978,6 +1979,21 @@ export default function MusicModule({
                     tab === "collection" ||
                     (tab === "merch" && isAdmin)) ? (
                     <>
+                      {showHomeWrapped ? (
+                        <button
+                          type="button"
+                          className="music-home-wrapped-btn music-home-wrapped-btn--menu"
+                          title={`${wrappedYear} Wrapped`}
+                          aria-label={`${wrappedYear} Wrapped`}
+                          onClick={() => setWrappedOpen(true)}
+                        >
+                          <MyStackIcon
+                            className="music-home-wrapped-btn__mark menu-item-icon"
+                            size={15}
+                          />
+                          {`${wrappedYear} Wrapped`}
+                        </button>
+                      ) : null}
                       {showHomeBubblePlayer ? (
                         <button
                           type="button"
@@ -1990,18 +2006,6 @@ export default function MusicModule({
                         >
                           <IconMediaMusic className="menu-item-icon" />
                           {homePlayerBubbleOpen ? "Hide music" : "Play music"}
-                        </button>
-                      ) : null}
-                      {showHomeWrapped ? (
-                        <button
-                          type="button"
-                          className="music-home-wrapped-btn music-home-wrapped-btn--menu"
-                          title={`${wrappedYear} Wrapped`}
-                          aria-label={`${wrappedYear} Wrapped`}
-                          onClick={() => setWrappedOpen(true)}
-                        >
-                          <IconHeadphones className="menu-item-icon" />
-                          {`${wrappedYear} Wrapped`}
                         </button>
                       ) : null}
                       {showArtistTools ? (
@@ -2937,6 +2941,32 @@ export default function MusicModule({
                 const card =
                   dashboard.top_artists?.find((a) => a.id === id) ?? null;
                 openArtist(id, card, "home");
+              }}
+              onRelease={(artistId, releaseId, meta) => {
+                setEntrySource("home");
+                saveArtistEntryReferrer({
+                  source: "music",
+                  section: "audio",
+                  backLabel: "HOME",
+                });
+                saveReleaseReferrer({
+                  bandId: artistId,
+                  section: "audio",
+                  source: "home",
+                  artistName: meta?.artistName ?? undefined,
+                });
+                void prefetchReleaseOverview(artistId, releaseId);
+                onBand(artistId, "audio");
+                onReleaseNavigate?.(releaseId, "overview", artistId);
+                pushArtistRoute({
+                  bandId: artistId,
+                  artistName: meta?.artistName || undefined,
+                  section: "audio",
+                  overviewTab: "about",
+                  releaseId,
+                  releaseTitle: meta?.title || undefined,
+                  releaseTab: "overview",
+                });
               }}
               onGenre={(id) => {
                 onGenreFilter(id);

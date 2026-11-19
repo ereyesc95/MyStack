@@ -66,6 +66,13 @@ export function prefetchMusicDashboard(
     if (cached) return Promise.resolve(cached);
   }
 
+  if (force) {
+    // Plays feed both Home and Wrapped — drop stale year recap on hard refresh.
+    void import("./listeningWrappedCache").then((m) =>
+      m.clearCachedListeningWrapped()
+    );
+  }
+
   if (inflight) return inflight;
 
   inflight = fetchMusicDashboard()

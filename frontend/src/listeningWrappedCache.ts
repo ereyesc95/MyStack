@@ -15,6 +15,11 @@ export function setCachedListeningWrapped(
   store.set(year, data);
 }
 
+export function clearCachedListeningWrapped(year?: number): void {
+  if (year == null) store.clear();
+  else store.delete(year);
+}
+
 /** Nov–Dec → that year; January → previous year; otherwise null (off-season). */
 export function wrappedSeasonYear(now = new Date()): number | null {
   const month = now.getMonth(); // 0-indexed

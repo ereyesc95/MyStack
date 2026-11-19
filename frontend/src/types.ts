@@ -214,6 +214,7 @@ export type ListeningWrapped = {
   longest_streak: number;
   top_tracks: DashboardTrack[];
   top_artists: ArtistCard[];
+  top_releases: DashboardRelease[];
   top_genres: MusicDashboard["top_genres"];
   top_countries: MusicDashboard["top_countries"];
   empty: boolean;

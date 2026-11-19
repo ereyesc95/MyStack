@@ -68,6 +68,7 @@ import {
   useDeviceLayout,
 } from "../../usePhoneLayout";
 import AppMenu from "../AppMenu";
+import MyStackIcon from "../MyStackIcon";
 import ManageCatalogModal from "../ManageCatalogModal";
 import CardOrientationPicker from "../CardOrientationPicker";
 import {
@@ -1267,6 +1268,10 @@ export default function BooksModule({
                 aria-label={`${wrappedYear} Wrapped`}
                 onClick={() => setWrappedOpen(true)}
               >
+                <MyStackIcon
+                  className="music-home-wrapped-btn__mark"
+                  size={13}
+                />
                 {`${wrappedYear} Wrapped`}
               </button>
             ) : null}
@@ -1287,6 +1292,21 @@ export default function BooksModule({
               menuChrome={
                 portraitMenuChrome ? (
                   <>
+                    {showHomeWrapped ? (
+                      <button
+                        type="button"
+                        className="music-home-wrapped-btn music-home-wrapped-btn--menu"
+                        title={`${wrappedYear} Wrapped`}
+                        aria-label={`${wrappedYear} Wrapped`}
+                        onClick={() => setWrappedOpen(true)}
+                      >
+                        <MyStackIcon
+                          className="music-home-wrapped-btn__mark menu-item-icon"
+                          size={15}
+                        />
+                        {`${wrappedYear} Wrapped`}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => setHomeAudioOpen((v) => !v)}

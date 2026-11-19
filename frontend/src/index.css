@@ -1654,7 +1654,6 @@ input {
 .music-home-wrapped-btn {
   appearance: none;
   border: 0;
-  background: var(--accent, #5b8def);
   color: #fff;
   font-size: 0.72rem;
   font-weight: 650;
@@ -1665,9 +1664,45 @@ input {
   cursor: pointer;
   line-height: 1.2;
   white-space: nowrap;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background-color: var(--accent, #5b8def);
+  background-image: linear-gradient(
+    105deg,
+    transparent 28%,
+    color-mix(in srgb, #fff 22%, transparent) 44%,
+    color-mix(in srgb, #fff 38%, transparent) 50%,
+    color-mix(in srgb, #fff 22%, transparent) 56%,
+    transparent 72%
+  );
+  background-size: 220% 100%;
+  background-position: 120% 0;
+  background-repeat: no-repeat;
+  animation: music-home-wrapped-sheen 10s ease-in-out infinite;
 }
-.music-home-wrapped-btn:hover {
+.music-home-wrapped-btn:hover,
+.music-home-wrapped-btn:focus-visible {
   filter: brightness(1.08);
+  animation-play-state: paused;
+}
+@keyframes music-home-wrapped-sheen {
+  /* Idle most of the cycle; one soft wash near the end (~every 10s) */
+  0%,
+  78% {
+    background-position: 120% 0;
+  }
+  92%,
+  100% {
+    background-position: -40% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .music-home-wrapped-btn {
+    animation: none;
+    background-image: none;
+  }
 }
 .music-home-wrapped-btn--icon {
   display: inline-flex;
@@ -1682,13 +1717,20 @@ input {
   width: 1.05rem;
   height: 1.05rem;
 }
+.music-home-wrapped-btn .mystack-icon__accent,
+.music-home-wrapped-btn .mystack-icon__body {
+  fill: #fff;
+}
+.music-home-wrapped-btn .music-home-wrapped-btn__mark {
+  flex-shrink: 0;
+}
 .app-menu-chrome .music-home-wrapped-btn--menu {
   display: flex;
   align-items: center;
   gap: 0.55rem;
   width: calc(100% - 0.5rem);
   margin: 0.25rem 0.25rem 0.45rem;
-  background: var(--accent, #5b8def);
+  background-color: var(--accent, #5b8def);
   color: #fff;
   font-size: 0.78rem;
   font-weight: 650;
@@ -1701,8 +1743,9 @@ input {
 }
 .app-menu-chrome .music-home-wrapped-btn--menu:hover {
   filter: brightness(1.08);
-  background: var(--accent, #5b8def);
+  background-color: var(--accent, #5b8def);
   color: #fff;
+  animation-play-state: paused;
 }
 .app-menu-chrome .music-home-wrapped-btn--menu .menu-item-icon {
   opacity: 1;
@@ -1950,6 +1993,8 @@ input {
   padding: 0.75rem;
   cursor: pointer;
   margin-bottom: 0.75rem;
+  min-width: 0;
+  overflow: hidden;
 }
 .music-wrapped__feature:hover {
   background: color-mix(in srgb, var(--text) 9%, transparent);
@@ -1965,6 +2010,15 @@ input {
 }
 .music-wrapped__feature-art--square {
   border-radius: 0.45rem;
+}
+.music-wrapped__grid-card img.music-wrapped__grid-card-art--square,
+.music-wrapped__grid-card-art--square {
+  width: 2.6rem;
+  height: 2.6rem;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
 }
 .music-wrapped__cover-hit {
   position: relative;
@@ -2139,6 +2193,13 @@ input {
   flex-direction: column;
   gap: 0.2rem;
   min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.music-wrapped__feature-title {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
 }
 .music-wrapped__feature-rank {
   font-size: 0.68rem;
@@ -2176,6 +2237,8 @@ input {
   padding: 0.3rem;
   border-radius: 0.45rem;
   cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
 }
 .music-wrapped__grid-card:hover {
   background: color-mix(in srgb, var(--text) 7%, transparent);
@@ -2191,23 +2254,43 @@ input {
   background-size: cover;
   background-position: center;
 }
-.music-wrapped__grid-card strong {
+.music-wrapped__grid-card-meta {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.music-wrapped__grid-card strong,
+.music-wrapped__grid-card-title {
   display: block;
   font-size: 0.8rem;
   font-weight: 600;
-  white-space: nowrap;
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+.music-wrapped__grid-card-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.28rem;
+}
+.music-wrapped__grid-card-billboard {
+  min-width: 0;
+  flex: 1;
+  font-weight: 600;
 }
 .music-wrapped__grid-card em {
   display: block;
   font-style: normal;
   font-size: 0.68rem;
   opacity: 0.65;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .music-wrapped__grid-rank {
   opacity: 0.5;
   font-weight: 500;
+  flex-shrink: 0;
+  line-height: 1.2;
 }
 .music-wrapped__playlist-bar {
   position: relative;
@@ -3033,7 +3116,9 @@ input {
 .release-tracklist__row:hover .billboard-text--scroll .billboard-text-inner,
 .release-tracklist__row.active .billboard-text--scroll .billboard-text-inner,
 .release-page--stacked .release-tracklist__row .billboard-text--scroll .billboard-text-inner,
-.release-page--stacked .release-tracklist__subview-head .billboard-text--scroll .billboard-text-inner {
+.release-page--stacked .release-tracklist__subview-head .billboard-text--scroll .billboard-text-inner,
+.music-wrapped__grid-card:hover .billboard-text--scroll .billboard-text-inner,
+.music-wrapped__feature:hover .billboard-text--scroll .billboard-text-inner {
   width: max-content;
   max-width: none;
   overflow: visible;
@@ -3091,7 +3176,9 @@ input {
 .dash-hover-title.is-revealed .billboard-text--multiline.billboard-text--scroll:not(.billboard-text--vscroll) .billboard-text-inner,
 .is-revealed .billboard-text--multiline.billboard-text--scroll:not(.billboard-text--vscroll) .billboard-text-inner,
 .media-release-card:hover .billboard-text--multiline.billboard-text--scroll:not(.billboard-text--vscroll) .billboard-text-inner,
-.media-release-card--revealed .billboard-text--multiline.billboard-text--scroll:not(.billboard-text--vscroll) .billboard-text-inner {
+.media-release-card--revealed .billboard-text--multiline.billboard-text--scroll:not(.billboard-text--vscroll) .billboard-text-inner,
+.music-wrapped__grid-card:hover .billboard-text--multiline.billboard-text--scroll:not(.billboard-text--vscroll) .billboard-text-inner,
+.music-wrapped__feature:hover .billboard-text--multiline.billboard-text--scroll:not(.billboard-text--vscroll) .billboard-text-inner {
   width: 100%;
   max-width: none;
   white-space: normal;
@@ -3109,7 +3196,9 @@ input {
 .dash-genre:hover .billboard-text--vscroll .billboard-text-inner,
 .dash-country:hover .billboard-text--vscroll .billboard-text-inner,
 .dash-hover-title.is-revealed .billboard-text--vscroll .billboard-text-inner,
-.is-revealed .billboard-text--vscroll .billboard-text-inner {
+.is-revealed .billboard-text--vscroll .billboard-text-inner,
+.music-wrapped__grid-card:hover .billboard-text--vscroll .billboard-text-inner,
+.music-wrapped__feature:hover .billboard-text--vscroll .billboard-text-inner {
   width: 100%;
   max-width: 100%;
   animation: billboard-pan-y var(--scroll-duration, 6s) linear infinite;

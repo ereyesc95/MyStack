@@ -963,6 +963,14 @@ export default function AppMenu({
           aria-hidden={!menuVisible}
           inert={menuVisible ? undefined : true}
         >
+          {menuChrome ? (
+            <div
+              className="app-menu-chrome"
+              onClick={() => setOpen(false)}
+            >
+              {menuChrome}
+            </div>
+          ) : null}
           {editDataFlat ? (
             <>
               {refreshDataBlock}
@@ -1174,14 +1182,6 @@ export default function AppMenu({
                 </div>
               )}
             </>
-          ) : null}
-          {menuChrome ? (
-            <div
-              className="app-menu-chrome"
-              onClick={() => setOpen(false)}
-            >
-              {menuChrome}
-            </div>
           ) : null}
           {!editDataFlat && isAdmin && onAddMember && menuVariant !== "release" && (
             <button

@@ -64,6 +64,7 @@ import type {
   Universe,
 } from "../../types";
 import AppMenu from "../AppMenu";
+import MyStackIcon from "../MyStackIcon";
 import CardOrientationPicker from "../CardOrientationPicker";
 import ManageCatalogModal from "../ManageCatalogModal";
 import OrganizeLooseRomsModal from "./OrganizeLooseRomsModal";
@@ -1251,6 +1252,10 @@ export default function GamesModule({
                 aria-label={`${wrappedYear} Wrapped`}
                 onClick={() => setWrappedOpen(true)}
               >
+                <MyStackIcon
+                  className="music-home-wrapped-btn__mark"
+                  size={13}
+                />
                 {`${wrappedYear} Wrapped`}
               </button>
             ) : null}

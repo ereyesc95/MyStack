@@ -17,6 +17,7 @@ import {
 } from "../../listeningWrappedCache";
 import { musicStreamUrl } from "../../musicStreamUrl";
 import type { ListeningWrapped } from "../../types";
+import BillboardText from "../BillboardText";
 import { IconContinueArrow, IconPlus } from "../MenuIcons";
 import ModalPortal, { useModalClose } from "../ModalPortal";
 import {
@@ -33,7 +34,7 @@ import {
   trackMainTitle,
 } from "./release/releaseTrackPanelMeta";
 
-type TabId = "tracks" | "artists" | "vibes";
+type TabId = "tracks" | "artists" | "records" | "vibes";
 
 type Props = {
   year: number;
@@ -45,6 +46,11 @@ type Props = {
     title: string | null
   ) => void;
   onArtist?: (id: number) => void;
+  onRelease?: (
+    artistId: number,
+    releaseId: string,
+    meta?: { artistName?: string | null; title?: string | null }
+  ) => void;
   onGenre?: (id: number) => void;
   /** Refresh Playlists tab after creating the Wrapped playlist. */
   onPlaylistCreated?: () => void;
@@ -112,6 +118,7 @@ function MusicWrappedPanel({
   year,
   onClose,
   onArtist,
+  onRelease,
   onGenre,
   onPlaylistCreated,
   onOpenPlaylist,
@@ -239,18 +246,20 @@ function MusicWrappedPanel({
       setData(hit);
       setLoading(false);
       setError(null);
-      return;
+    } else {
+      setLoading(true);
+      setError(null);
     }
-    setLoading(true);
-    setError(null);
+    // Always revalidate — plays update continuously; cache is only for first paint.
     void fetchListeningWrapped(year)
       .then((payload) => {
         if (cancelled) return;
         setCachedListeningWrapped(year, payload);
         setData(payload);
+        setError(null);
       })
       .catch((e) => {
-        if (!cancelled) {
+        if (!cancelled && !hit) {
           setError(e instanceof Error ? e.message : "Could not load Wrapped");
         }
       })
@@ -328,6 +337,10 @@ function MusicWrappedPanel({
     () => (data?.top_artists || []).slice(0, 15),
     [data]
   );
+  const records = useMemo(
+    () => (data?.top_releases || []).slice(0, 15),
+    [data]
+  );
   const genres = useMemo(
     () => (data?.top_genres || []).slice(0, 15),
     [data]
@@ -382,6 +395,7 @@ function MusicWrappedPanel({
     data,
     tracks.length,
     artists.length,
+    records.length,
     genres.length,
     playlistId,
     playlistBusy,
@@ -454,6 +468,8 @@ function MusicWrappedPanel({
   const restTracks = tracks.slice(1);
   const featuredArtist = artists[0];
   const restArtists = artists.slice(1);
+  const featuredRecord = records[0];
+  const restRecords = records.slice(1);
   const featuredGenre = genres[0];
   const restGenres = genres.slice(1);
 
@@ -516,6 +532,7 @@ function MusicWrappedPanel({
                 [
                   ["tracks", "On repeat"],
                   ["artists", "Top artists"],
+                  ["records", "Top records"],
                   ["vibes", "Vibes"],
                 ] as const
               ).map(([id, label]) => (
@@ -712,6 +729,114 @@ function MusicWrappedPanel({
                                     {a.name}
                                   </strong>
                                   <em>{a.play_count} plays</em>
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              ) : null}
+
+              {tab === "records" ? (
+                <div className="music-wrapped__pane">
+                  {records.length === 0 ? (
+                    <p className="muted music-wrapped__status">No records yet.</p>
+                  ) : (
+                    <>
+                      {featuredRecord ? (
+                        <button
+                          type="button"
+                          className="music-wrapped__feature"
+                          onClick={() => {
+                            if (featuredRecord.artist_id == null) return;
+                            requestClose(() =>
+                              onRelease?.(
+                                featuredRecord.artist_id!,
+                                featuredRecord.id,
+                                {
+                                  artistName: featuredRecord.artist_name,
+                                  title: featuredRecord.title,
+                                }
+                              )
+                            );
+                          }}
+                        >
+                          {featuredRecord.cover_url ? (
+                            <img
+                              className="music-wrapped__feature-art music-wrapped__feature-art--square"
+                              src={featuredRecord.cover_url}
+                              alt=""
+                            />
+                          ) : (
+                            <span className="music-wrapped__feature-art music-wrapped__feature-art--square music-wrapped__art-fallback" />
+                          )}
+                          <span className="music-wrapped__feature-meta">
+                            <span className="music-wrapped__feature-rank">
+                              #1 Record
+                            </span>
+                            <strong className="music-wrapped__feature-title">
+                              <BillboardText
+                                short={featuredRecord.title}
+                                full={featuredRecord.title}
+                                maxLines={2}
+                              />
+                            </strong>
+                            <em>
+                              {featuredRecord.artist_name
+                                ? `${featuredRecord.artist_name} · `
+                                : ""}
+                              {featuredRecord.play_count} plays
+                            </em>
+                          </span>
+                        </button>
+                      ) : null}
+                      {restRecords.length > 0 ? (
+                        <ul className="music-wrapped__grid">
+                          {restRecords.map((r, i) => (
+                            <li key={r.id}>
+                              <button
+                                type="button"
+                                className="music-wrapped__grid-card"
+                                onClick={() => {
+                                  if (r.artist_id == null) return;
+                                  requestClose(() =>
+                                    onRelease?.(r.artist_id!, r.id, {
+                                      artistName: r.artist_name,
+                                      title: r.title,
+                                    })
+                                  );
+                                }}
+                              >
+                                {r.cover_url ? (
+                                  <img
+                                    className="music-wrapped__grid-card-art--square"
+                                    src={r.cover_url}
+                                    alt=""
+                                  />
+                                ) : (
+                                  <span className="music-wrapped__art-fallback music-wrapped__grid-card-art--square" />
+                                )}
+                                <span className="music-wrapped__grid-card-meta">
+                                  <strong className="music-wrapped__grid-card-title">
+                                    <span className="music-wrapped__grid-rank">
+                                      #{i + 2}
+                                    </span>
+                                    <BillboardText
+                                      short={r.title}
+                                      full={r.title}
+                                      maxLines={2}
+                                      className="music-wrapped__grid-card-billboard"
+                                    />
+                                  </strong>
+                                  <em>
+                                    {r.artist_name
+                                      ? `${r.artist_name} · `
+                                      : ""}
+                                    {r.play_count} plays
+                                  </em>
                                 </span>
                               </button>
                             </li>
