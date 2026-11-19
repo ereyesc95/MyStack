@@ -2377,16 +2377,19 @@ input {
   transform: scale(1);
   transform-origin: center center;
   transition: transform 0.2s ease;
+  transition-delay: 0s;
   will-change: transform;
 }
 
 /* Home panes: inactive siblings ease out slightly while one is hovered.
+   ~100ms delay so fast sweeps don't thrash every pane.
    Skip while data-suppress-dash-hover is set (cleared on real pointer move). */
 @media (hover: hover) and (pointer: fine) {
   html:not([data-suppress-dash-hover])
     .music-dashboard:has(> .dash-row:hover)
     > .dash-row:not(:hover) {
     transform: scale(0.985);
+    transition-delay: 100ms;
   }
 }
 

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+/** Brief pause before expand so fast cursor sweeps don't thrash every card. */
+const EXPAND_DELAY_MS = 100;
 const COLLAPSE_DELAY_MS = 150;
 
 /** Prefetch hover morph images so expand doesn't flash empty. */
@@ -13,7 +15,7 @@ export function prefetchDashArt(urls: Array<string | null | undefined>): void {
 }
 
 /**
- * Desktop: hover expands a card; leave collapses after a short delay.
+ * Desktop: hover expands a card after a short delay; leave collapses after a delay.
  * Mobile: `revealedId` from useDashCardReveal drives expand (tap 1).
  */
 export function useDashPaneExpand(
@@ -26,6 +28,7 @@ export function useDashPaneExpand(
 } {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
+  const pendingIdRef = useRef<string | null>(null);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current != null) {
@@ -40,14 +43,23 @@ export function useDashPaneExpand(
     (id: string) => {
       if (coarse) return;
       clearTimer();
-      setHoveredId(id);
+      pendingIdRef.current = id;
+      // Already on this card — keep expanded without re-delaying.
+      if (hoveredId === id) return;
+      timerRef.current = window.setTimeout(() => {
+        if (pendingIdRef.current === id) {
+          setHoveredId(id);
+        }
+        timerRef.current = null;
+      }, EXPAND_DELAY_MS);
     },
-    [coarse, clearTimer]
+    [coarse, clearTimer, hoveredId]
   );
 
   const onLeave = useCallback(() => {
     if (coarse) return;
     clearTimer();
+    pendingIdRef.current = null;
     timerRef.current = window.setTimeout(() => {
       setHoveredId(null);
       timerRef.current = null;
