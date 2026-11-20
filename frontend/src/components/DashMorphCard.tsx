@@ -301,6 +301,10 @@ export default function DashMorphCard({
         revealed ? "is-revealed" : "",
         active ? "active" : "",
         previewActive ? "is-previewing" : "",
+        previewActive && previewOverlay.mediaKind === "audio"
+          ? "is-previewing-audio"
+          : "",
+        previewActive && previewOverlay.beating ? "is-beating" : "",
         className,
       ]
         .filter(Boolean)

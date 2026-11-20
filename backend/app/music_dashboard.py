@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.band_library import (
     artwork_role_urls_for_dir,
+    artwork_role_urls_for_on_repeat_track,
     artwork_role_urls_for_track_path,
     cover_url_for_track_path,
     title_from_track_path,
@@ -282,7 +283,12 @@ def build_dashboard(db: Session, user_id: int) -> dict:
             artist_name = band.bnd_name if band else None
         raw_title = _effective_track_title(r)
         roles = (
-            artwork_role_urls_for_track_path(r.rep_path, media_root)
+            artwork_role_urls_for_on_repeat_track(
+                r.rep_path,
+                media_root,
+                band_name=artist_name,
+                track_title=raw_title,
+            )
             if media_root
             else {}
         )

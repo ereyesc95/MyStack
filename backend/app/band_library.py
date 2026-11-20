@@ -356,6 +356,48 @@ def artwork_role_urls_for_track_path(
     return roles
 
 
+def artwork_role_urls_for_on_repeat_track(
+    path: str | None,
+    media_root: Path,
+    *,
+    band_name: str | None = None,
+    track_title: str | None = None,
+) -> dict[str, str | None]:
+    """On Repeat card art: Singles folder when the track is a single, else play-path release.
+
+    A track counts as a single when the play path is under ``Singles/`` or a matching
+    Singles release exists for the title. Otherwise use the album/EP/etc. the path
+    belongs to — do not borrow Singles art for album-only tracks.
+    """
+    empty = {
+        "banner_url": None,
+        "landscape_url": None,
+        "cover_url": None,
+        "logo_url": None,
+        "logo_collapsed_url": None,
+    }
+    if not path:
+        return empty
+    file_path = resolve_track_file_path(path, media_root)
+    if not file_path:
+        return empty
+
+    from app.release_playback_art import _single_artwork_edition_for_audio
+
+    title = track_title or display_track_title_from_path(file_path)
+    single_edition = _single_artwork_edition_for_audio(
+        file_path,
+        media_root,
+        band_name=band_name,
+        track_title=title,
+    )
+    if single_edition:
+        roles = artwork_role_urls_for_dir(single_edition, media_root)
+        if any(roles.values()):
+            return roles
+    return artwork_role_urls_for_track_path(path, media_root)
+
+
 def _album_title_from_folder(name: str) -> str:
     m = DATE_PREFIX_RE.match(name.strip())
     if m:

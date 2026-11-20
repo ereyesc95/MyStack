@@ -79,13 +79,28 @@ def _pick_artwork(path: str | None, media_root: Path) -> str | None:
     )
 
 
+def _is_silent_cover_video(filename: str) -> bool:
+    """Packaging videos with no soundtrack — never use as dash hover previews.
+
+    Matches ``Cover - Animation``, ``Cover - Canvas``, and ``Cover - {track title}``.
+    """
+    stem = Path(filename).stem.strip().casefold()
+    if not stem.startswith("cover - "):
+        return False
+    return True
+
+
 def _list_videos_in_dir(folder: Path) -> list[Path]:
     if not folder.is_dir():
         return []
     out: list[Path] = []
     try:
         for child in folder.iterdir():
-            if child.is_file() and child.suffix.lower() in VIDEO_EXTS:
+            if (
+                child.is_file()
+                and child.suffix.lower() in VIDEO_EXTS
+                and not _is_silent_cover_video(child.name)
+            ):
                 out.append(child)
     except OSError:
         return []
@@ -147,13 +162,30 @@ def _resolve_track_file(media_root: Path, play_path: str) -> Path | None:
     return resolve_track_file_path(play_path, media_root)
 
 
+def _artist_name_from_rel(rel: str) -> str | None:
+    parts = [p for p in rel.replace("\\", "/").split("/") if p]
+    if len(parts) >= 3 and parts[0].casefold() == "music":
+        return parts[2]
+    return None
+
+
 def _preview_from_video(row: dict[str, Any], artwork: str | None = None) -> dict[str, Any]:
+    path = (row.get("path") or row.get("play_path") or "").replace("\\", "/")
+    url = row.get("url") or (_stream_url(path, video=True) if path else None)
+    if not url:
+        return {
+            "media_kind": "video",
+            "media_url": "",
+            "title": row.get("label") or row.get("title") or "Video",
+            "artwork_url": artwork,
+            "path": path or None,
+        }
     return {
         "media_kind": "video",
-        "media_url": row["url"],
+        "media_url": url,
         "title": row.get("label") or row.get("title") or "Video",
         "artwork_url": artwork,
-        "path": row.get("path"),
+        "path": path or None,
     }
 
 
@@ -174,13 +206,79 @@ def _preview_from_audio(
     }
 
 
+def _preview_from_local_mv_row(
+    row: dict[str, Any], artwork: str | None
+) -> dict[str, Any] | None:
+    path = (row.get("play_path") or row.get("path") or "").replace("\\", "/")
+    if not path:
+        return None
+    if _is_silent_cover_video(Path(path).name):
+        return None
+    return {
+        "media_kind": "video",
+        "media_url": _stream_url(path, video=True),
+        "title": row.get("label") or row.get("display_title") or row.get("title") or "Video",
+        "artwork_url": artwork,
+        "path": path,
+    }
+
+
 def _resolve_track_preview(play_path: str, media_root: Path) -> dict[str, Any] | None:
+    """On Repeat / track cards: Singles MV first, then the play-path release leaf, else audio."""
+    from app.artist_video_collection import (
+        _prefer_singles_first,
+        local_videos_for_title,
+        local_videos_index_for_band,
+    )
+
     audio = _resolve_track_file(media_root, play_path)
     if not audio:
         return None
     leaf = _audio_parent_leaf(audio)
-    mvs, others = _classify_leaf_videos(leaf, media_root)
     track_title = display_track_title_from_path(audio)
+    artwork = _pick_artwork(play_path, media_root)
+    rel_audio = safe_relative(audio, media_root)
+    artist_name = _artist_name_from_rel(rel_audio or play_path)
+
+    if artist_name:
+        index = local_videos_index_for_band(artist_name, media_root)
+        rows = [
+            r
+            for r in local_videos_for_title(index, track_title)
+            if not _is_silent_cover_video(
+                Path(str(r.get("play_path") or r.get("path") or "")).name
+            )
+        ]
+        singles = [r for r in rows if r.get("is_single")]
+        if singles:
+            hit = _preview_from_local_mv_row(
+                _prefer_singles_first(singles)[0], artwork
+            )
+            if hit:
+                return hit
+
+        leaf_rel = (safe_relative(leaf, media_root) or "").replace("\\", "/").casefold().rstrip("/")
+        if leaf_rel:
+            in_leaf = [
+                r
+                for r in rows
+                if (r.get("leaf_path") or "").replace("\\", "/").casefold().rstrip("/")
+                == leaf_rel
+                or (r.get("play_path") or "")
+                .replace("\\", "/")
+                .casefold()
+                .rsplit("/", 1)[0]
+                == leaf_rel
+            ]
+            if in_leaf:
+                hit = _preview_from_local_mv_row(
+                    _prefer_singles_first(in_leaf)[0], artwork
+                )
+                if hit:
+                    return hit
+
+    # Direct leaf scan (covers sparse index misses)
+    mvs, _others = _classify_leaf_videos(leaf, media_root)
     track_keys = set(_youtube_title_keys(track_title))
     matching = [
         row
@@ -188,11 +286,7 @@ def _resolve_track_preview(play_path: str, media_root: Path) -> dict[str, Any] |
         if set(_youtube_title_keys(str(row.get("title") or ""))) & track_keys
     ]
     if matching:
-        return _preview_from_video(random.choice(matching), _pick_artwork(play_path, media_root))
-    # Any MV in leaf for this release still ok? Spec: MV for hovered track only.
-    if others:
-        # Don't use unrelated videos for On Repeat — only matching MV else audio
-        pass
+        return _preview_from_video(random.choice(matching), artwork)
     return _preview_from_audio(audio, media_root, title=track_title)
 
 

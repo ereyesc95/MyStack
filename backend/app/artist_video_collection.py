@@ -341,6 +341,10 @@ def scan_music_videos_in_leaf(leaf: Path, media_root: Path, *, artist_audio_root
     for child in children:
         if not child.is_file() or child.suffix.lower() not in VIDEO_EXTS:
             continue
+        # Silent packaging videos — never treat as music-video previews
+        stem = child.stem.strip().casefold()
+        if stem.startswith("cover - "):
+            continue
         row = _video_row_from_leaf_file(
             child,
             media_root=media_root,

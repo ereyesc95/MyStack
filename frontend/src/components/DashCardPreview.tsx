@@ -24,6 +24,8 @@ export type DashPreviewOverlay = {
   artistLogoUrl: string | null;
   artistLogoCollapsedUrl: string | null;
   artistIconUrl: string | null;
+  /** True when live beat analysis is driving the card pulse. */
+  beating: boolean;
 };
 
 const EMPTY_OVERLAY: DashPreviewOverlay = {
@@ -35,6 +37,7 @@ const EMPTY_OVERLAY: DashPreviewOverlay = {
   artistLogoUrl: null,
   artistLogoCollapsedUrl: null,
   artistIconUrl: null,
+  beating: false,
 };
 
 type Props = {
@@ -124,6 +127,7 @@ export default function DashCardPreview({
           artistLogoUrl: data.artist_logo_url || null,
           artistLogoCollapsedUrl: data.artist_logo_collapsed_url || null,
           artistIconUrl: data.artist_icon_url || null,
+          beating: false,
         });
         requestAnimationFrame(() => {
           if (!cancelled && isDashPreviewToken(token)) setVisible(true);
@@ -188,7 +192,7 @@ export default function DashCardPreview({
       void el.play().then(go, () => {
         if (!el || stopped) return;
         el.muted = true;
-        el.volume = 0;
+        el.volume = dashPreviewVolume();
         void el.play().then(go, () => stopPreview());
       });
     };
@@ -196,9 +200,10 @@ export default function DashCardPreview({
     const attach = (media: HTMLMediaElement) => {
       el = media;
       const muted = !dashPreviewHasGesture();
+      // Keep real volume even when muted — volume=0 starves WebAudio beat analysis.
       media.defaultMuted = true;
       media.muted = muted;
-      media.volume = muted ? 0 : dashPreviewVolume();
+      media.volume = dashPreviewVolume();
       media.src = src;
       onMeta = () => {
         if (stopped || !isDashPreviewToken(token)) return;
@@ -298,24 +303,47 @@ export default function DashCardPreview({
     const data = new Uint8Array(analyser.frequencyBinCount);
     let raf = 0;
     let prev = 0;
+    let beating = false;
     const tick = () => {
       analyser!.getByteFrequencyData(data);
       let sum = 0;
-      const n = Math.min(32, data.length);
+      const n = Math.min(40, data.length);
       for (let i = 0; i < n; i++) sum += data[i];
-      const instant = sum / (n * 255);
-      const pulse = prev * 0.72 + instant * 0.28;
+      const instant = Math.min(1, (sum / (n * 255)) * 1.35);
+      const pulse = prev * 0.65 + instant * 0.35;
       prev = pulse;
-      const strength = String(Math.min(0.82, pulse * 1.1));
+      const strength = Math.min(0.85, pulse * 1.2);
       host.style.setProperty("--beat-pulse", String(pulse));
       host.style.setProperty("--beat-bass", String(pulse * 0.9));
-      host.style.setProperty("--beat-strength", strength);
+      host.style.setProperty("--beat-strength", String(strength));
       document.documentElement.style.setProperty("--beat-pulse", String(pulse));
       document.documentElement.style.setProperty(
         "--beat-bass",
         String(pulse * 0.9)
       );
-      document.documentElement.style.setProperty("--beat-strength", strength);
+      document.documentElement.style.setProperty(
+        "--beat-strength",
+        String(strength)
+      );
+      const nextBeating = strength > 0.08;
+      if (nextBeating !== beating) {
+        beating = nextBeating;
+        onOverlayRef.current({
+          active: true,
+          mediaKind: candidate.media_kind === "video" ? "video" : "audio",
+          mediaTitle: stripBrackets(candidate.title),
+          artworkUrl: candidate.artwork_url || null,
+          artistName:
+            candidate.artist_name ||
+            candidate.series_title ||
+            candidate.parent_title ||
+            null,
+          artistLogoUrl: candidate.artist_logo_url || null,
+          artistLogoCollapsedUrl: candidate.artist_logo_collapsed_url || null,
+          artistIconUrl: candidate.artist_icon_url || null,
+          beating,
+        });
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);

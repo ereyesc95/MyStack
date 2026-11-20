@@ -2525,6 +2525,10 @@ input {
   align-items: center;
   height: 100%;
   min-height: 0;
+  /* Size query so circles can cap width to row height (stay round, not ovals) */
+  container-type: size;
+  padding-block: 2px;
+  box-sizing: border-box;
 }
 
 .dash-scroll--genres > * {
@@ -2681,6 +2685,8 @@ input {
   height: auto;
   align-self: center;
   aspect-ratio: 1;
+  max-height: 100%;
+  box-sizing: border-box;
 }
 .dash-morph--circle:not(.is-expanded) .dash-morph__frame {
   border-radius: 50%;
@@ -2689,9 +2695,32 @@ input {
   height: auto;
   margin-inline: 0;
   max-width: 100%;
+  max-height: 100%;
 }
 .dash-morph--circle.is-expanded .dash-morph__frame {
   border-radius: 0;
+}
+/*
+ * Vibes: flex grows width freely; without a height-based width cap the tile
+ * becomes a wide oval once max-height kicks in. Cap to container height.
+ */
+.dash-scroll--genres .dash-morph--circle:not(.is-expanded),
+.dash-scroll--genres .dash-placeholder--circle,
+.dash-scroll--genres .dash-morph.dash-placeholder-item {
+  width: 100%;
+  max-width: min(100%, 100cqh);
+  max-height: 100%;
+  aspect-ratio: 1;
+  height: auto;
+  align-self: center;
+  margin-inline: auto;
+}
+.dash-scroll--genres .dash-morph--circle:not(.is-expanded) .dash-morph__frame,
+.dash-scroll--genres .dash-morph.dash-placeholder-item .dash-morph__frame {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 50%;
 }
 /*
  * Desktop / fine pointer: width flexes only. Non-circle cards fill row height so
@@ -2894,13 +2923,38 @@ input {
   opacity: 1;
 }
 .dash-morph.is-previewing .dash-morph__frame {
-  transform: scale(calc(1 + var(--beat-pulse, 0) * 0.035));
+  transform: scale(calc(1 + var(--beat-pulse, 0) * 0.055));
   transition: transform 0.08s linear;
   box-shadow: inset 0 0 0 2px
-    color-mix(in srgb, var(--accent) calc(35% + var(--beat-strength, 0) * 50%), transparent);
+    color-mix(
+      in srgb,
+      var(--accent) calc(30% + var(--beat-strength, 0) * 55%),
+      transparent
+    );
+}
+.dash-morph.is-previewing-audio:not(.is-beating) .dash-morph__frame {
+  /* Fallback pulse when WebAudio analyser is quiet/unavailable */
+  animation: dash-preview-audio-pulse 0.9s ease-in-out infinite;
+}
+@keyframes dash-preview-audio-pulse {
+  0%,
+  100% {
+    transform: scale(1.015);
+    box-shadow: inset 0 0 0 2px
+      color-mix(in srgb, var(--accent) 36%, transparent);
+  }
+  50% {
+    transform: scale(1.045);
+    box-shadow: inset 0 0 0 2px
+      color-mix(in srgb, var(--accent) 62%, transparent);
+  }
 }
 .dash-morph.is-previewing .dash-morph__preview.is-on {
   z-index: 1;
+}
+.dash-morph.is-previewing .dash-morph__bg--preview-art.is-on {
+  transform: scale(calc(1 + var(--beat-pulse, 0) * 0.035));
+  transition: transform 0.08s linear, opacity 0.48s ease;
 }
 .dash-morph__brand-row {
   display: flex;
@@ -5370,13 +5424,14 @@ input {
   box-sizing: border-box;
 }
 
+/* Neutral dark — avoid theme --bg-hover blue wash on On Repeat / Top Records */
 .dash-placeholder--square {
   width: 100%;
   max-width: none;
   aspect-ratio: 1;
   height: auto;
   margin: 0;
-  background: linear-gradient(135deg, #3a2a4a, #1a1520);
+  background: #1a1a1a;
 }
 /* Morph-shaped placeholders match live card sizing (no undersized tiles) */
 .dash-morph.dash-placeholder-item {
@@ -5384,22 +5439,21 @@ input {
   cursor: default;
 }
 .dash-morph.dash-placeholder-item .dash-morph__frame {
-  background: linear-gradient(135deg, #3a2a4a, #1a1520);
+  background: #1a1a1a;
 }
 .dash-scroll--genres .dash-morph.dash-placeholder-item .dash-morph__frame,
-.dash-scroll--icons .dash-morph--circle.dash-placeholder-item .dash-morph__frame {
-  background: color-mix(in srgb, var(--text-muted) 14%, var(--bg-hover));
-}
+.dash-scroll--icons .dash-morph--circle.dash-placeholder-item .dash-morph__frame,
+.dash-scroll--tracks .dash-morph.dash-placeholder-item .dash-morph__frame,
 .dash-scroll--flags .dash-morph.dash-placeholder-item .dash-morph__frame,
 .dash-scroll--icons .dash-morph--portrait.dash-placeholder-item .dash-morph__frame,
 .dash-scroll--icons .dash-morph--landscape.dash-placeholder-item .dash-morph__frame {
-  background: color-mix(in srgb, var(--text-muted) 14%, var(--bg-hover));
+  background: #1a1a1a;
 }
 
 .dash-placeholder--landscape,
 .dash-placeholder--circle,
 .dash-placeholder--flag {
-  background: color-mix(in srgb, var(--text-muted) 14%, var(--bg-hover));
+  background: #1a1a1a;
 }
 
 .dash-placeholder--landscape {
