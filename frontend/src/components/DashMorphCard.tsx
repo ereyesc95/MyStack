@@ -24,6 +24,8 @@ export type DashMorphPreview = {
   load: () => Promise<MusicDashPreview | null>;
   /** Media title line with play icon (Best Artists / Records / Vibes / Origins). */
   showMediaCaption?: boolean;
+  /** On Repeat: play glyph on the existing title-over-brand line (no extra caption). */
+  playIconOnTitle?: boolean;
   /** Swap/add preview artist brand under primary (Vibes / Origins). */
   showPreviewArtist?: boolean;
 };
@@ -253,10 +255,13 @@ export default function DashMorphCard({
     (!showFlagBadge || previewActive) &&
     Boolean(secondaryCompanionIcon) &&
     (showSecondaryLogo || showSecondaryText);
+  const showPlayOnTitle =
+    expanded && previewActive && Boolean(preview?.playIconOnTitle);
   const showMediaCaption =
     expanded &&
     previewActive &&
     Boolean(preview?.showMediaCaption) &&
+    !preview?.playIconOnTitle &&
     Boolean(previewOverlay.mediaTitle);
   const showAction =
     expanded && !showFlagBadge && Boolean(actionLabel) && Boolean(onAction);
@@ -374,8 +379,13 @@ export default function DashMorphCard({
             }`}
           >
             {showTitleOver ? (
-              <span className="dash-morph__title dash-morph__title--over-brand">
-                {title}
+              <span
+                className={`dash-morph__title dash-morph__title--over-brand${
+                  showPlayOnTitle ? " dash-morph__title--with-play" : ""
+                }`}
+              >
+                {showPlayOnTitle ? <PlayGlyph /> : null}
+                <span>{title}</span>
               </span>
             ) : null}
             {primaryRow ? (
@@ -411,8 +421,13 @@ export default function DashMorphCard({
                   </span>
                 ) : null}
                 {showTitleAlone && !showTitleOver ? (
-                  <span className="dash-morph__title dash-morph__title--inline">
-                    {title}
+                  <span
+                    className={`dash-morph__title dash-morph__title--inline${
+                      showPlayOnTitle ? " dash-morph__title--with-play" : ""
+                    }`}
+                  >
+                    {showPlayOnTitle ? <PlayGlyph /> : null}
+                    <span>{title}</span>
                   </span>
                 ) : null}
               </span>

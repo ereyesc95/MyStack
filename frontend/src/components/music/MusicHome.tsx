@@ -334,7 +334,7 @@ export default function MusicHome({
                             kind: "track",
                             path: t.path,
                           }),
-                        showMediaCaption: true,
+                        playIconOnTitle: true,
                       }
                     : null
                 }

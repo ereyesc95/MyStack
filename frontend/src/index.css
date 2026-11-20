@@ -2985,6 +2985,25 @@ input {
   font-size: 0.7rem;
   -webkit-line-clamp: 2;
 }
+.dash-morph__title--with-play {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.28rem;
+  -webkit-line-clamp: unset;
+}
+.dash-morph__title--with-play > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.dash-morph__title--with-play .dash-morph__play-glyph {
+  flex: 0 0 auto;
+  margin-top: 0.12em;
+}
 .dash-morph__secondary-title {
   color: rgba(255, 255, 255, 0.88);
   font-size: 0.62rem;
