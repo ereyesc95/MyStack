@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { displayVideoDate } from "../utils/videoMedia";
 import ModalPortal from "./ModalPortal";
 import {
   clearNowPlaying,
@@ -10,6 +11,19 @@ import {
   setLocalVideoOpener,
   type LocalVideoRequest,
 } from "../utils/videoMedia";
+
+function metaSecondLine(req: LocalVideoRequest): string {
+  const artist = (req.artist || "").trim();
+  const director = (req.director || "").trim();
+  const date = displayVideoDate(req.releaseDate) || (req.releaseDate || "").trim();
+  const extras: string[] = [];
+  if (director) extras.push(director);
+  if (date) extras.push(date);
+  if (!artist && extras.length === 0) return "";
+  if (!extras.length) return artist;
+  if (!artist) return extras.join(" · ");
+  return `${artist} · ${extras.join(" · ")}`;
+}
 
 /**
  * In-app fullscreen player for local music videos so Media Session can show
@@ -59,6 +73,22 @@ export default function LocalVideoPlayerHost() {
 
   if (!req) return null;
 
+  const playlist = req.playlist ?? [];
+  const index = req.playlistIndex ?? -1;
+  const hasPrev = index > 0;
+  const hasNext = index >= 0 && index < playlist.length - 1;
+  const secondLine = metaSecondLine(req);
+
+  const goTo = (nextIndex: number) => {
+    const item = playlist[nextIndex];
+    if (!item?.url) return;
+    setReq({
+      ...item,
+      playlist,
+      playlistIndex: nextIndex,
+    });
+  };
+
   return (
     <ModalPortal onClose={() => setReq(null)}>
       <div
@@ -73,7 +103,28 @@ export default function LocalVideoPlayerHost() {
         >
           ×
         </button>
+        {hasPrev ? (
+          <button
+            type="button"
+            className="local-video-player__nav local-video-player__nav--prev"
+            aria-label="Previous video"
+            onClick={() => goTo(index - 1)}
+          >
+            ‹
+          </button>
+        ) : null}
+        {hasNext ? (
+          <button
+            type="button"
+            className="local-video-player__nav local-video-player__nav--next"
+            aria-label="Next video"
+            onClick={() => goTo(index + 1)}
+          >
+            ›
+          </button>
+        ) : null}
         <video
+          key={req.url}
           ref={(el) => {
             videoRef.current = el;
             if (!el || !reqRef.current) return;
@@ -102,8 +153,30 @@ export default function LocalVideoPlayerHost() {
         />
         <div className="local-video-player__meta">
           <p className="local-video-player__title">{req.title || "Video"}</p>
-          {req.artist ? (
-            <p className="local-video-player__artist">{req.artist}</p>
+          {secondLine ? (
+            <p className="local-video-player__artist">
+              {req.artist?.trim() ? (
+                <>
+                  <span className="local-video-player__artist-name">
+                    {req.artist.trim()}
+                  </span>
+                  {(req.director?.trim() || req.releaseDate?.trim()) && (
+                    <span className="local-video-player__artist-extra">
+                      {" · "}
+                      {[
+                        req.director?.trim(),
+                        displayVideoDate(req.releaseDate) ||
+                          req.releaseDate?.trim(),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  )}
+                </>
+              ) : (
+                secondLine
+              )}
+            </p>
           ) : null}
         </div>
       </div>

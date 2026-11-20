@@ -31,10 +31,16 @@ def merge_videos_with_local(
     *,
     title: str,
     local_index: dict[str, list[dict]],
+    prefer_leaf_path: str | None = None,
 ) -> list[dict]:
-    """Attach local paths to saved videos, or synthesize rows from the collection."""
+    """Attach local paths to saved videos, or synthesize rows from leaf MVs."""
     if videos:
-        return enrich_videos_with_local(videos, title=title, local_index=local_index)
+        return enrich_videos_with_local(
+            videos,
+            title=title,
+            local_index=local_index,
+            prefer_leaf_path=prefer_leaf_path,
+        )
     from app.artist_video_collection import local_video_dicts_for_title
 
     return local_video_dicts_for_title(local_index, title)
@@ -45,12 +51,17 @@ def enrich_videos_with_local(
     *,
     title: str,
     local_index: dict[str, list[dict]],
+    prefer_leaf_path: str | None = None,
 ) -> list[dict]:
     if not videos:
         return videos
-    from app.artist_video_collection import match_local_video
+    from app.artist_video_collection import (
+        local_video_dicts_for_title,
+        match_local_video,
+    )
 
     out: list[dict] = []
+    used_locals: set[str] = set()
     for raw in videos:
         row = dict(raw)
         if not row.get("local_path"):
@@ -59,12 +70,26 @@ def enrich_videos_with_local(
                 local_index,
                 title=title,
                 release_date=release_date or None,
+                prefer_leaf_path=prefer_leaf_path,
             )
             if local and local.get("play_path"):
-                row["local_path"] = str(local["play_path"])
+                path = str(local["play_path"])
+                row["local_path"] = path
+                used_locals.add(path.casefold())
                 if not row.get("release_date") and local.get("date_iso"):
                     row["release_date"] = str(local["date_iso"])
+                if not (row.get("label") or "").strip() and local.get("label"):
+                    row["label"] = str(local["label"])
+        else:
+            used_locals.add(str(row["local_path"]).casefold())
         out.append(row)
+    # Extra local versions not already paired to a web row
+    for local_row in local_video_dicts_for_title(local_index, title):
+        path = str(local_row.get("local_path") or "").strip()
+        if not path or path.casefold() in used_locals:
+            continue
+        out.append(local_row)
+        used_locals.add(path.casefold())
     return out
 
 
@@ -197,11 +222,15 @@ def _local_video_version_label(local_index: dict[str, list[dict]], title: str, p
     from app.artist_video_collection import local_videos_for_title
 
     rows = local_videos_for_title(local_index, title)
-    if len(rows) <= 1:
-        return ""
     for index, row in enumerate(rows):
-        if (row.get("play_path") or "").strip() == path:
+        if (row.get("play_path") or "").strip() != path:
+            continue
+        label = (row.get("label") or "").strip()
+        if label:
+            return label
+        if len(rows) > 1:
             return f"Version {index + 1}"
+        return ""
     return ""
 
 
@@ -268,7 +297,7 @@ def _prune_sparse_music_videos(rows: list[dict]) -> list[dict]:
 
 
 def collect_band_official_videos(db: Session, band, media_root: Path) -> list[dict]:
-    """Playlist rows: one per unique song + video (deduped across edition paths)."""
+    """Music Videos playlist: one row per local file; web-only when no local for that title."""
     from sqlalchemy import select
 
     from app.artist_video_collection import local_videos_index_for_band
@@ -276,23 +305,23 @@ def collect_band_official_videos(db: Session, band, media_root: Path) -> list[di
     from app.playlist_tracks import _audio_file_for_play_path, enrich_playlist_track
     from app.release_track_extras import _youtube_title_keys
     from app.release_tracklist import _track_number
-    from app.track_overrides import _video_dedupe_key, read_track_videos_from_row
+    from app.track_overrides import read_track_videos_from_row
 
     band_id = band.bnd_id
     local_index = local_videos_index_for_band(band.bnd_name or "", media_root)
     merged: dict[str, dict] = {}
 
+    # Web URL lists keyed by canonical title (from TrackOverride).
+    web_by_title: dict[str, list[dict]] = {}
+    play_path_by_title: dict[str, str] = {}
     for row in db.scalars(select(TrackOverride)).all():
         if row.tro_band_id is not None and row.tro_band_id != band_id:
             continue
         play_path = (row.tro_play_path or "").strip()
-        if not play_path:
-            continue
         videos = read_track_videos_from_row(row)
         if not videos:
             continue
-
-        audio_file = _audio_file_for_play_path(play_path, media_root)
+        audio_file = _audio_file_for_play_path(play_path, media_root) if play_path else None
         raw_title = (row.tro_title or "").strip()
         if not raw_title and audio_file:
             from app.band_library import display_track_title_from_path
@@ -305,37 +334,151 @@ def collect_band_official_videos(db: Session, band, media_root: Path) -> list[di
         if not title_keys:
             continue
         canonical_title = title_keys[0]
+        play_path_by_title.setdefault(canonical_title, play_path)
+        bucket = web_by_title.setdefault(canonical_title, [])
+        for video in videos:
+            url = str(video.get("url") or "").strip()
+            if not url:
+                continue
+            bucket.append(dict(video))
 
-        track_num = _track_number(audio_file.name, 9999) if audio_file else 9999
+    # 1) One playlist row per local file
+    all_local: dict[str, dict] = {}
+    for rows in local_index.values():
+        for row in rows:
+            path = (row.get("play_path") or "").strip()
+            if path:
+                all_local[path] = row
+
+    titles_with_local: set[str] = set()
+    for path, row in all_local.items():
+        raw_title = (row.get("title") or "").strip()
+        if not raw_title:
+            continue
+        display_title = _canonical_song_title(raw_title)
+        title_keys = _youtube_title_keys(display_title)
+        if not title_keys:
+            continue
+        canonical_title = title_keys[0]
+        titles_with_local.add(canonical_title)
+        date_iso = (row.get("date_iso") or "").strip() or None
+        version_label = _local_video_version_label(local_index, display_title, path)
+        audio_play = play_path_by_title.get(canonical_title) or ""
+        audio_file = (
+            _audio_file_for_play_path(audio_play, media_root) if audio_play else None
+        )
+        track_num = _track_number(Path(path).name, 9999)
+        if audio_file:
+            track_num = _track_number(audio_file.name, track_num)
         base = enrich_playlist_track(
-            {"title": display_title, "play_path": play_path},
+            {
+                "title": display_title,
+                "play_path": audio_play or path,
+            },
             media_root,
             db=db,
         )
+        web_videos = [
+            {
+                "url": str(v.get("url") or "").strip(),
+                "label": str(v.get("label") or "Video").strip() or "Video",
+                "primary": bool(v.get("primary")),
+                "director": str(v.get("director") or "").strip() or None,
+                "release_date": str(
+                    v.get("release_date") or v.get("release_year") or ""
+                ).strip()
+                or None,
+            }
+            for v in web_by_title.get(canonical_title, [])
+            if str(v.get("url") or "").strip()
+        ]
+        # Prefer director/date from first web entry when local row lacks them
+        director = None
+        release_date = date_iso
+        for v in web_videos:
+            if not director and v.get("director"):
+                director = v["director"]
+            if not release_date and v.get("release_date"):
+                release_date = str(v["release_date"])
+        primary_web = next((v["url"] for v in web_videos if v.get("primary")), None)
+        if not primary_web and web_videos:
+            primary_web = web_videos[0]["url"]
+        candidate = {
+            **base,
+            "title": display_title,
+            "video_label": _display_video_label(version_label or None),
+            "video_url": _local_open_url(path),
+            "youtube_url": primary_web,
+            "youtube_videos": web_videos or None,
+            "local_video_path": path,
+            "video_director": director,
+            "video_release_date": release_date,
+            "video_release_year": release_date[:4]
+            if release_date and len(release_date) >= 4
+            else release_date,
+            "track_number": track_num,
+            "is_music_video": True,
+        }
+        candidate = _apply_music_video_defaults(
+            candidate,
+            db=db,
+            band=band,
+            media_root=media_root,
+            display_title=display_title,
+            release_date=release_date,
+            video_label=version_label or None,
+        )
+        merged[f"local:{path.casefold()}"] = candidate
 
-        for video in merge_videos_with_local(videos, title=display_title, local_index=local_index):
-            if not _video_row_has_substance(video):
+    # 2) Web-only rows when no local file for that title
+    for canonical_title, videos in web_by_title.items():
+        if canonical_title in titles_with_local:
+            continue
+        play_path = play_path_by_title.get(canonical_title) or ""
+        audio_file = (
+            _audio_file_for_play_path(play_path, media_root) if play_path else None
+        )
+        display_title = canonical_title
+        # Prefer a nicer title from override / audio
+        for row in db.scalars(select(TrackOverride)).all():
+            if row.tro_band_id is not None and row.tro_band_id != band_id:
                 continue
-            vkey = _video_dedupe_key(video)
-            if not vkey:
+            raw = (row.tro_title or "").strip()
+            if not raw:
                 continue
-            dedupe_key = f"{canonical_title}|{vkey}"
-            url = str(video.get("url") or "").strip() or None
-            local_path = str(video.get("local_path") or "").strip() or None
-            release_date = str(video.get("release_date") or video.get("release_year") or "").strip() or None
+            keys = _youtube_title_keys(_canonical_song_title(raw))
+            if keys and keys[0] == canonical_title:
+                display_title = _canonical_song_title(raw)
+                break
+        base = enrich_playlist_track(
+            {"title": display_title, "play_path": play_path or None},
+            media_root,
+            db=db,
+        )
+        track_num = _track_number(audio_file.name, 9999) if audio_file else 9999
+        for video in videos:
+            url = str(video.get("url") or "").strip()
+            if not url:
+                continue
+            release_date = (
+                str(video.get("release_date") or video.get("release_year") or "").strip()
+                or None
+            )
             label = str(video.get("label") or "Video").strip() or "Video"
             director = str(video.get("director") or "").strip() or None
-            open_url = _local_open_url(local_path) if local_path else url
             candidate = {
                 **base,
                 "title": display_title,
-                "video_label": label,
-                "video_url": open_url,
+                "video_label": _display_video_label(label),
+                "video_url": url,
                 "youtube_url": url,
-                "local_video_path": local_path,
+                "youtube_videos": None,
+                "local_video_path": None,
                 "video_director": director,
                 "video_release_date": release_date,
-                "video_release_year": release_date[:4] if release_date and len(release_date) >= 4 else release_date,
+                "video_release_year": release_date[:4]
+                if release_date and len(release_date) >= 4
+                else release_date,
                 "track_number": track_num,
                 "is_music_video": True,
             }
@@ -348,60 +491,11 @@ def collect_band_official_videos(db: Session, band, media_root: Path) -> list[di
                 release_date=release_date,
                 video_label=label,
             )
+            dedupe_key = f"web:{canonical_title}|{url.casefold()}"
             if dedupe_key in merged:
                 merged[dedupe_key] = _merge_music_video_row(merged[dedupe_key], candidate)
-                continue
-            merged[dedupe_key] = candidate
-
-    covered_local = {
-        str(r.get("local_video_path") or "").strip()
-        for r in merged.values()
-        if (r.get("local_video_path") or "").strip()
-    }
-    all_local: dict[str, dict] = {}
-    for rows in local_index.values():
-        for row in rows:
-            path = (row.get("play_path") or "").strip()
-            if path:
-                all_local[path] = row
-    for path, row in all_local.items():
-        if path in covered_local:
-            continue
-        raw_title = (row.get("title") or "").strip()
-        if not raw_title:
-            continue
-        display_title = _canonical_song_title(raw_title)
-        title_keys = _youtube_title_keys(display_title)
-        if not title_keys:
-            continue
-        canonical_title = title_keys[0]
-        date_iso = (row.get("date_iso") or "").strip() or None
-        dedupe_key = f"{canonical_title}|local:{path.casefold()}"
-        if dedupe_key in merged:
-            continue
-        version_label = _local_video_version_label(local_index, display_title, path)
-        candidate = {
-            "title": display_title,
-            "video_label": _display_video_label(version_label or None),
-            "video_url": _local_open_url(path),
-            "youtube_url": None,
-            "local_video_path": path,
-            "video_director": None,
-            "video_release_date": date_iso,
-            "video_release_year": date_iso[:4] if date_iso and len(date_iso) >= 4 else date_iso,
-            "track_number": 9999,
-            "is_music_video": True,
-        }
-        candidate = _apply_music_video_defaults(
-            candidate,
-            db=db,
-            band=band,
-            media_root=media_root,
-            display_title=display_title,
-            release_date=date_iso,
-            video_label=version_label or None,
-        )
-        merged[dedupe_key] = candidate
+            else:
+                merged[dedupe_key] = candidate
 
     out = _prune_sparse_music_videos(list(merged.values()))
     out.sort(
@@ -614,8 +708,12 @@ def attach_release_youtube_urls(
                     single_paths_by_title=single_paths,
                     path_cache=path_cache,
                 )
+                leaf = play_path.rsplit("/", 1)[0] if "/" in play_path else ""
                 videos = merge_videos_with_local(
-                    videos, title=title, local_index=local_index
+                    videos,
+                    title=title,
+                    local_index=local_index,
+                    prefer_leaf_path=leaf or None,
                 )
                 track["youtube_url"] = _primary_video_open_url(videos) or url
                 track["youtube_videos"] = videos

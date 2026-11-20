@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { fetchMusicDashPreview } from "../../api";
 import type { MusicDashboard } from "../../types";
 import { EMPTY_DASHBOARD } from "../../types";
 import DashMorphCard from "../DashMorphCard";
@@ -324,6 +325,19 @@ export default function MusicHome({
                   isPlaying && playingPath && t.path === playingPath
                 )}
                 className="dash-track"
+                preview={
+                  t.path
+                    ? {
+                        requestKey: `track:${t.path}`,
+                        load: () =>
+                          fetchMusicDashPreview({
+                            kind: "track",
+                            path: t.path,
+                          }),
+                        showMediaCaption: true,
+                      }
+                    : null
+                }
                 onEnter={tracksExpand.onEnter}
                 onLeave={tracksExpand.onLeave}
                 onActivate={onCardActivate(cid, () => {
@@ -367,6 +381,15 @@ export default function MusicHome({
                 iconUrl={a.icon_url}
                 expanded={artistsExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                preview={{
+                  requestKey: `artist:${a.id}`,
+                  load: () =>
+                    fetchMusicDashPreview({
+                      kind: "artist",
+                      artist_id: a.id,
+                    }),
+                  showMediaCaption: true,
+                }}
                 onEnter={artistsExpand.onEnter}
                 onLeave={artistsExpand.onLeave}
                 onActivate={onCardActivate(cid, () => onArtist(a.id))}
@@ -406,6 +429,16 @@ export default function MusicHome({
                 secondaryTitle={r.artist_name}
                 expanded={releasesExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                preview={{
+                  requestKey: `release:${r.folder_path || r.id}`,
+                  load: () =>
+                    fetchMusicDashPreview({
+                      kind: "release",
+                      release_id: String(r.id),
+                      folder_path: r.folder_path,
+                    }),
+                  showMediaCaption: true,
+                }}
                 onEnter={releasesExpand.onEnter}
                 onLeave={releasesExpand.onLeave}
                 onActivate={onCardActivate(cid, () => {
@@ -444,8 +477,20 @@ export default function MusicHome({
                 coverUrl={g.image_url}
                 bannerUrl={g.image_url}
                 landscapeUrl={g.image_url}
+                logoUrl={g.logo_url}
+                parentLine={g.parent_genre}
                 expanded={genresExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                preview={{
+                  requestKey: `genre:${g.id}`,
+                  load: () =>
+                    fetchMusicDashPreview({
+                      kind: "genre",
+                      genre_id: Number(g.id),
+                    }),
+                  showMediaCaption: true,
+                  showPreviewArtist: true,
+                }}
                 onEnter={genresExpand.onEnter}
                 onLeave={genresExpand.onLeave}
                 onActivate={onCardActivate(cid, () => onGenre(Number(g.id)))}
@@ -480,6 +525,17 @@ export default function MusicHome({
                 flagIso={c.iso}
                 expanded={countriesExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                preview={{
+                  requestKey: `country:${c.id ?? c.name}`,
+                  load: () =>
+                    fetchMusicDashPreview({
+                      kind: "country",
+                      country_id: c.id,
+                      country_name: c.name,
+                    }),
+                  showMediaCaption: true,
+                  showPreviewArtist: true,
+                }}
                 onEnter={countriesExpand.onEnter}
                 onLeave={countriesExpand.onLeave}
                 onActivate={onCardActivate(cid, () =>

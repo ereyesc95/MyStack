@@ -186,6 +186,22 @@ export type DashboardRelease = {
   artist_logo_url?: string | null;
   artist_logo_collapsed_url?: string | null;
   artist_icon_url?: string | null;
+  folder_path?: string | null;
+};
+
+export type MusicDashPreview = {
+  media_kind: "video" | "audio" | null;
+  media_url: string | null;
+  title?: string | null;
+  artwork_url?: string | null;
+  path?: string | null;
+  artist_name?: string | null;
+  artist_logo_url?: string | null;
+  artist_logo_collapsed_url?: string | null;
+  artist_icon_url?: string | null;
+  /** Series/game/film leaf title under franchise/universe/vibes previews. */
+  series_title?: string | null;
+  parent_title?: string | null;
 };
 
 export type MusicDashboard = {
@@ -197,6 +213,8 @@ export type MusicDashboard = {
     name: string;
     play_count: number;
     image_url?: string | null;
+    logo_url?: string | null;
+    parent_genre?: string | null;
   }[];
   top_countries: {
     id?: number;

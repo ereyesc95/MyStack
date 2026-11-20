@@ -41,7 +41,8 @@ Contains HIM + Various Artists music, letter-tier Movies/Series/Books/Games scaf
 
 ## Architecture summary
 
-- **Music** is artist-centric: `Music/{Letter}/{Artist}/Audio|Video|Library|Gallery/`
+- **Music** is artist-centric: `Music/{Letter}/{Artist}/` with Albums/Singles/… (legacy `Audio/`), optional `Video|Library|Gallery/`
+- **Music videos** sit beside audio in the same leaf (`{NN}. {Title}[Label].ext`); Singles preferred, else current release. Not under `Video/Music Videos`.
 - **Movies / Series / Books / Games** use franchise/work folder names as the cross-module key
 - **Default linking:** same `{Franchise}` folder name across modules → **Related media** (no portal farms)
 - **Exceptions:** `.path` sidecars (NAS), symlinks, or DB franchise aliases/overrides (Setup)

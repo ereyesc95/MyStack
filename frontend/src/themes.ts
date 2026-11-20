@@ -221,6 +221,9 @@ function clearCustomCss() {
     "--accent-fg",
     "--scrollbar-thumb",
     "--scrollbar-track",
+    "--mystack-core",
+    "--mystack-wrapped-frame",
+    "--mystack-wrapped-core",
   ];
   for (const k of keys) document.documentElement.style.removeProperty(k);
 }

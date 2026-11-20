@@ -28,13 +28,13 @@ MODULE_MUSIC = "music"
 
 EntryKind = Literal["movie", "series", "book", "game", "music"]
 
-# Music artist Video/ — categories shown A–Z when folder exists (Pattern A).
+# Music artist Video/ — legacy categories A–Z when folder exists (Pattern A).
+# Music Videos now live beside audio tracks (see media_library_layout.md).
 MUSIC_VIDEO_CATEGORIES: tuple[str, ...] = (
     "Documentaries",
     "Interviews",
     "Live",
     "Movies",
-    "Music Videos",
     "Promo Material",
     "Series",
 )

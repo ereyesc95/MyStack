@@ -55,12 +55,20 @@ export function formatVideoDateIso(raw: string | null | undefined): string {
   return normalizeVideoDateInput(raw);
 }
 
-export type LocalVideoRequest = {
+export type LocalVideoPlaylistItem = {
   url: string;
   title?: string | null;
   artist?: string | null;
   album?: string | null;
   artworkUrl?: string | null;
+  director?: string | null;
+  releaseDate?: string | null;
+};
+
+export type LocalVideoRequest = LocalVideoPlaylistItem & {
+  /** Full list for prev/next (row order of the list that opened the player). */
+  playlist?: LocalVideoPlaylistItem[];
+  playlistIndex?: number;
 };
 
 type LocalVideoOpener = ((req: LocalVideoRequest) => void) | null;
@@ -100,6 +108,10 @@ export function openTrackVideo(
       artist: meta?.artist,
       album: meta?.album,
       artworkUrl: meta?.artworkUrl,
+      director: meta?.director,
+      releaseDate: meta?.releaseDate,
+      playlist: meta?.playlist,
+      playlistIndex: meta?.playlistIndex,
     });
     return;
   }
@@ -122,8 +134,34 @@ export function trackYoutubeVideos(track: {
       return 0;
     });
   }
-  if (track.youtube_url && (youtubeVideoId(track.youtube_url) || track.youtube_url.startsWith("/api/"))) {
+  if (
+    track.youtube_url &&
+    (youtubeVideoId(track.youtube_url) ||
+      track.youtube_url.startsWith("/api/") ||
+      /^https?:\/\//i.test(track.youtube_url))
+  ) {
     return [{ url: track.youtube_url, label: "Official video", primary: true }];
   }
   return [];
+}
+
+/** Web-only URLs on a music-video playlist row (local file is separate). */
+export function trackWebVideos(track: {
+  youtube_url?: string | null;
+  youtube_videos?: TrackYoutubeVideo[] | null;
+  local_video_path?: string | null;
+} | null | undefined): TrackYoutubeVideo[] {
+  if (!track) return [];
+  const fromList = (track.youtube_videos ?? []).filter(
+    (v) => Boolean(v.url?.trim()) && !v.local_path?.trim()
+  );
+  if (fromList.length > 0) return fromList;
+  const url = track.youtube_url?.trim();
+  if (url && !track.local_video_path?.trim() && /^https?:\/\//i.test(url)) {
+    return [{ url, label: "Web video", primary: true }];
+  }
+  if (url && track.local_video_path?.trim() && /^https?:\/\//i.test(url)) {
+    return [{ url, label: "Web video", primary: true }];
+  }
+  return fromList;
 }

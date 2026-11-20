@@ -42,7 +42,7 @@ PDF links prefer `Hobbies/{Collection}/{Stem}.pdf`, then fall back to a Books li
 | **Item folders** | `{YYYY.MM.DD}. {Title}` or `{YYYY}. {Title}`; bracket tags optional. |
 | **Filenames** | Flexible — numeric prefix (`01.`), date prefix, vinyl side (`A1.`), or title as filename (same rules as Audio). |
 | **`[Artwork]`** | Franchise-level Series logos/badges; Music/Movies/Books/Games item art. Subseries prefer `Gallery/Covers` + `Gallery/Branding` (`Gallery/Renders` remains a fallback). Not at the letter tier. |
-| **Categories** | Subfolders under `Video/` and `Library/` (**Music only**). Omit unused categories. |
+| **Categories** | Subfolders under legacy `Video/` and `Library/` (**Music only**). Music videos live beside audio (see below). Omit unused categories. |
 | **`Extras/` / `[Extras]`** | **Series only** — openings/endings/promo videos under a show. Do **not** nest other modules’ catalogs as extras. |
 
 ---
@@ -74,38 +74,41 @@ Albums/1997.11.03. Greatest Lovesongs Vol. 666/
 
 Recognized cores (after date / `01.` strip): `CD`, `SACD`, `MiniDisc`/`MD`, `Flexi`, `Digital`, `USB`, `LP`/`Vinyl`, `Cassette`/`Tape`, `DVD`, `Blu-ray`, `VHS` (plus `Format - Variant`). Tabs: CD family → Digital → LP → Cassette → DVD → Blu-ray → VHS. Catalog covers prefer the **CD** version. A single format folder alone is not a version set.
 
-### Video — Pattern A (category → item)
+### Music videos (beside audio)
 
-Categories sorted **A–Z** (only folders that exist are shown):
+Official / promo music videos live **next to the audio files** in the same leaf (edition / format folder), not under a separate `Video/Music Videos` tree.
 
-| Category | Content |
-|----------|---------|
-| **Documentaries** | Artist-focused documentaries (local files) |
-| **Interviews** | Interview recordings |
-| **Live** | Concerts, TV performances, streams (merged former “Concerts”) |
-| **Movies** | Optional local items; **related films** also via franchise index |
-| **Music Videos** | Official / promo MVs |
-| **Promo Material** | EPKs, promos, TV spots |
-| **Series** | Optional local items; **related series** also via franchise index |
+| Rule | Detail |
+|------|--------|
+| **Prefer single** | If the song has a Singles folder, put the MV there (any edition that contains the matching file). |
+| **Else release leaf** | Same folder as the track on the album/EP/… you’re viewing (including CD/LP/Digital format leaves). |
+| **Filename** | `{NN}. {Title}.ext` (track number optional, sorting/display only) or `{Title}.ext`. |
+| **Versions** | Optional bracket label: `05. Wicked Game [Official].mp4`, `[Director's Cut]`, `[Live]`, `[Version 1]`, … — used as the video picker label. |
+| **Match** | Title match ignores bracket suffixes on both audio and video. |
+| **Release tracklist** | Matching MVs are **not** listed as rows; they attach to the track’s video control. Other videos in the folder (docs, promo clips, etc.) whose titles do **not** match a track remain as extra rows. |
+| **Web URLs** | Stored per track in the DB (any http(s) URL, not YouTube-only). Local file preferred when both exist. |
+| **Artwork** | Use the single/album `[Artwork]` — no separate MV art required. |
 
 ```
-Music/H/HIM/Video/
-├── Documentaries/2010. Heartache and Ghosts/
-│   ├── [Artwork]/Cover - Front.jpg
-│   └── 01. Opening.mkv
-├── Interviews/2010.01.10. Interview with HIM by Loudwire/
-│   └── 01. Loudwire interview.mp4
-├── Live/2014.02.14. Live at Studio/
-│   └── A1. Intro.mkv
-├── Music Videos/1998.02.03. Wicked Game/
-│   └── 1998.02.03. Wicked Game [Official].mp4
-└── Promo Material/2005.09.23. Dark Light Promo/
-    └── 01. EPK segment 1.mp4
+Music/H/HIM/Singles/1997.11.03. Greatest Lovesongs Vol. 666/
+└── 1998.02.03. Wicked Game/
+    └── 1998.02.03. Standard Edition/
+        ├── 05. Wicked Game.mp3
+        └── 05. Wicked Game [Official].mp4
+
+Music/H/HIM/Albums/1997.11.03. Greatest Lovesongs Vol. 666/
+└── 1997.11.03. Standard Edition/
+    ├── 05. Wicked Game.mp3          ← if no single, MV sits here too
+    └── 05. Wicked Game.mp4
 ```
 
-Optional: a `.lnk` / `.path` under Music Video may point at a Movies or Series work folder so the artist page can open that title. Prefer **Related media** (franchise index) when the franchise name already matches.
+Standalone singles (`Singles/1998.02.03. Wicked Game/…`) use the same filename rules inside their leaf.
 
-Do **not** rely on fixed names like `video.mp4`.
+**Artist Music Videos playlist:** one row per local file; web-only rows when no local for that title; local + web → one local row with a web open control (picker if multiple URLs). Disc icon marks local files.
+
+### Video — legacy Pattern A (optional)
+
+Legacy `Music/{Letter}/{Artist}/Video/{Category}/` folders are still listed if present (Documentaries, Interviews, Live, Movies, Promo Material, Series). **Music Videos** as a Video category is retired — use the beside-audio layout above. Prefer the **Movies** / **Series** modules (and Related media) for full documentaries and concerts when not stored beside a release.
 
 ### Library — Pattern A (category → item)
 
@@ -423,7 +426,7 @@ Windows **`.lnk`** is supported; prefer `.path` for cross-module links on NAS.
 | Area | Scanner / UI status |
 |------|---------------------|
 | Music Audio | Implemented |
-| Music Video / Library tabs | Category grid; `.lnk` / `.path` / symlink portals |
+| Music Video / Library tabs | Movies/Series franchises + legacy Video/Library category grids; MVs beside audio |
 | Franchise index | Phase 1–5 (aliases/overrides); Related UI on Series/Movies/Books/Games |
 | Movies / Series / Books / Games modules | Done (shared franchise/leaf chrome) |
 | Series folder sync | Letter-tier `Series/{Letter}/{Franchise}/` (+ portals) |
@@ -438,5 +441,5 @@ Windows **`.lnk`** is supported; prefer `.path` for cross-module links on NAS.
 2. Register **aliases / overrides** via Setup → **Aliases & overrides…** (DB-backed; legacy JSON is migrated once).
 3. Disambiguate collisions in folder names: `Heat (1995)` vs `Heat (2013)`.
 4. **Music** uses **artist** names; link to films via subject/metadata, not artist folder name alone.
-5. Omit empty Music Video/Library categories — do not create placeholder folders.
+5. Omit empty legacy Video/Library categories — do not create placeholder folders. Put music videos beside their audio tracks.
 6. Do **not** nest other modules’ catalogs under Movies/Series/Books/Games.

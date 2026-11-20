@@ -105,6 +105,7 @@ import {
 } from "./artist/MiniAudioPlayer";
 import TourShowPage from "./artist/TourShowPage";
 import { useBeatPulse } from "../../useBeatPulse";
+import { setDashPreviewMainPlayer } from "../../dashPreviewController";
 import {
   IconAddArtist,
   IconCardBanner,
@@ -733,6 +734,27 @@ export default function MusicModule({
   const homeBeatActive = Boolean(!bandId && homeAudio.src);
   const homeBeatPlaying = homeBeatActive && homeAudio.playing;
   useBeatPulse(homeAudio.audioRef, homeBeatActive, homeAudio.playing);
+
+  useEffect(() => {
+    if (bandId != null || tab !== "home") {
+      setDashPreviewMainPlayer(null);
+      return;
+    }
+    const audioRef = homeAudio.audioRef;
+    setDashPreviewMainPlayer({
+      pause: () => audioRef.current?.pause(),
+      resume: () => {
+        const el = audioRef.current;
+        if (el) void el.play().catch(() => {});
+      },
+      getVolume: () => {
+        const el = audioRef.current;
+        return el ? el.volume : 1;
+      },
+      wasPlaying: () => Boolean(audioRef.current && !audioRef.current.paused),
+    });
+    return () => setDashPreviewMainPlayer(null);
+  }, [bandId, tab, homeAudio.audioRef]);
 
   const pendingDeepMusicRoute = useMemo(() => {
     if (bandId != null) return false;

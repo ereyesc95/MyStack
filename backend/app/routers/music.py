@@ -238,6 +238,41 @@ def music_dashboard(
         }
 
 
+@router.get("/dash-preview")
+def music_dash_preview(
+    kind: str = Query(...),
+    path: str | None = Query(None),
+    artist_id: int | None = Query(None),
+    release_id: str | None = Query(None),
+    folder_path: str | None = Query(None),
+    genre_id: int | None = Query(None),
+    country_id: int | None = Query(None),
+    country_name: str | None = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Lightweight hover-preview candidate (no play stats). Cached server-side briefly."""
+    from app.music_dash_preview import resolve_music_dash_preview
+
+    kind_n = (kind or "").strip().casefold()
+    if kind_n not in {"track", "artist", "release", "genre", "country"}:
+        raise HTTPException(400, "Invalid kind")
+    result = resolve_music_dash_preview(
+        db,
+        kind=kind_n,  # type: ignore[arg-type]
+        path=path,
+        artist_id=artist_id,
+        release_id=release_id,
+        folder_path=folder_path,
+        genre_id=genre_id,
+        country_id=country_id,
+        country_name=country_name,
+    )
+    if not result:
+        return {"media_kind": None, "media_url": None}
+    return result
+
+
 @router.get("/listening/streaks")
 def music_listening_streaks(
     db: Session = Depends(get_db),

@@ -1,4 +1,16 @@
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
+import type { MusicDashPreview } from "../types";
+import DashCardPreview, {
+  EMPTY_OVERLAY,
+  type DashPreviewOverlay,
+} from "./DashCardPreview";
 
 export type DashMorphShape =
   | "square"
@@ -6,6 +18,15 @@ export type DashMorphShape =
   | "landscape"
   | "portrait"
   | "flag";
+
+export type DashMorphPreview = {
+  requestKey: string;
+  load: () => Promise<MusicDashPreview | null>;
+  /** Media title line with play icon (Best Artists / Records / Vibes / Origins). */
+  showMediaCaption?: boolean;
+  /** Swap/add preview artist brand under primary (Vibes / Origins). */
+  showPreviewArtist?: boolean;
+};
 
 type Props = {
   id: string;
@@ -23,6 +44,8 @@ type Props = {
   secondaryLogoCollapsedUrl?: string | null;
   secondaryIconUrl?: string | null;
   secondaryTitle?: string | null;
+  /** Parent genre (Vibes) — shown under title when expanded. */
+  parentLine?: string | null;
   /** Country ISO for left circle flag when expanded / idle fill. */
   flagIso?: string | null;
   /**
@@ -37,11 +60,26 @@ type Props = {
   revealed?: boolean;
   className?: string;
   active?: boolean;
+  preview?: DashMorphPreview | null;
   onEnter: (id: string) => void;
   onLeave: () => void;
   onActivate: (e: MouseEvent<HTMLElement>) => void;
   children?: ReactNode;
 };
+
+function PlayGlyph() {
+  return (
+    <svg
+      className="dash-morph__play-glyph"
+      viewBox="0 0 12 12"
+      width="11"
+      height="11"
+      aria-hidden
+    >
+      <path d="M3.2 1.6v8.8l7.2-4.4z" fill="currentColor" />
+    </svg>
+  );
+}
 
 function pickExpandedBg(
   bannerUrl?: string | null,
@@ -90,6 +128,7 @@ export default function DashMorphCard({
   secondaryLogoCollapsedUrl,
   secondaryIconUrl,
   secondaryTitle,
+  parentLine = null,
   flagIso,
   titleOverBrand = false,
   actionLabel = null,
@@ -98,20 +137,54 @@ export default function DashMorphCard({
   revealed = false,
   className = "",
   active = false,
+  preview = null,
   onEnter,
   onLeave,
   onActivate,
   children,
 }: Props) {
+  const cardRef = useRef<HTMLButtonElement>(null);
+  const [previewOverlay, setPreviewOverlay] =
+    useState<DashPreviewOverlay>(EMPTY_OVERLAY);
+  const onOverlay = useCallback((s: DashPreviewOverlay) => {
+    setPreviewOverlay(s);
+  }, []);
+
+  const previewArmed = Boolean(
+    preview && (expanded || revealed)
+  );
+  const previewActive = previewOverlay.active;
+
   const idleBg = coverUrl || landscapeUrl || bannerUrl || null;
   const expandedBg = pickExpandedBg(bannerUrl, landscapeUrl, coverUrl);
+  const previewArt =
+    previewActive && previewOverlay.mediaKind === "audio"
+      ? cleanUrl(previewOverlay.artworkUrl)
+      : null;
+
+  const usePreviewArtist =
+    previewActive &&
+    Boolean(preview?.showPreviewArtist) &&
+    Boolean(
+      previewOverlay.artistLogoUrl ||
+        previewOverlay.artistLogoCollapsedUrl ||
+        previewOverlay.artistName
+    );
+
   const primaryLogoOptions = logoCandidates(logoUrl, logoCollapsedUrl);
-  const secondaryLogoOptions = logoCandidates(
-    secondaryLogoUrl,
-    secondaryLogoCollapsedUrl
-  );
+  const secondaryLogoOptions = usePreviewArtist
+    ? logoCandidates(
+        previewOverlay.artistLogoUrl,
+        previewOverlay.artistLogoCollapsedUrl
+      )
+    : logoCandidates(secondaryLogoUrl, secondaryLogoCollapsedUrl);
   const companionIconUrl = cleanUrl(iconUrl);
-  const secondaryCompanionIconUrl = cleanUrl(secondaryIconUrl);
+  const secondaryCompanionIconUrl = usePreviewArtist
+    ? cleanUrl(previewOverlay.artistIconUrl)
+    : cleanUrl(secondaryIconUrl);
+  const effectiveSecondaryTitle = usePreviewArtist
+    ? previewOverlay.artistName
+    : secondaryTitle;
 
   const [logoIndex, setLogoIndex] = useState(0);
   const [iconFailed, setIconFailed] = useState(false);
@@ -163,18 +236,28 @@ export default function DashMorphCard({
     !showFlagBadge &&
     Boolean(companionIcon) &&
     (showPrimaryLogo || showTitleAlone || showTitleOver);
+  const showParentLine =
+    expanded && !showFlagBadge && Boolean(parentLine);
+  // Origins (flag): still show preview artist + media lines under the flag title.
   const showSecondaryLogo =
-    expanded && !showFlagBadge && Boolean(secondaryLogoMark);
+    expanded &&
+    (!showFlagBadge || previewActive) &&
+    Boolean(secondaryLogoMark);
   const showSecondaryText =
     expanded &&
-    !showFlagBadge &&
+    (!showFlagBadge || previewActive) &&
     !secondaryLogoMark &&
-    Boolean(secondaryTitle);
+    Boolean(effectiveSecondaryTitle);
   const showSecondaryIcon =
     expanded &&
-    !showFlagBadge &&
+    (!showFlagBadge || previewActive) &&
     Boolean(secondaryCompanionIcon) &&
     (showSecondaryLogo || showSecondaryText);
+  const showMediaCaption =
+    expanded &&
+    previewActive &&
+    Boolean(preview?.showMediaCaption) &&
+    Boolean(previewOverlay.mediaTitle);
   const showAction =
     expanded && !showFlagBadge && Boolean(actionLabel) && Boolean(onAction);
   const showStack =
@@ -182,9 +265,11 @@ export default function DashMorphCard({
     showTitleAlone ||
     showPrimaryLogo ||
     showPrimaryIcon ||
+    showParentLine ||
     showSecondaryLogo ||
     showSecondaryText ||
     showSecondaryIcon ||
+    showMediaCaption ||
     showAction;
 
   const primaryRow =
@@ -192,8 +277,15 @@ export default function DashMorphCard({
   const secondaryRow =
     showSecondaryIcon || showSecondaryLogo || showSecondaryText;
 
+  const handleActivate = (e: MouseEvent<HTMLElement>) => {
+    // Navigate cancels preview via leave/unmount; end immediately.
+    setPreviewOverlay(EMPTY_OVERLAY);
+    onActivate(e);
+  };
+
   return (
     <button
+      ref={cardRef}
       type="button"
       data-dash-card={id}
       className={[
@@ -203,6 +295,7 @@ export default function DashMorphCard({
         expanded ? "is-expanded" : "",
         revealed ? "is-revealed" : "",
         active ? "active" : "",
+        previewActive ? "is-previewing" : "",
         className,
       ]
         .filter(Boolean)
@@ -211,7 +304,7 @@ export default function DashMorphCard({
       onMouseLeave={onLeave}
       onFocus={() => onEnter(id)}
       onBlur={onLeave}
-      onClick={onActivate}
+      onClick={handleActivate}
     >
       <span className="dash-morph__frame">
         <span
@@ -230,6 +323,23 @@ export default function DashMorphCard({
               : undefined
           }
         />
+        {previewArt ? (
+          <span
+            className={`dash-morph__bg dash-morph__bg--preview-art card-bg-layer${
+              previewActive ? " is-on" : ""
+            }`}
+            style={{ backgroundImage: `url("${previewArt}")` }}
+          />
+        ) : null}
+        {preview && previewArmed ? (
+          <DashCardPreview
+            armed={previewArmed}
+            requestKey={preview.requestKey}
+            load={preview.load}
+            onOverlay={onOverlay}
+            beatHostRef={cardRef}
+          />
+        ) : null}
         {flagIso && (!expanded || !expandedBg) ? (
           <span
             className={`dash-morph__flag-idle fi fi-${flagIso}${
@@ -242,7 +352,11 @@ export default function DashMorphCard({
           aria-hidden
         />
         {showFlagBadge ? (
-          <span className="dash-morph__flag-row">
+          <span
+            className={`dash-morph__flag-row${
+              showStack ? " dash-morph__flag-row--with-stack" : ""
+            }`}
+          >
             <span className="dash-morph__flag-badge" aria-hidden>
               <span className={`fi fi-${flagIso}`} />
             </span>
@@ -254,7 +368,11 @@ export default function DashMorphCard({
           </span>
         ) : null}
         {showStack ? (
-          <span className="dash-morph__brand-stack">
+          <span
+            className={`dash-morph__brand-stack${
+              showFlagBadge ? " dash-morph__brand-stack--under-flag" : ""
+            }`}
+          >
             {showTitleOver ? (
               <span className="dash-morph__title dash-morph__title--over-brand">
                 {title}
@@ -275,7 +393,11 @@ export default function DashMorphCard({
                 {showPrimaryLogo ? (
                   <span
                     className={`dash-morph__brand${
-                      titleOverBrand || secondaryRow || showAction
+                      titleOverBrand ||
+                      secondaryRow ||
+                      showMediaCaption ||
+                      showParentLine ||
+                      showAction
                         ? " dash-morph__brand--small"
                         : ""
                     }`}
@@ -294,6 +416,9 @@ export default function DashMorphCard({
                   </span>
                 ) : null}
               </span>
+            ) : null}
+            {showParentLine ? (
+              <span className="dash-morph__parent-line">{parentLine}</span>
             ) : null}
             {secondaryRow ? (
               <span className="dash-morph__brand-row dash-morph__brand-row--secondary">
@@ -319,9 +444,15 @@ export default function DashMorphCard({
                 ) : null}
                 {showSecondaryText ? (
                   <span className="dash-morph__secondary-title">
-                    {secondaryTitle}
+                    {effectiveSecondaryTitle}
                   </span>
                 ) : null}
+              </span>
+            ) : null}
+            {showMediaCaption ? (
+              <span className="dash-morph__media-caption">
+                <PlayGlyph />
+                <span>{previewOverlay.mediaTitle}</span>
               </span>
             ) : null}
             {showAction ? (

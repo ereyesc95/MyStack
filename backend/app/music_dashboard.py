@@ -372,17 +372,27 @@ def build_dashboard(db: Session, user_id: int) -> dict:
             country_counts[cid] += weight
 
     top_genres = []
+    from app.play_stats import subgenre_logo_url
+
     for gid, count in genre_counts.most_common(10):
-        name = _resolve_subgenre_name(db, gid)
-        if name:
-            top_genres.append(
-                {
-                    "id": gid,
-                    "name": name,
-                    "play_count": count,
-                    "image_url": subgenre_image_url(name),
-                }
-            )
+        sub = db.get(Subgenre, gid)
+        name = (sub.sgn_name if sub else None) or _resolve_subgenre_name(db, gid)
+        if not name:
+            continue
+        parent_name = None
+        if sub and sub.sgn_genre_id:
+            parent = db.get(Genre, sub.sgn_genre_id)
+            parent_name = (parent.gen_name if parent else None) or None
+        top_genres.append(
+            {
+                "id": gid,
+                "name": name,
+                "play_count": count,
+                "image_url": subgenre_image_url(name),
+                "logo_url": subgenre_logo_url(name),
+                "parent_genre": parent_name,
+            }
+        )
 
     top_countries = []
     for cid, count in country_counts.most_common(10):
@@ -800,6 +810,7 @@ def _build_top_releases_from_plays(
                 "artist_logo_url": artist_logo_url,
                 "artist_logo_collapsed_url": artist_logo_collapsed_url,
                 "artist_icon_url": artist_icon_url,
+                "folder_path": release_rel.replace("\\", "/"),
             }
         )
     return top_releases

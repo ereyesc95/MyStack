@@ -135,12 +135,12 @@ def _lookup_youtube(youtube_map: dict[str, str], title: str) -> str | None:
 
 
 def _normalize_youtube(url: str) -> str | None:
+    """Normalize a stored video URL (YouTube id/link or any http(s) URL)."""
     raw = url.strip()
     if not raw:
         return None
-    if raw.startswith("http"):
-        if not any(host in raw.casefold() for host in YOUTUBE_HOSTS):
-            return raw if "youtube" in raw.casefold() else None
+    low = raw.casefold()
+    if low.startswith("http://") or low.startswith("https://"):
         return raw
     if re.match(r"^[A-Za-z0-9_-]{6,}$", raw):
         return f"https://www.youtube.com/watch?v={raw}"

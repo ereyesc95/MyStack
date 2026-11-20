@@ -67,3 +67,34 @@ def subgenre_image_url(name: str | None) -> str | None:
         if found:
             return f"/api/assets/{prefix}-{slug}"
     return None
+
+
+_LOGO_URL_CACHE: dict[str, str | None] = {}
+
+
+def _find_genre_logo_stem(folder: Path, slug: str) -> str | None:
+    """Return asset stem for a Logo drop: ``{slug}-Logo`` (direct files only — cheap)."""
+    if not folder.is_dir() or not slug:
+        return None
+    for ext in _IMAGE_EXTS:
+        for stem in (f"{slug}-Logo", f"{slug}-logo", f"Logo-{slug}", f"logo-{slug}"):
+            if (folder / f"{stem}{ext}").is_file():
+                return stem
+    return None
+
+
+def subgenre_logo_url(name: str | None) -> str | None:
+    """Optional wordmark for Vibes cards — drop ``{slug}-Logo.png`` under assets/genre|subgenre."""
+    slug = asset_slug(name)
+    if not slug:
+        return None
+    if slug in _LOGO_URL_CACHE:
+        return _LOGO_URL_CACHE[slug]
+    found_url: str | None = None
+    for folder, prefix in _GENRE_IMAGE_DIRS:
+        stem = _find_genre_logo_stem(folder, slug)
+        if stem:
+            found_url = f"/api/assets/{prefix}/{stem}"
+            break
+    _LOGO_URL_CACHE[slug] = found_url
+    return found_url

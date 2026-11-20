@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
+import { fetchCatalogDashPreview } from "../../api";
 import type { SeriesDashboard, Universe } from "../../types";
 import { EMPTY_SERIES_DASHBOARD } from "../../types";
 import { openCatalogVideo } from "../../openCatalogVideo";
@@ -299,44 +300,6 @@ export default function MoviesHome({
       <>
       <section className="dash-row dash-row--icons">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-sagas"
-          title="BEST SAGAS"
-          subtitle="Your top franchises"
-        />
-        <div className="dash-scroll dash-scroll--icons">
-          {topFranchises.map((s) => {
-            const cid = `franchise-${s.id}`;
-            return (
-              <DashMorphCard
-                key={s.id}
-                id={cid}
-                title={s.name}
-                shape={contentShape}
-                coverUrl={pickCover(s)}
-                bannerUrl={s.banner_url}
-                landscapeUrl={s.landscape_url}
-                logoUrl={s.logo_url}
-                logoCollapsedUrl={
-                  (s as { logo_collapsed_url?: string | null }).logo_collapsed_url
-                }
-                iconUrl={s.icon_url}
-                expanded={franchisesExpand.expandedId === cid}
-                revealed={revealedId === cid}
-                onEnter={franchisesExpand.onEnter}
-                onLeave={franchisesExpand.onLeave}
-                onActivate={onCardActivate(cid, () => onFranchise(s.id))}
-              />
-            );
-          })}
-          <PlaceholderTiles
-            count={topFranchises.length ? franchisePlaceholders : contentLimit}
-            variant={contentShape}
-          />
-        </div>
-      </section>
-
-      <section className="dash-row dash-row--icons">
-        <DashPaneLabel
           logo="/api/assets/icons/pane-best"
           title="BEST MOVIES"
           subtitle="Your top content"
@@ -373,6 +336,18 @@ export default function MoviesHome({
                 }
                 expanded={filmsExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                preview={{
+                  requestKey: `movies-film:${s.id}`,
+                  load: () =>
+                    fetchCatalogDashPreview({
+                      module: "movies",
+                      kind: "film",
+                      film_id: String(s.id),
+                      folder_path: (s as { folder_path?: string | null })
+                        .folder_path,
+                    }),
+                  showMediaCaption: true,
+                }}
                 onEnter={filmsExpand.onEnter}
                 onLeave={filmsExpand.onLeave}
                 onActivate={onCardActivate(cid, () =>
@@ -383,6 +358,56 @@ export default function MoviesHome({
           })}
           <PlaceholderTiles
             count={topFilms.length ? filmPlaceholders : contentLimit}
+            variant={contentShape}
+          />
+        </div>
+      </section>
+
+      <section className="dash-row dash-row--icons">
+        <DashPaneLabel
+          logo="/api/assets/icons/pane-sagas"
+          title="BEST SAGAS"
+          subtitle="Your top franchises"
+        />
+        <div className="dash-scroll dash-scroll--icons">
+          {topFranchises.map((s) => {
+            const cid = `franchise-${s.id}`;
+            return (
+              <DashMorphCard
+                key={s.id}
+                id={cid}
+                title={s.name}
+                shape={contentShape}
+                coverUrl={pickCover(s)}
+                bannerUrl={s.banner_url}
+                landscapeUrl={s.landscape_url}
+                logoUrl={s.logo_url}
+                logoCollapsedUrl={
+                  (s as { logo_collapsed_url?: string | null }).logo_collapsed_url
+                }
+                iconUrl={s.icon_url}
+                expanded={franchisesExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                preview={{
+                  requestKey: `movies-franchise:${s.id}`,
+                  load: () =>
+                    fetchCatalogDashPreview({
+                      module: "movies",
+                      kind: "franchise",
+                      franchise_id: s.id,
+                      folder_path: (s as { folder_path?: string | null })
+                        .folder_path,
+                    }),
+                  showMediaCaption: true,
+                }}
+                onEnter={franchisesExpand.onEnter}
+                onLeave={franchisesExpand.onLeave}
+                onActivate={onCardActivate(cid, () => onFranchise(s.id))}
+              />
+            );
+          })}
+          <PlaceholderTiles
+            count={topFranchises.length ? franchisePlaceholders : contentLimit}
             variant={contentShape}
           />
         </div>
@@ -414,6 +439,16 @@ export default function MoviesHome({
                   }
                   expanded={universesExpand.expandedId === cid}
                   revealed={revealedId === cid}
+                  preview={{
+                    requestKey: `movies-universe:${u.id}`,
+                    load: () =>
+                      fetchCatalogDashPreview({
+                        module: "movies",
+                        kind: "universe",
+                        universe_id: String(u.id),
+                      }),
+                    showMediaCaption: true,
+                  }}
                   onEnter={universesExpand.onEnter}
                   onLeave={universesExpand.onLeave}
                   onActivate={onCardActivate(cid, () =>
@@ -450,6 +485,16 @@ export default function MoviesHome({
                 landscapeUrl={g.image_url}
                 expanded={genresExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                preview={{
+                  requestKey: `movies-genre:${g.id ?? g.name}`,
+                  load: () =>
+                    fetchCatalogDashPreview({
+                      module: "movies",
+                      kind: "genre",
+                      genre_id: Number(g.id),
+                    }),
+                  showMediaCaption: true,
+                }}
                 onEnter={genresExpand.onEnter}
                 onLeave={genresExpand.onLeave}
                 onActivate={onCardActivate(cid, () => onGenre?.(g.id))}
@@ -481,6 +526,17 @@ export default function MoviesHome({
                 flagIso={c.iso}
                 expanded={countriesExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                preview={{
+                  requestKey: `movies-country:${c.id ?? c.name}`,
+                  load: () =>
+                    fetchCatalogDashPreview({
+                      module: "movies",
+                      kind: "country",
+                      country_id: c.id,
+                      country_name: c.name,
+                    }),
+                  showMediaCaption: true,
+                }}
                 onEnter={countriesExpand.onEnter}
                 onLeave={countriesExpand.onLeave}
                 onActivate={onCardActivate(cid, () =>

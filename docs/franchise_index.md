@@ -258,7 +258,7 @@ Manual **`.path`** files remain valid; scanner resolves target and registers an 
 
 - [x] Video/Library tabs: resolve `.path`/symlinks via `resolve_media_entry()` (+ category portals)
 - [x] Series folder sync: support `Series/{Letter}/{Franchise}/` (incl. `.path`/`.lnk` portals)
-- [x] Music Video/Library category names: Documentaries, Interviews, Live, Movies, Music Videos, Promo Material, Series / Articles, Books, Interviews, Magazines, Reviews, Scans
+- [x] Music Video/Library category names: Documentaries, Interviews, Live, Movies, Promo Material, Series / Articles, Books, Interviews, Magazines, Reviews, Scans (Music Videos now live beside audio tracks — see media_library_layout.md)
 
 ### Phase 5 — Aliases & overrides
 
@@ -292,6 +292,7 @@ Manual **`.path`** files remain valid; scanner resolves target and registers an 
 | 2026-07 | **Portals:** optional exceptions only; `.path` preferred on NAS |
 | 2026-07 | **Games path:** `Games/{Platform}/{L}/{Franchise}/{date}. {Title}/`; 3-tier OK for one-offs |
 | 2026-07 | **Music Video cats:** Documentaries, Interviews, Live, Movies, Music Videos, Promo Material, Series |
+| 2026-11 | **Music Videos** moved beside audio leaves; Video category “Music Videos” retired |
 | 2026-07 | **Music Library cats:** Articles, Books, Interviews, Magazines, Reviews, Scans |
 | 2026-07 | **Movies grouping:** `Movies/{L}/{Work}/{date}. {Film}/` for sequels |
 | 2026-07 | **Series:** `Series/{L}/{Franchise}/[{subseries}/]`; single-show skips subseries tier |

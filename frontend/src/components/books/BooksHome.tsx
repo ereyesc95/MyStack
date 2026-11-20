@@ -302,44 +302,6 @@ export default function BooksHome({
       <>
       <section className="dash-row dash-row--icons">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-sagas"
-          title="BEST SAGAS"
-          subtitle="Your top franchises"
-        />
-        <div className="dash-scroll dash-scroll--icons">
-          {topFranchises.map((s) => {
-            const cid = `franchise-${s.id}`;
-            return (
-              <DashMorphCard
-                key={s.id}
-                id={cid}
-                title={s.name}
-                shape={contentShape}
-                coverUrl={pickCover(s)}
-                bannerUrl={s.banner_url}
-                landscapeUrl={s.landscape_url}
-                logoUrl={s.logo_url}
-                logoCollapsedUrl={
-                  (s as { logo_collapsed_url?: string | null }).logo_collapsed_url
-                }
-                iconUrl={s.icon_url}
-                expanded={franchisesExpand.expandedId === cid}
-                revealed={revealedId === cid}
-                onEnter={franchisesExpand.onEnter}
-                onLeave={franchisesExpand.onLeave}
-                onActivate={onCardActivate(cid, () => onFranchise(s.id))}
-              />
-            );
-          })}
-          <PlaceholderTiles
-            count={topFranchises.length ? franchisePlaceholders : contentLimit}
-            variant={contentShape}
-          />
-        </div>
-      </section>
-
-      <section className="dash-row dash-row--icons">
-        <DashPaneLabel
           logo="/api/assets/icons/pane-best"
           title="BEST BOOKS"
           subtitle="Your top books"
@@ -384,6 +346,44 @@ export default function BooksHome({
           })}
           <PlaceholderTiles
             count={topBooks.length ? bookPlaceholders : contentLimit}
+            variant={contentShape}
+          />
+        </div>
+      </section>
+
+      <section className="dash-row dash-row--icons">
+        <DashPaneLabel
+          logo="/api/assets/icons/pane-sagas"
+          title="BEST SAGAS"
+          subtitle="Your top franchises"
+        />
+        <div className="dash-scroll dash-scroll--icons">
+          {topFranchises.map((s) => {
+            const cid = `franchise-${s.id}`;
+            return (
+              <DashMorphCard
+                key={s.id}
+                id={cid}
+                title={s.name}
+                shape={contentShape}
+                coverUrl={pickCover(s)}
+                bannerUrl={s.banner_url}
+                landscapeUrl={s.landscape_url}
+                logoUrl={s.logo_url}
+                logoCollapsedUrl={
+                  (s as { logo_collapsed_url?: string | null }).logo_collapsed_url
+                }
+                iconUrl={s.icon_url}
+                expanded={franchisesExpand.expandedId === cid}
+                revealed={revealedId === cid}
+                onEnter={franchisesExpand.onEnter}
+                onLeave={franchisesExpand.onLeave}
+                onActivate={onCardActivate(cid, () => onFranchise(s.id))}
+              />
+            );
+          })}
+          <PlaceholderTiles
+            count={topFranchises.length ? franchisePlaceholders : contentLimit}
             variant={contentShape}
           />
         </div>

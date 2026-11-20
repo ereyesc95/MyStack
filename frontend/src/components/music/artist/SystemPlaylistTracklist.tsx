@@ -21,7 +21,12 @@ import {
   type LibraryTrackSearchHit,
 } from "../../../api";
 import { formatTrackDate } from "../../../formatDate";
-import { formatVideoDateIso } from "../../../utils/videoMedia";
+import {
+  formatVideoDateIso,
+  localVideoOpenUrl,
+  trackWebVideos,
+  type LocalVideoPlaylistItem,
+} from "../../../utils/videoMedia";
 import type {
   ArtistPlaylistTrack,
   ArtistPlaylistSection,
@@ -29,6 +34,7 @@ import type {
   TrackVersionItem,
 } from "../../../types";
 import MsDisclosure from "../../MsDisclosure";
+import { IconDisc, IconExternalLink } from "../../MenuIcons";
 import { trackMainTitle } from "../release/releaseTrackPanelMeta";
 import { ReleaseTrackTitle } from "../release/releaseTrackTitle";
 import ReleaseAddToPlaylistModal from "../release/ReleaseAddToPlaylistModal";
@@ -832,19 +838,48 @@ const SystemPlaylistTracklist = forwardRef<SystemPlaylistTracklistHandle, Props>
       liveShowsMode && !editMode && !snapshotMetadataMode
     );
 
+    const musicVideoPlaylistItems = (): LocalVideoPlaylistItem[] => {
+      if (!musicVideosMode) return [];
+      const items: LocalVideoPlaylistItem[] = [];
+      for (const t of tracks) {
+        const local = t.local_video_path?.trim();
+        if (!local) continue;
+        items.push({
+          url: localVideoOpenUrl(local),
+          title: trackMainTitle(t.title) || t.title,
+          artist: t.artist_name || artistName || null,
+          album: t.album_title || null,
+          artworkUrl: t.cover_url || null,
+          director: t.video_director || null,
+          releaseDate: t.video_release_date || t.video_release_year || null,
+        });
+      }
+      return items;
+    };
+
     const handleMusicVideoRow = (track: ArtistPlaylistTrack) => {
       const url =
         (track.local_video_path
-          ? `/api/media/file?path=${encodeURIComponent(track.local_video_path)}`
+          ? localVideoOpenUrl(track.local_video_path)
           : null) ??
         track.video_url ??
         track.youtube_url;
       if (!url) return;
+      const playlist = musicVideoPlaylistItems();
+      const playUrl =
+        (track.local_video_path
+          ? localVideoOpenUrl(track.local_video_path)
+          : null) ?? url;
+      const playlistIndex = playlist.findIndex((item) => item.url === playUrl);
       openTrackVideo(url, onPausePlayback, {
         title: trackMainTitle(track.title) || track.title,
         artist: track.artist_name || artistName || null,
         album: track.album_title || null,
         artworkUrl: track.cover_url || null,
+        director: track.video_director || null,
+        releaseDate: track.video_release_date || track.video_release_year || null,
+        playlist: playlistIndex >= 0 ? playlist : undefined,
+        playlistIndex: playlistIndex >= 0 ? playlistIndex : undefined,
       });
     };
 
@@ -890,8 +925,9 @@ const SystemPlaylistTracklist = forwardRef<SystemPlaylistTracklistHandle, Props>
           {headerCell("#", "number", "user-playlist-tracklist__header-btn--num")}
           {headerCell("Title", "title", "user-playlist-tracklist__header-btn--title")}
           {headerCell("Release", "album")}
-          {headerCell("Director", "director")}
+          {headerCell("Director", "director", "music-videos-tracklist__header-director")}
           {headerCell("Date", "year", "user-playlist-tracklist__header-btn--year")}
+          <span className="music-videos-tracklist__header-web" aria-hidden />
         </div>
       </li>
     ) : useMetaColumns ? (
@@ -1095,9 +1131,17 @@ const SystemPlaylistTracklist = forwardRef<SystemPlaylistTracklistHandle, Props>
               const releaseTitle = track.album_title?.trim() || songTitle;
               const releaseId = track.navigate_release_id ?? null;
               const releaseBandId = track.navigate_band_id ?? bandId;
+              const isLocal = Boolean(track.local_video_path?.trim());
+              const webVideos = trackWebVideos(track).filter((v) =>
+                Boolean(v.url?.trim())
+              );
               return (
                 <li
-                  key={track.video_url ? `${track.video_url}-${index}` : `mv-${index}`}
+                  key={
+                    track.local_video_path ||
+                    track.video_url ||
+                    `${track.title}-${index}`
+                  }
                   className="release-tracklist__row music-videos-tracklist__row"
                 >
                   <span className="music-videos-tracklist__num">{displayNumber}</span>
@@ -1112,6 +1156,9 @@ const SystemPlaylistTracklist = forwardRef<SystemPlaylistTracklistHandle, Props>
                     }
                   >
                     <span className="music-videos-tracklist__title-main">
+                      {isLocal ? (
+                        <IconDisc className="music-videos-tracklist__local-icon" />
+                      ) : null}
                       {songTitle}
                       {videoLabel ? (
                         <span className="music-videos-tracklist__video-label">
@@ -1139,6 +1186,30 @@ const SystemPlaylistTracklist = forwardRef<SystemPlaylistTracklistHandle, Props>
                   <span className="music-videos-tracklist__col music-videos-tracklist__col--year">
                     {formatVideoDateIso(track.video_release_date ?? track.video_release_year) || "—"}
                   </span>
+                  {isLocal && webVideos.length > 0 ? (
+                    <span className="music-videos-tracklist__col music-videos-tracklist__col--web">
+                      <TrackYoutubeButton
+                        videos={webVideos}
+                        className="music-videos-tracklist__web-btn"
+                        onBeforeOpen={onPausePlayback}
+                        media={{
+                          title: songTitle,
+                          artist: track.artist_name || artistName || null,
+                          album: track.album_title || null,
+                          artworkUrl: track.cover_url || null,
+                        }}
+                      />
+                    </span>
+                  ) : isLocal ? (
+                    <span className="music-videos-tracklist__col music-videos-tracklist__col--web" />
+                  ) : (
+                    <span
+                      className="music-videos-tracklist__col music-videos-tracklist__col--web"
+                      title="Web only"
+                    >
+                      <IconExternalLink className="music-videos-tracklist__web-only-icon" />
+                    </span>
+                  )}
                 </li>
               );
             }

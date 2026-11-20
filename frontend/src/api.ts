@@ -233,6 +233,99 @@ export async function fetchMusicDashboard(): Promise<MusicDashboard> {
   }
 }
 
+export type MusicDashPreviewQuery = {
+  kind: "track" | "artist" | "release" | "genre" | "country";
+  path?: string | null;
+  artist_id?: number | null;
+  release_id?: string | null;
+  folder_path?: string | null;
+  genre_id?: number | null;
+  country_id?: number | null;
+  country_name?: string | null;
+};
+
+const _musicDashPreviewCache = new Map<
+  string,
+  { at: number; data: import("./types").MusicDashPreview }
+>();
+const MUSIC_DASH_PREVIEW_TTL_MS = 90_000;
+
+export async function fetchMusicDashPreview(
+  q: MusicDashPreviewQuery
+): Promise<import("./types").MusicDashPreview | null> {
+  const params = new URLSearchParams();
+  params.set("kind", q.kind);
+  if (q.path) params.set("path", q.path);
+  if (q.artist_id != null) params.set("artist_id", String(q.artist_id));
+  if (q.release_id) params.set("release_id", q.release_id);
+  if (q.folder_path) params.set("folder_path", q.folder_path);
+  if (q.genre_id != null) params.set("genre_id", String(q.genre_id));
+  if (q.country_id != null) params.set("country_id", String(q.country_id));
+  if (q.country_name) params.set("country_name", q.country_name);
+  const key = `music|${params.toString()}`;
+  const hit = _musicDashPreviewCache.get(key);
+  if (hit && Date.now() - hit.at < MUSIC_DASH_PREVIEW_TTL_MS) {
+    return hit.data.media_url || hit.data.path ? hit.data : null;
+  }
+  try {
+    const data = await request<import("./types").MusicDashPreview>(
+      `${API}/music/dash-preview?${params.toString()}`
+    );
+    _musicDashPreviewCache.set(key, { at: Date.now(), data });
+    if (_musicDashPreviewCache.size > 80) {
+      const oldest = [..._musicDashPreviewCache.entries()].sort(
+        (a, b) => a[1].at - b[1].at
+      );
+      for (const [k] of oldest.slice(0, 20)) _musicDashPreviewCache.delete(k);
+    }
+    return data.media_url || data.path ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+export type CatalogDashPreviewQuery = {
+  module: "series" | "movies";
+  kind: string;
+  franchise_id?: string | null;
+  subseries_id?: string | null;
+  film_id?: string | null;
+  folder_path?: string | null;
+  genre_id?: number | null;
+  country_id?: number | null;
+  country_name?: string | null;
+  universe_id?: string | null;
+};
+
+export async function fetchCatalogDashPreview(
+  q: CatalogDashPreviewQuery
+): Promise<import("./types").MusicDashPreview | null> {
+  const params = new URLSearchParams();
+  params.set("kind", q.kind);
+  if (q.franchise_id) params.set("franchise_id", q.franchise_id);
+  if (q.subseries_id) params.set("subseries_id", q.subseries_id);
+  if (q.film_id) params.set("film_id", q.film_id);
+  if (q.folder_path) params.set("folder_path", q.folder_path);
+  if (q.genre_id != null) params.set("genre_id", String(q.genre_id));
+  if (q.country_id != null) params.set("country_id", String(q.country_id));
+  if (q.country_name) params.set("country_name", q.country_name);
+  if (q.universe_id) params.set("universe_id", q.universe_id);
+  const key = `${q.module}|${params.toString()}`;
+  const hit = _musicDashPreviewCache.get(key);
+  if (hit && Date.now() - hit.at < MUSIC_DASH_PREVIEW_TTL_MS) {
+    return hit.data.media_url || hit.data.path ? hit.data : null;
+  }
+  try {
+    const data = await request<import("./types").MusicDashPreview>(
+      `${API}/${q.module}/dash-preview?${params.toString()}`
+    );
+    _musicDashPreviewCache.set(key, { at: Date.now(), data });
+    return data.media_url || data.path ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchListeningStreaks() {
   return request<import("./types").ListeningStreaks>(
     `${API}/music/listening/streaks`

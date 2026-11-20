@@ -250,6 +250,38 @@ def movies_dashboard(
         }
 
 
+@router.get("/dash-preview")
+def movies_dash_preview(
+    kind: str = Query(...),
+    franchise_id: str | None = Query(None),
+    film_id: str | None = Query(None),
+    folder_path: str | None = Query(None),
+    genre_id: int | None = Query(None),
+    country_id: int | None = Query(None),
+    country_name: str | None = Query(None),
+    universe_id: str | None = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    from app.catalog_dash_preview import resolve_catalog_dash_preview
+
+    result = resolve_catalog_dash_preview(
+        db,
+        module="movies",
+        kind=kind,
+        franchise_id=franchise_id,
+        film_id=film_id,
+        folder_path=folder_path,
+        genre_id=genre_id,
+        country_id=country_id,
+        country_name=country_name,
+        universe_id=universe_id,
+    )
+    if not result:
+        return {"media_kind": None, "media_url": None}
+    return result
+
+
 @router.get("/franchises/{work_id}")
 def movies_franchise(
     work_id: str,

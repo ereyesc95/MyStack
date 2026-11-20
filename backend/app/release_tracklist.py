@@ -571,6 +571,7 @@ def _scan_tracks_in_dir(
     band_id: int | None = None,
 ) -> list[dict]:
     tracks: list[dict] = []
+    sibling_videos: list[Path] = []
     entries = sorted(directory.iterdir(), key=lambda p: p.name.casefold())
     index = 0
     for entry in entries:
@@ -651,6 +652,37 @@ def _scan_tracks_in_dir(
                 db_durations=db_durations,
                 index=index,
                 art_ctx=art_ctx,
+            )
+            if track:
+                tracks.append(track)
+            continue
+        if _is_video_file(entry):
+            sibling_videos.append(entry)
+
+    # Music videos beside audio (matching track titles) stay off the tracklist;
+    # other videos become extra rows.
+    if sibling_videos:
+        from app.artist_video_collection import parse_music_video_filename
+        from app.release_track_extras import _youtube_title_keys
+
+        audio_keys: set[str] = set()
+        for track in tracks:
+            if track.get("is_video"):
+                continue
+            for key in _youtube_title_keys(str(track.get("title") or "")):
+                audio_keys.add(key)
+        for video_file in sibling_videos:
+            meta = parse_music_video_filename(video_file.name)
+            title = str(meta.get("title") or "").strip()
+            keys = _youtube_title_keys(title)
+            if keys and any(k in audio_keys for k in keys):
+                continue
+            index += 1
+            track = _build_video_track(
+                lnk_stem=video_file.stem,
+                video_file=video_file,
+                media_root=media_root,
+                index=index,
             )
             if track:
                 tracks.append(track)

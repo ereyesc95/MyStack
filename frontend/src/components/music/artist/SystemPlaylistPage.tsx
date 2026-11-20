@@ -989,7 +989,9 @@ export default function SystemPlaylistPage({
   const showPanelCover = Boolean(
     showCoverPlaceholder || (panelCoverSrc && !coverFailed)
   );
-  const panelDiscSrc = displayDisc;
+  /** Music Videos playlist: cover only (no disc peeking out), all breakpoints. */
+  const hidePlaylistDisc = !isUserPlaylist && slug === "music-videos";
+  const panelDiscSrc = hidePlaylistDisc ? "" : displayDisc;
   const panelGroupKind = usePlaylistCoverArt ? "disc" : (playbackArt?.group_kind ?? "disc");
   const isVinylPlayback = panelGroupKind === "side" || panelGroupKind === "vinyl";
 
@@ -2019,6 +2021,10 @@ export default function SystemPlaylistPage({
                   !bannerLayout && !showPanelCover && panelDiscSrc
                     ? " release-page__art-stage--disc-only"
                     : ""
+                }${
+                  hidePlaylistDisc && showPanelCover
+                    ? " release-page__art-stage--cover-centered"
+                    : ""
                 }`}
               >
                 {bannerLayout ? (
@@ -2105,16 +2111,18 @@ export default function SystemPlaylistPage({
                     </span>
                   )
                   ) : null}
-                <img
-                  src={panelDiscSrc}
-                  alt=""
-                  className={`release-page__disc${
-                    bannerLayout ? " release-page__disc--banner" : ""
-                  }${
-                    playingPath && miniAudio.playing ? " release-page__disc--spin" : ""
-                  }${playingPath && !miniAudio.playing ? " release-page__disc--spin-paused" : ""}`}
-                  draggable={false}
-                />
+                {panelDiscSrc ? (
+                  <img
+                    src={panelDiscSrc}
+                    alt=""
+                    className={`release-page__disc${
+                      bannerLayout ? " release-page__disc--banner" : ""
+                    }${
+                      playingPath && miniAudio.playing ? " release-page__disc--spin" : ""
+                    }${playingPath && !miniAudio.playing ? " release-page__disc--spin-paused" : ""}`}
+                    draggable={false}
+                  />
+                ) : null}
               </div>
             </div>
 
