@@ -846,7 +846,13 @@ export default function ArtistPage({
             (t as { navigate_release_id?: string | null }).navigate_release_id ??
             null,
           releaseTitle:
-            (t as { album_folder?: string | null }).album_folder ?? null,
+            (t as { album_title?: string | null }).album_title ||
+            (t as { album_folder?: string | null }).album_folder ||
+            null,
+          releaseDate:
+            (t as { release_date?: string | null }).release_date ||
+            (t as { source_date_iso?: string | null }).source_date_iso ||
+            null,
           coverUrl: t.cover_url ?? null,
         }));
       const start = tracks.findIndex((t) => t.path === path);

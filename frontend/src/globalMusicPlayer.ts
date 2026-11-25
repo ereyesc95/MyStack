@@ -275,25 +275,35 @@ function reportPlay(track: GlobalMusicTrack) {
   }).catch(() => {});
 }
 
-function scheduleBarPeek(ms = 2400) {
+function scheduleBarPeek(ms = 2600) {
   if (!barHidden) return;
   barPeeking = true;
   if (peekTimer) clearTimeout(peekTimer);
   peekTimer = setTimeout(() => {
     peekTimer = null;
+    if (!barHidden) return;
     barPeeking = false;
     notify();
   }, ms);
 }
 
-async function loadIndex(i: number, autoPlay: boolean) {
+async function loadIndex(
+  i: number,
+  autoPlay: boolean,
+  opts?: { previousId?: string | null }
+) {
   const el = ensureAudio();
   if (!el) return;
   if (i < 0 || i >= queue.length) {
     clearPlayback(true);
     return;
   }
-  const prevId = currentTrack()?.id ?? null;
+  // Callers may already have rewritten `queue`/`index` (playFrom) — allow an
+  // explicit previous id so peek/compare stays correct.
+  const prevId =
+    opts && "previousId" in opts
+      ? opts.previousId ?? null
+      : currentTrack()?.id ?? null;
   index = i;
   const track = queue[i];
   const url = streamUrlFor(track);
@@ -463,6 +473,7 @@ export function globalMusicPlayFrom(
   const list = normalizeTracks(tracks);
   if (!list.length) return;
   const start = Math.max(0, Math.min(startIndex, list.length - 1));
+  const previousId = currentTrack()?.id ?? null;
   const manuals = collectManualInserts();
   // From clicked track onward — replace context queue, keep manual inserts.
   const onward = list.slice(start).map((t) => ({ ...t, queuedBy: null }));
@@ -474,7 +485,7 @@ export function globalMusicPlayFrom(
   queue = nextQueue;
   index = 0;
   queueOpen = false;
-  void loadIndex(0, opts?.autoPlay !== false);
+  void loadIndex(0, opts?.autoPlay !== false, { previousId });
 }
 
 /** Insert immediately after the current track (manual — survives playFrom). */
@@ -529,13 +540,14 @@ export function globalMusicPlayList(
   const list = normalizeTracks(tracks);
   if (!list.length) return;
   const start = Math.max(0, Math.min(startIndex, list.length - 1));
+  const previousId = currentTrack()?.id ?? null;
   originalQueue = list.slice();
   const currentId = list[start]?.id ?? null;
   queue = shuffle
     ? buildShuffledOrder(originalQueue, currentId)
     : originalQueue.slice();
   index = shuffle ? 0 : start;
-  void loadIndex(index, opts?.autoPlay !== false);
+  void loadIndex(index, opts?.autoPlay !== false, { previousId });
 }
 
 export function globalMusicToggle() {

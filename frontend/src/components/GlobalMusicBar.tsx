@@ -51,6 +51,7 @@ function formatTime(sec: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/** Classic map-pin — clearer than a thin thumbtack at small size. */
 function PinIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -61,18 +62,72 @@ function PinIcon({ className }: { className?: string }) {
       aria-hidden
     >
       <path
-        d="M12 2l1.2 5.2L18 9l-4.2 2.2L15 19l-3-3.5L9 19l1.2-7.8L6 9l4.8-1.8L12 2z"
+        d="M12 2C8.7 2 6 4.7 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.3-2.7-6-6-6zm0 8.2a2.2 2.2 0 1 1 0-4.4 2.2 2.2 0 0 1 0 4.4z"
         fill="currentColor"
-      />
-      <path
-        d="M12 15.5V22"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        strokeLinecap="round"
       />
     </svg>
   );
+}
+
+/** Album title for cover tip — drop paths, dates, edition / remaster suffixes. */
+function cleanReleaseTitle(raw: string | null | undefined): string {
+  let t = (raw || "").trim();
+  if (!t) return "";
+  if (/[\\/]/.test(t)) {
+    const parts = t.replace(/\\/g, "/").split("/").filter(Boolean);
+    // Prefer the segment under an Audio category when present.
+    const cats = new Set([
+      "albums",
+      "extended plays",
+      "compilations",
+      "demos",
+      "singles",
+      "soundtracks",
+      "live albums",
+    ]);
+    let pick = parts[parts.length - 1] || t;
+    for (let i = parts.length - 2; i >= 0; i--) {
+      if (cats.has(parts[i]!.toLowerCase())) {
+        pick = parts[i + 1]!;
+        break;
+      }
+    }
+    // Drop trailing edition/disc/side folders.
+    while (parts.length) {
+      const last = parts[parts.length - 1]!.replace(
+        /^\d{4}(?:\.\d{1,2}){0,2}\.\s*/,
+        ""
+      );
+      if (
+        /\bedition\b/i.test(last) ||
+        /^disc\s+\d+/i.test(last) ||
+        /^side\s+[a-z]\b/i.test(last)
+      ) {
+        parts.pop();
+        continue;
+      }
+      break;
+    }
+    t = (parts[parts.length - 1] || pick).trim();
+  }
+  t = t.replace(/^\d{4}(?:\.\d{1,2}){0,2}\.\s*/, "").trim();
+  t = t.replace(/\s*[\(\[][^)\]]*[\)\]]\s*$/g, "").trim();
+  t = t
+    .replace(
+      /:\s*.*\b(edition|remaster(ed)?|deluxe|expanded|anniversary)\b.*$/i,
+      ""
+    )
+    .trim();
+  t = t
+    .replace(
+      /\s+-\s+.*\b(edition|remaster(ed)?|deluxe|expanded|anniversary)\b.*$/i,
+      ""
+    )
+    .trim();
+  t = t
+    .replace(/\s+\b(standard|deluxe|remastered|expanded)\s+edition\b.*$/i, "")
+    .trim();
+  return t;
 }
 
 function ScrollingTitle({
@@ -217,13 +272,33 @@ export default function GlobalMusicBar({
     return () => window.removeEventListener("keydown", onKey);
   }, [snap.hasTrack]);
 
+  // Drive CSS var so 100vh/100dvh pages (release/artist) clear the pinned bar.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (pinned) {
+      root.classList.add("mystack-player-pinned");
+      root.style.setProperty("--mystack-player-pad", "3.1rem");
+    } else {
+      root.classList.remove("mystack-player-pinned");
+      root.style.setProperty("--mystack-player-pad", "0px");
+    }
+    return () => {
+      root.classList.remove("mystack-player-pinned");
+      root.style.setProperty("--mystack-player-pad", "0px");
+    };
+  }, [pinned]);
+
   if (!snap.hasTrack) return null;
 
   const cur = snap.current as GlobalMusicTrack;
   const pct = snap.duration ? (snap.progress / snap.duration) * 100 : 0;
   const displayTitle = trackMainTitle(cur.title) || cur.title;
-  const releaseTipTitle = (cur.releaseTitle || "").trim();
-  const releaseTipDate = formatTrackDate(cur.releaseDate);
+  const releaseTipTitle = cleanReleaseTitle(cur.releaseTitle);
+  const releaseTipDate =
+    formatTrackDate(cur.releaseDate) ||
+    (cur.releaseDate && /^\d{4}/.test(cur.releaseDate)
+      ? cur.releaseDate.slice(0, 10).replace(/-/g, ".")
+      : null);
 
   const openArtist = () => {
     if (cur.artistId != null) onOpenArtist?.(cur.artistId, cur.artist);
@@ -346,11 +421,13 @@ export default function GlobalMusicBar({
             ) : (
               <span className="global-music-bar__cover global-music-bar__cover--empty" />
             )}
-            {releaseTipTitle ? (
+            {releaseTipTitle || releaseTipDate ? (
               <span className="global-music-bar__cover-tip" role="tooltip">
-                <span className="global-music-bar__cover-tip-title">
-                  {releaseTipTitle}
-                </span>
+                {releaseTipTitle ? (
+                  <span className="global-music-bar__cover-tip-title">
+                    {releaseTipTitle}
+                  </span>
+                ) : null}
                 {releaseTipDate ? (
                   <span className="global-music-bar__cover-tip-date">
                     {releaseTipDate}

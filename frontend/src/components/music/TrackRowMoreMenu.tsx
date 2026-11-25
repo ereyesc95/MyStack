@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   globalMusicPlayLast,
   globalMusicPlayNext,
@@ -59,19 +60,69 @@ function PlayLastIcon({ className }: { className?: string }) {
   );
 }
 
+type MenuPos = {
+  top: number;
+  left: number;
+  openDown: boolean;
+};
+
 export default function TrackRowMoreMenu({
   track,
   onAddToPlaylist,
   disabled,
 }: Props) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [shown, setShown] = useState(false);
+  const [pos, setPos] = useState<MenuPos | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      const id = window.requestAnimationFrame(() => setShown(true));
+      return () => window.cancelAnimationFrame(id);
+    }
+    setShown(false);
+    const t = window.setTimeout(() => setMounted(false), 160);
+    return () => window.clearTimeout(t);
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) return;
+    const place = () => {
+      const rect = btnRef.current!.getBoundingClientRect();
+      const menuH = menuRef.current?.offsetHeight || 128;
+      const menuW = menuRef.current?.offsetWidth || 180;
+      const spaceAbove = rect.top;
+      const openDown = spaceAbove < menuH + 12;
+      const top = openDown
+        ? Math.min(window.innerHeight - menuH - 8, rect.bottom + 4)
+        : Math.max(8, rect.top - menuH - 4);
+      const left = Math.min(
+        Math.max(8, rect.right - menuW),
+        window.innerWidth - menuW - 8
+      );
+      setPos({ top, left, openDown });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, mounted]);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node | null;
-      if (!t || rootRef.current?.contains(t)) return;
+      if (!t) return;
+      if (rootRef.current?.contains(t)) return;
+      if (menuRef.current?.contains(t)) return;
       setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -87,12 +138,71 @@ export default function TrackRowMoreMenu({
 
   if (disabled || !track.path) return null;
 
+  const menu =
+    mounted && pos
+      ? createPortal(
+          <div
+            ref={menuRef}
+            className={`track-row-more__menu${shown ? " is-shown" : ""}${
+              pos.openDown ? " is-down" : " is-up"
+            }`}
+            role="menu"
+            style={{ top: pos.top, left: pos.left }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className="track-row-more__item"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setOpen(false);
+                onAddToPlaylist();
+              }}
+            >
+              <TrackActionPlaylistIcon className="track-row-more__icon" />
+              <span>Add to playlist</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="track-row-more__item"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setOpen(false);
+                globalMusicPlayNext(track);
+              }}
+            >
+              <PlayNextIcon className="track-row-more__icon" />
+              <span>Play next</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="track-row-more__item"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setOpen(false);
+                globalMusicPlayLast(track);
+              }}
+            >
+              <PlayLastIcon className="track-row-more__icon" />
+              <span>Play last</span>
+            </button>
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
     <div
       ref={rootRef}
       className={`track-row-more${open ? " is-open" : ""}`}
     >
       <button
+        ref={btnRef}
         type="button"
         className="track-row-more__btn"
         aria-label="More actions"
@@ -102,57 +212,29 @@ export default function TrackRowMoreMenu({
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          setOpen((v) => !v);
+          setOpen((v) => {
+            const next = !v;
+            if (next && btnRef.current) {
+              const rect = btnRef.current.getBoundingClientRect();
+              const menuH = 128;
+              const menuW = 180;
+              const openDown = rect.top < menuH + 12;
+              const top = openDown
+                ? Math.min(window.innerHeight - menuH - 8, rect.bottom + 4)
+                : Math.max(8, rect.top - menuH - 4);
+              const left = Math.min(
+                Math.max(8, rect.right - menuW),
+                window.innerWidth - menuW - 8
+              );
+              setPos({ top, left, openDown });
+            }
+            return next;
+          });
         }}
       >
         <KebabIcon className="track-row-more__kebab" />
       </button>
-      {open ? (
-        <div className="track-row-more__menu" role="menu">
-          <button
-            type="button"
-            role="menuitem"
-            className="track-row-more__item"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setOpen(false);
-              onAddToPlaylist();
-            }}
-          >
-            <TrackActionPlaylistIcon className="track-row-more__icon" />
-            <span>Add to playlists</span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="track-row-more__item"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setOpen(false);
-              globalMusicPlayNext(track);
-            }}
-          >
-            <PlayNextIcon className="track-row-more__icon" />
-            <span>Play next</span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="track-row-more__item"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setOpen(false);
-              globalMusicPlayLast(track);
-            }}
-          >
-            <PlayLastIcon className="track-row-more__icon" />
-            <span>Play last</span>
-          </button>
-        </div>
-      ) : null}
+      {menu}
     </div>
   );
 }

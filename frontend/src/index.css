@@ -36639,6 +36639,7 @@ button.series-audio-player__source-link:focus-visible {
 .global-music-bar.is-visible {
   transform: translateY(0);
   pointer-events: auto;
+  overflow: visible;
 }
 .global-music-bar__inner {
   display: flex;
@@ -36650,6 +36651,7 @@ button.series-audio-player__source-link:focus-visible {
   backdrop-filter: blur(10px);
   min-height: 2.6rem;
   box-sizing: border-box;
+  overflow: visible;
 }
 .global-music-bar__cover-btn {
   position: relative;
@@ -36677,38 +36679,39 @@ button.series-audio-player__source-link:focus-visible {
 }
 .global-music-bar__cover-tip {
   position: absolute;
-  left: 50%;
-  bottom: calc(100% + 0.45rem);
-  transform: translateX(-50%) translateY(4px);
-  min-width: 7rem;
-  max-width: 16rem;
-  padding: 0.35rem 0.5rem;
+  left: 0;
+  bottom: calc(100% + 0.5rem);
+  min-width: 8rem;
+  max-width: 18rem;
+  padding: 0.4rem 0.55rem;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--bg-elevated, #12151c) 96%, #000);
+  background: color-mix(in srgb, var(--bg-elevated, #12151c) 97%, #000);
   border: 1px solid color-mix(in srgb, var(--border, #333) 60%, transparent);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s ease, transform 0.12s ease;
-  z-index: 2;
+  transform: translateY(4px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+  z-index: 95;
   text-align: left;
+  white-space: normal;
 }
 .global-music-bar__cover-btn:hover .global-music-bar__cover-tip,
 .global-music-bar__cover-btn:focus-visible .global-music-bar__cover-tip {
   opacity: 1;
-  transform: translateX(-50%) translateY(0);
+  transform: translateY(0);
 }
 .global-music-bar__cover-tip-title {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   font-weight: 650;
   color: var(--text, #e8eaef);
   line-height: 1.25;
 }
 .global-music-bar__cover-tip-date {
   display: block;
-  margin-top: 0.12rem;
-  font-size: 0.62rem;
+  margin-top: 0.15rem;
+  font-size: 0.64rem;
   color: var(--text-muted, #8b93a7);
   line-height: 1.2;
 }
@@ -36716,8 +36719,8 @@ button.series-audio-player__source-link:focus-visible {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  flex: 0 1 18rem;
-  max-width: min(22rem, 34vw);
+  flex: 0 1 14rem;
+  max-width: min(16rem, 28vw);
   gap: 0.05rem;
 }
 .global-music-bar__title,
@@ -36789,11 +36792,12 @@ button.series-audio-player__source-link:focus-visible {
   min-width: 0;
   margin-left: 0.25rem;
 }
+/* Fill leftover width — titles got a bit more room; seek is not capped narrow. */
 .global-music-bar__seek.artist-mini-player__seek,
 .global-music-bar .global-music-bar__seek {
-  flex: 0 1 7.5rem;
-  max-width: 9rem;
-  min-width: 3.5rem;
+  flex: 1 1 auto;
+  min-width: 5rem;
+  max-width: none;
 }
 .global-music-bar__time {
   flex-shrink: 0;
@@ -36977,10 +36981,31 @@ button.series-audio-player__source-link:focus-visible {
 .global-music-queue__remove:hover {
   color: var(--accent);
 }
+:root {
+  --mystack-player-pad: 0px;
+}
+
 /* Layout reserve only when pinned — overlay/hover peeks sit above content. */
+html.mystack-player-pinned .main--module,
+html.mystack-player-pinned .main--hub,
 body:has(.global-music-bar.is-pinned.is-visible) .main--module,
 body:has(.global-music-bar.is-pinned.is-visible) .main--hub {
-  padding-bottom: 3.1rem;
+  padding-bottom: var(--mystack-player-pad, 3.1rem);
+}
+
+/* Full-viewport module pages ignore main padding — shrink height instead. */
+html.mystack-player-pinned .release-page:not(.release-page--embedded),
+body:has(.global-music-bar.is-pinned.is-visible)
+  .release-page:not(.release-page--embedded) {
+  height: calc(100vh - var(--mystack-player-pad, 3.1rem));
+  min-height: calc(100vh - var(--mystack-player-pad, 3.1rem));
+  max-height: calc(100dvh - var(--mystack-player-pad, 3.1rem));
+}
+html.mystack-player-pinned .artist-page,
+body:has(.global-music-bar.is-pinned.is-visible) .artist-page {
+  height: calc(100dvh - var(--mystack-player-pad, 3.1rem));
+  min-height: calc(100vh - var(--mystack-player-pad, 3.1rem));
+  max-height: calc(100dvh - var(--mystack-player-pad, 3.1rem));
 }
 
 .release-tracklist__duration-wrap {
@@ -37024,10 +37049,8 @@ body:has(.global-music-bar.is-pinned.is-visible) .main--hub {
   height: 0.95rem;
 }
 .track-row-more__menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 0.25rem);
-  z-index: 40;
+  position: fixed;
+  z-index: 120;
   min-width: 10.5rem;
   padding: 0.25rem;
   border-radius: 6px;
@@ -37037,6 +37060,22 @@ body:has(.global-music-bar.is-pinned.is-visible) .main--hub {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
+  opacity: 0;
+  transform: translateY(6px) scale(0.96);
+  transform-origin: bottom right;
+  pointer-events: none;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+.track-row-more__menu.is-down {
+  transform-origin: top right;
+  transform: translateY(-6px) scale(0.96);
+}
+.track-row-more__menu.is-shown {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
 }
 .track-row-more__item {
   display: flex;
@@ -37072,11 +37111,6 @@ body:has(.global-music-bar.is-pinned.is-visible) .main--hub {
   }
   .global-music-bar__volume-slider {
     width: 2.4rem;
-  }
-  .global-music-bar__seek.artist-mini-player__seek,
-  .global-music-bar .global-music-bar__seek {
-    flex-basis: 4.5rem;
-    max-width: 5.5rem;
   }
   .track-row-more {
     opacity: 1;
