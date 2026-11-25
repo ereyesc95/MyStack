@@ -57,7 +57,13 @@ import HubPage from "./components/HubPage";
 
 import { suppressDashHoverUntilPointerMove } from "./components/DashHoverTitle";
 import LocalVideoPlayerHost from "./components/LocalVideoPlayer";
+import GlobalMusicBar from "./components/GlobalMusicBar";
 import type { MediaOption } from "./components/ModuleTopBar";
+import {
+  globalMusicClear,
+  initGlobalMusicPlayer,
+  setGlobalMusicUserId,
+} from "./globalMusicPlayer";
 
 import MusicModule from "./components/music/MusicModule";
 import MoviesModule from "./components/movies/MoviesModule";
@@ -351,7 +357,16 @@ export default function App() {
   }, [mediaRootConfigured, profile]);
 
   useEffect(() => {
+    initGlobalMusicPlayer();
+  }, []);
+
+  useEffect(() => {
+    setGlobalMusicUserId(profile?.user_id);
+  }, [profile?.user_id]);
+
+  useEffect(() => {
     function onProfileRequired() {
+      globalMusicClear();
       setSwitchingProfile(false);
       setHighlightProfileId(null);
       setEditProfileOpen(false);
@@ -523,6 +538,7 @@ export default function App() {
   }
 
   function handleSwitchProfile() {
+    globalMusicClear();
     if (profile?.user_id) {
       setHighlightProfileId(profile.user_id);
       beginProfileSwitchTheme(profile.user_id);
@@ -2645,6 +2661,52 @@ export default function App() {
         )}
 
       </main>
+
+      {appReady ? (
+        <GlobalMusicBar
+          onOpenArtist={(bandId, name) => {
+            pushArtistRoute({
+              bandId,
+              artistName: name || undefined,
+              section: "overview",
+              overviewTab: "about",
+            });
+            setView({
+              kind: "music",
+              tab: "artists",
+              bandId,
+              artistSection: "overview",
+              artistOverviewTab: "about",
+            });
+          }}
+          onOpenRelease={(bandId, releaseId, meta) => {
+            saveReleaseReferrer({
+              bandId,
+              section: "audio",
+              source: "home",
+              artistName: meta?.artistName ?? undefined,
+            });
+            pushArtistRoute({
+              bandId,
+              artistName: meta?.artistName || undefined,
+              section: "audio",
+              overviewTab: "about",
+              releaseId,
+              releaseTitle: meta?.title || undefined,
+              releaseTab: "overview",
+            });
+            setView({
+              kind: "music",
+              tab: "artists",
+              bandId,
+              artistSection: "audio",
+              artistOverviewTab: "about",
+              releaseId,
+              releaseTab: "overview",
+            });
+          }}
+        />
+      ) : null}
 
       <LocalVideoPlayerHost />
 

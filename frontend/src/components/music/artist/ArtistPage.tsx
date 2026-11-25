@@ -4,9 +4,9 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
 } from "react";
-import { createPortal } from "react-dom";
 import {
   addExternalRelease,
   deleteBand,
@@ -14,7 +14,6 @@ import {
   fetchBandRelated,
   fetchQuizAvailability,
   importBandLineup,
-  playTrack,
   refreshBandLineup,
   refreshBandLinks,
   refreshBandMetadata,
@@ -26,7 +25,15 @@ import {
   ensureArtistDesktopIni,
   generateArtistFolderIcons,
 } from "../../../api";
-import { musicStreamUrl } from "../../../musicStreamUrl";
+import {
+  getGlobalMusicAudioElement,
+  getGlobalMusicSnapshot,
+  globalMusicPause,
+  globalMusicPlayFrom,
+  globalMusicToggle,
+  subscribeGlobalMusic,
+  type GlobalMusicTrack,
+} from "../../../globalMusicPlayer";
 import { getStoredProfile } from "../../../auth";
 import { setCachedOverview } from "../../../overviewCache";
 import {
@@ -55,12 +62,8 @@ import {
   applyMediaTheme,
   beginArtistPageSession,
   colorsFromImageUrl,
-  applyPlaybackThemeFromCover,
   endPlaybackThemeSession,
   isPlaybackThemeActive,
-  onPlaybackPaused,
-  onPlaybackResumed,
-  setPlaybackPlaying,
 } from "../../../mediaTheme";
 import {
   isMobilePortraitLayout,
@@ -84,7 +87,6 @@ import ReleaseCardLayoutPicker from "../../ReleaseCardLayoutPicker";
 import {
   IconCardBanner,
   IconCardCover,
-  IconMediaMusic,
 } from "../../MenuIcons";
 import {
   getStoredReleaseCardLayout,
@@ -110,74 +112,7 @@ import OfficialUnofficialBar from "../../OfficialUnofficialBar";
 import type { TourCard, TourShowTab } from "../../../types";
 import MediaBeatFx from "../MediaBeatFx";
 import MediaBeatFrame from "../MediaBeatFrame";
-import {
-  defaultArtistBgUrl,
-  trackMainTitle,
-} from "../release/releaseTrackPanelMeta";
-
-/** Match backend `release_id_from_path` for opening a release from the player bubble. */
-async function releaseIdFromAlbumFolder(
-  folder: string | null | undefined
-): Promise<string | null> {
-  if (!folder?.trim()) return null;
-  const normalized = folder.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "").toLowerCase();
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(normalized)
-  );
-  const hex = Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")
-    .slice(0, 12);
-  return `rel_${hex}`;
-}
-
-/** Release title under Albums/EPs/… — skip edition/disc/side path segments. */
-function albumFolderDisplayTitle(folder: string | null | undefined): string | null {
-  if (!folder?.trim()) return null;
-  const parts = folder.replace(/\\/g, "/").split("/").filter(Boolean);
-  const categories = new Set([
-    "albums",
-    "extended plays",
-    "compilations",
-    "demos",
-    "singles",
-    "soundtracks",
-    "live albums",
-  ]);
-  const isEditionOrDisc = (name: string) => {
-    const core = name
-      .trim()
-      .replace(/^\d{4}(?:\.\d{1,2}){0,2}\.\s*/, "")
-      .trim()
-      .toLowerCase();
-    if (
-      core === "standard edition" ||
-      core === "deluxe edition" ||
-      core === "bonus" ||
-      core === "remastered edition" ||
-      core.endsWith(" edition")
-    ) {
-      return true;
-    }
-    if (/^disc\s+\d+/.test(core) || /^side\s+[a-z]\b/.test(core)) return true;
-    return false;
-  };
-  while (parts.length > 1 && isEditionOrDisc(parts[parts.length - 1]!)) {
-    parts.pop();
-  }
-  // Prefer the folder sitting under an Audio category when present.
-  for (let i = parts.length - 2; i >= 0; i--) {
-    if (categories.has(parts[i]!.toLowerCase())) {
-      const release = parts[i + 1]!;
-      const m = release.trim().match(/^\d{4}(?:\.\d{1,2}){0,2}\.\s*(.+)$/);
-      return (m?.[1] || release).trim() || null;
-    }
-  }
-  const segment = parts[parts.length - 1] || folder;
-  const m = segment.trim().match(/^\d{4}(?:\.\d{1,2}){0,2}\.\s*(.+)$/);
-  return (m?.[1] || segment).trim() || null;
-}
+import { defaultArtistBgUrl } from "../release/releaseTrackPanelMeta";
 import ArtistQuiz, { QUIZ_MODES, type QuizMode } from "./ArtistQuiz";
 import ArtistRelated from "./ArtistRelated";
 import ArtistRelatedMedia from "./ArtistRelatedMedia";
@@ -186,10 +121,6 @@ import AddProjectModal from "./AddProjectModal";
 import ArtistMemberModal from "./ArtistMemberModal";
 import MemberFormModal from "./MemberFormModal";
 import PlaylistBoot from "../../PlaylistBoot";
-import {
-  MiniAudioPlayerControls,
-  useMiniAudio,
-} from "./MiniAudioPlayer";
 import { useBeatPulse } from "../../../useBeatPulse";
 
 const SECTIONS: { id: ArtistSection; label: string }[] = [
@@ -333,24 +264,17 @@ export default function ArtistPage({
   const [data, setData] = useState<BandOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [playingPath, setPlayingPath] = useState<string | null>(null);
-  const [repeatOne, setRepeatOne] = useState(false);
-  const [playerBubbleOpen, setPlayerBubbleOpen] = useState(false);
-  const playerFallbackRef = useRef<HTMLDivElement>(null);
-  const playerBubbleRef = useRef<HTMLDivElement>(null);
-  const playerBubbleDockRef = useRef<HTMLDivElement>(null);
-  const {
-    audioRef,
-    src: audioSrc,
-    playing,
-    progress,
-    duration,
-    toggle,
-    seek,
-    loadSrc,
-    clear,
-    setSessionHandlers,
-  } = useMiniAudio();
+  const globalMusic = useSyncExternalStore(
+    subscribeGlobalMusic,
+    getGlobalMusicSnapshot,
+    getGlobalMusicSnapshot
+  );
+  const playingPath = globalMusic.current?.path ?? null;
+  const playing = globalMusic.playing;
+  const audioSrc = globalMusic.hasTrack ? "global" : null;
+  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
+  globalAudioRef.current = getGlobalMusicAudioElement();
+  const audioRef = globalAudioRef;
   const [refreshBio, setRefreshBio] = useState(false);
   const [busy, setBusy] = useState("");
   const [memberModalId, setMemberModalId] = useState<number | null>(null);
@@ -707,17 +631,7 @@ export default function ArtistPage({
 
   useEffect(() => {
     setEraIndex(0);
-    setPlayingPath(null);
-    setPlayerBubbleOpen(false);
-    clear();
-  }, [bandId, clear]);
-
-  useEffect(
-    () => () => {
-      clear();
-    },
-    [clear]
-  );
+  }, [bandId]);
 
   const carouselEras = useMemo(() => {
     if (!data?.eras.length) return [];
@@ -900,11 +814,9 @@ export default function ArtistPage({
   );
 
   const stopPageAudio = useCallback(() => {
-    audioRef.current?.pause();
-    setPlayingPath(null);
-    clear();
+    globalMusicPause();
     endPlaybackThemeSession(userId);
-  }, [audioRef, clear, userId]);
+  }, [userId]);
 
   useEffect(() => {
     if (section === "quiz") {
@@ -915,146 +827,51 @@ export default function ArtistPage({
   const handlePlay = useCallback(
     (path: string, title: string) => {
       if (playingPath === path && audioSrc) {
-        if (!playing) {
-          toggle();
-          onPlaybackResumed(
-            playableTracks.find((t) => t.play_path === path)?.cover_url ?? null,
-            userId
-          );
-          return;
-        }
-        toggle();
+        globalMusicToggle();
         return;
       }
-      setPlayingPath(path);
-      const track = playableTracks.find((t) => t.play_path === path);
-      setPlaybackPlaying(true);
-      loadSrc(musicStreamUrl(path), true, {
-        media: {
-          title,
+      const tracks: GlobalMusicTrack[] = playableTracks
+        .filter((t) => Boolean(t.play_path))
+        .map((t) => ({
+          id: t.play_path!,
+          path: t.play_path!,
+          title: t.title || "Track",
           artist:
-            (track as { artist_name?: string | null } | undefined)?.artist_name ||
+            (t as { artist_name?: string | null }).artist_name ||
             data?.name ||
             null,
-          album: (track as { album_folder?: string | null } | undefined)
-            ?.album_folder,
-          artworkUrl: track?.cover_url ?? null,
-        },
-      });
-      applyPlaybackThemeFromCover(track?.cover_url ?? null, userId);
-      void playTrack({ path, artist_id: bandId, title }).catch((e) => {
-        setError(e instanceof Error ? e.message : String(e));
-      });
-    },
-    [
-      bandId,
-      data?.name,
-      loadSrc,
-      playingPath,
-      audioSrc,
-      playing,
-      toggle,
-      playableTracks,
-      userId,
-    ]
-  );
-
-  const stepTrack = useCallback(
-    (dir: -1 | 1) => {
-      if (!playableTracks.length) return;
-      const idx = playableTracks.findIndex((t) => t.play_path === playingPath);
-      const base =
-        idx >= 0 ? idx : dir === 1 ? -1 : playableTracks.length;
-      const next =
-        (base + dir + playableTracks.length) % playableTracks.length;
-      const t = playableTracks[next];
-      void handlePlay(t.play_path!, t.title);
-    },
-    [playableTracks, playingPath, handlePlay]
-  );
-
-  useEffect(() => {
-    setSessionHandlers({
-      previous: () => stepTrack(-1),
-      next: () => stepTrack(1),
-    });
-    return () => setSessionHandlers(null);
-  }, [setSessionHandlers, stepTrack]);
-
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el || !audioSrc) return;
-    const onPause = () => onPlaybackPaused(userId);
-    const onPlay = () => {
-      setPlaybackPlaying(true);
-      if (playingPath) {
-        const track = playableTracks.find((t) => t.play_path === playingPath);
-        onPlaybackResumed(track?.cover_url ?? null, userId);
-      }
-    };
-    const onEnded = () => {
-      if (repeatOne && playingPath) {
-        el.currentTime = 0;
-        void el.play().catch(() => {});
+          artistId:
+            (t as { navigate_band_id?: number }).navigate_band_id ?? bandId,
+          releaseId:
+            (t as { navigate_release_id?: string | null }).navigate_release_id ??
+            null,
+          releaseTitle:
+            (t as { album_folder?: string | null }).album_folder ?? null,
+          coverUrl: t.cover_url ?? null,
+        }));
+      const start = tracks.findIndex((t) => t.path === path);
+      if (start < 0) {
+        globalMusicPlayFrom(
+          [
+            {
+              id: path,
+              path,
+              title,
+              artist: data?.name ?? null,
+              artistId: bandId,
+              coverUrl:
+                playableTracks.find((t) => t.play_path === path)?.cover_url ??
+                null,
+            },
+          ],
+          0
+        );
         return;
       }
-      setPlaybackPlaying(false);
-      endPlaybackThemeSession(userId);
-      setPlayingPath(null);
-    };
-    el.addEventListener("pause", onPause);
-    el.addEventListener("play", onPlay);
-    el.addEventListener("ended", onEnded);
-    return () => {
-      el.removeEventListener("pause", onPause);
-      el.removeEventListener("play", onPlay);
-      el.removeEventListener("ended", onEnded);
-    };
-  }, [audioRef, audioSrc, playingPath, playableTracks, userId, repeatOne]);
-
-  const showBubblePlayer = Boolean(audioSrc);
-  const showPortraitPlayMusic =
-    portraitMenuChrome && playableTracks.length > 0;
-
-  const handlePortraitPlayMusic = useCallback(() => {
-    if (playerBubbleOpen) {
-      setPlayerBubbleOpen(false);
-      return;
-    }
-    if (!playingPath || !audioSrc) {
-      const first = playableTracks[0];
-      if (!first?.play_path) return;
-      void handlePlay(first.play_path, first.title).then(() => {
-        setPlayerBubbleOpen(true);
-      });
-      return;
-    }
-    setPlayerBubbleOpen(true);
-  }, [
-    playerBubbleOpen,
-    playingPath,
-    audioSrc,
-    playableTracks,
-    handlePlay,
-  ]);
-
-  useEffect(() => {
-    if (!audioSrc) setPlayerBubbleOpen(false);
-  }, [audioSrc]);
-
-  useEffect(() => {
-    if (!playerBubbleOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      const target = e.target as Node | null;
-      if (!target) return;
-      if (playerBubbleRef.current?.contains(target)) return;
-      if (playerBubbleDockRef.current?.contains(target)) return;
-      setPlayerBubbleOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    return () =>
-      document.removeEventListener("pointerdown", onPointerDown, true);
-  }, [playerBubbleOpen]);
+      globalMusicPlayFrom(tracks, start);
+    },
+    [bandId, data?.name, playingPath, audioSrc, playableTracks]
+  );
 
   const handleRefreshMetadata = async () => {
     setBusy("Refreshing metadata…");
@@ -1076,7 +893,7 @@ export default function ArtistPage({
   const handleUpdateProviderFolders = async () => {
     setBusy("Fetching data, please wait...");
     try {
-      const result = await updateBandFoldersFromMb(bandId);
+      await updateBandFoldersFromMb(bandId);
       // Drop the wait message when the provider pull returns; cache refresh
       // continues in the background without leaving chrome stuck.
       setBusy("");
@@ -1308,148 +1125,6 @@ export default function ArtistPage({
                   onChange={onSetOrientation}
                 />
               )}
-            {showBubblePlayer && (() => {
-              const nowTrack = playableTracks.find(
-                (t) => t.play_path === playingPath
-              );
-              const albumLabel = albumFolderDisplayTitle(nowTrack?.album_folder);
-              const navBandId =
-                (nowTrack as { navigate_band_id?: number } | undefined)
-                  ?.navigate_band_id ?? bandId;
-              const navReleaseId = (
-                nowTrack as { navigate_release_id?: string } | undefined
-              )?.navigate_release_id;
-              const canOpenRelease = Boolean(
-                onOpenReleaseNavigate &&
-                  (navReleaseId || nowTrack?.album_folder)
-              );
-              const artistLabel = (
-                (nowTrack as { artist_name?: string | null } | undefined)
-                  ?.artist_name ||
-                data?.name ||
-                shell?.name ||
-                albumLabel ||
-                ""
-              )
-                .replace(/■/g, ",")
-                .trim();
-              const canOpenArtist = Boolean(navBandId && onOpenArtist);
-              const openNowRelease = () => {
-                if (!onOpenReleaseNavigate) return;
-                void (async () => {
-                  const rid =
-                    navReleaseId ||
-                    (await releaseIdFromAlbumFolder(nowTrack?.album_folder));
-                  if (!rid) return;
-                  onOpenReleaseNavigate(navBandId, rid);
-                })();
-              };
-              const dockInner = (
-                <>
-                  <div className="series-audio-player__now">
-                    {nowTrack?.cover_url ? (
-                      canOpenRelease ? (
-                        <button
-                          type="button"
-                          className="series-audio-player__cover-btn"
-                          title="Go to release"
-                          onPointerDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openNowRelease();
-                          }}
-                        >
-                          <img src={nowTrack.cover_url} alt="" />
-                        </button>
-                      ) : (
-                        <img src={nowTrack.cover_url} alt="" />
-                      )
-                    ) : null}
-                    <div>
-                      <strong>
-                        {nowTrack?.title
-                          ? trackMainTitle(nowTrack.title)
-                          : "Now playing"}
-                      </strong>
-                      {artistLabel ? (
-                        canOpenArtist ? (
-                          <button
-                            type="button"
-                            className="series-audio-player__artist-link"
-                            title="Go to artist"
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              onOpenArtist(Number(navBandId));
-                            }}
-                          >
-                            {artistLabel}
-                          </button>
-                        ) : (
-                          <span className="muted">{artistLabel}</span>
-                        )
-                      ) : null}
-                    </div>
-                  </div>
-                  <MiniAudioPlayerControls
-                    playing={playing}
-                    progress={progress}
-                    duration={duration}
-                    toggle={toggle}
-                    seek={seek}
-                    onPrev={() => stepTrack(-1)}
-                    onNext={() => stepTrack(1)}
-                    repeatOne={repeatOne}
-                    onRepeatToggle={() => setRepeatOne((r) => !r)}
-                  />
-                </>
-              );
-              const dock = playerBubbleOpen ? (
-                <div className="series-audio-player__dock">{dockInner}</div>
-              ) : null;
-              const hideToggle = portraitMenuChrome;
-              return (
-                <div
-                  ref={playerBubbleRef}
-                  className={`series-audio-player${
-                    playerBubbleOpen && !hideToggle ? " is-open" : ""
-                  }${hideToggle ? " series-audio-player--menu-anchor" : ""}`}
-                >
-                  {!hideToggle ? (
-                    <button
-                      type="button"
-                      className={`series-audio-player__toggle${
-                        playing && !playerBubbleOpen
-                          ? " series-audio-player__toggle--live"
-                          : ""
-                      }`}
-                      aria-pressed={playerBubbleOpen}
-                      aria-label={
-                        playerBubbleOpen ? "Hide player" : "Show player"
-                      }
-                      title={playerBubbleOpen ? "Hide player" : "Show player"}
-                      onClick={() => setPlayerBubbleOpen((v) => !v)}
-                    >
-                      <IconMediaMusic className="series-audio-player__icon" />
-                    </button>
-                  ) : null}
-                  {playerBubbleOpen && !hideToggle ? dock : null}
-                  {playerBubbleOpen && hideToggle
-                    ? createPortal(
-                        <div
-                          ref={playerBubbleDockRef}
-                          className="series-audio-player series-audio-player--menu-only is-open"
-                        >
-                          {dock}
-                        </div>,
-                        document.body
-                      )
-                    : null}
-                </div>
-              );
-            })()}
             <MediaInlineSearch
               mode="catalog"
               onSelectBand={(id) => onOpenArtist(id)}
@@ -1460,11 +1135,11 @@ export default function ArtistPage({
               section === "library" ||
               section === "tours") &&
               !portraitMenuChrome && (
-              <ReleaseCardLayoutPicker
-                value={releaseCardLayout}
-                onChange={setReleaseCardLayoutPersisted}
-              />
-            )}
+                <ReleaseCardLayoutPicker
+                  value={releaseCardLayout}
+                  onChange={setReleaseCardLayoutPersisted}
+                />
+              )}
             <AppMenu
               onImport={onImport}
               onSync={onSync}
@@ -1479,20 +1154,6 @@ export default function ArtistPage({
               menuChrome={
                 portraitMenuChrome ? (
                   <>
-                    {showPortraitPlayMusic ? (
-                      <button
-                        type="button"
-                        className={
-                          playing && !playerBubbleOpen
-                            ? "app-menu-chrome__live"
-                            : undefined
-                        }
-                        onClick={handlePortraitPlayMusic}
-                      >
-                        <IconMediaMusic className="menu-item-icon" />
-                        {playerBubbleOpen ? "Hide music" : "Play music"}
-                      </button>
-                    ) : null}
                     {(section === "audio" ||
                       section === "video" ||
                       section === "series" ||
@@ -1855,13 +1516,7 @@ export default function ArtistPage({
           </nav>
         )}
 
-        <div
-          ref={playerFallbackRef}
-          className="artist-page__player-bar"
-        />
       </div>
-
-      <audio ref={audioRef} preload="auto" playsInline />
 
       <div
         className={`artist-page__body${

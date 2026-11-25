@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   fetchBooksHomeAudioPool,
@@ -8,19 +14,21 @@ import {
   fetchSeriesHomeAudioPool,
 } from "../api";
 import {
-  applyPlaybackThemeFromCover,
-  endPlaybackThemeSession,
-  onPlaybackPaused,
-  onPlaybackResumed,
-  setPlaybackPlaying,
-} from "../mediaTheme";
+  getGlobalMusicAudioElement,
+  getGlobalMusicSnapshot,
+  globalMusicNext,
+  globalMusicPlayFrom,
+  globalMusicPrev,
+  globalMusicSeekRatio,
+  globalMusicToggle,
+  globalMusicToggleRepeatOne,
+  subscribeGlobalMusic,
+  type GlobalMusicTrack,
+} from "../globalMusicPlayer";
 import { musicStreamUrl } from "../musicStreamUrl";
 import { useBeatPulse } from "../useBeatPulse";
 import { IconMediaMusic } from "./MenuIcons";
-import {
-  MiniAudioPlayerControls,
-  useMiniAudio,
-} from "./music/artist/MiniAudioPlayer";
+import { MiniAudioPlayerControls } from "./music/artist/MiniAudioPlayer";
 import { trackMainTitle } from "./music/release/releaseTrackPanelMeta";
 
 export type ModuleHomeAudioKind = "series" | "movies" | "books" | "games";
@@ -108,7 +116,6 @@ export default function ModuleHomeAudioPlayer({
   hideToggle = false,
   open: openProp,
   onOpenChange,
-  userId,
   onOpenMusicRelease,
   onOpenMusicArtist,
   onOpenSourceLeaf,
@@ -116,7 +123,6 @@ export default function ModuleHomeAudioPlayer({
   onCoverChange,
   onHasSrcChange,
 }: Props) {
-  const audio = useMiniAudio();
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp ?? openInternal;
   const setOpen = (next: boolean | ((prev: boolean) => boolean)) => {
@@ -125,42 +131,40 @@ export default function ModuleHomeAudioPlayer({
     onOpenChange?.(value);
   };
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [repeatOne, setRepeatOne] = useState(false);
   const queueRef = useRef<Track[]>([]);
-  const indexRef = useRef(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const dockPortalRef = useRef<HTMLDivElement>(null);
   const loadedRef = useRef(false);
   const coverRef = useRef<string | null>(null);
+  const globalMusic = useSyncExternalStore(
+    subscribeGlobalMusic,
+    getGlobalMusicSnapshot,
+    getGlobalMusicSnapshot
+  );
+  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
+  globalAudioRef.current = getGlobalMusicAudioElement();
+  const playing = globalMusic.playing;
+  const hasSrc = globalMusic.hasTrack;
 
   useBeatPulse(
-    audio.audioRef,
-    Boolean(enabled && tracks.length && (open || audio.playing || audio.src)),
-    Boolean(audio.playing)
+    globalAudioRef,
+    Boolean(enabled && tracks.length && (open || playing || hasSrc)),
+    Boolean(playing)
   );
 
   useEffect(() => {
-    onPlayingChange?.(audio.playing);
-  }, [audio.playing, onPlayingChange]);
-
-  // Belt-and-suspenders: some pause paths miss the audio element event.
-  const wasPlayingRef = useRef(false);
-  useEffect(() => {
-    if (wasPlayingRef.current && !audio.playing) {
-      onPlaybackPaused(userId);
-    }
-    wasPlayingRef.current = audio.playing;
-  }, [audio.playing, userId]);
+    onPlayingChange?.(playing);
+  }, [playing, onPlayingChange]);
 
   useEffect(() => {
-    onHasSrcChange?.(Boolean(audio.src));
-  }, [audio.src, onHasSrcChange]);
+    onHasSrcChange?.(hasSrc);
+  }, [hasSrc, onHasSrcChange]);
 
   useEffect(() => {
-    indexRef.current = index;
-  }, [index]);
+    coverRef.current = globalMusic.current?.coverUrl ?? null;
+    onCoverChange?.(coverRef.current);
+  }, [globalMusic.current?.coverUrl, onCoverChange]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -189,7 +193,6 @@ export default function ModuleHomeAudioPlayer({
 
   useEffect(() => {
     return () => {
-      endPlaybackThemeSession(userId);
       onCoverChange?.(null);
       onPlayingChange?.(false);
       onHasSrcChange?.(false);
@@ -211,92 +214,50 @@ export default function ModuleHomeAudioPlayer({
       document.removeEventListener("pointerdown", onPointerDown, true);
   }, [open]);
 
-  const playAt = useCallback(
-    (i: number, list: Track[]) => {
-      const t = list[i];
-      const url = t ? playUrlFor(t) : null;
-      if (!t || !url) return;
-      setIndex(i);
-      const cover = t.cover_url ?? null;
-      coverRef.current = cover;
-      onCoverChange?.(cover);
-      audio.loadSrc(url, true, {
-        media: {
-          title: trackMainTitle(t.title) || t.title || "Track",
-          artist: t.artist ?? null,
-          album: t.release_title ?? null,
-          artworkUrl: cover,
-        },
+  const playAt = useCallback((i: number, list: Track[]) => {
+    const mapped: GlobalMusicTrack[] = [];
+    for (const t of list) {
+      const path = (t.play_path || "").trim();
+      const url = playUrlFor(t);
+      if (!path && !url) continue;
+      mapped.push({
+        id: path || url!,
+        path: path || url!,
+        title: trackMainTitle(t.title) || t.title || "Track",
+        artist: t.artist ?? null,
+        artistId: t.navigate_band_id ?? null,
+        releaseId: t.navigate_release_id ?? null,
+        releaseTitle: t.release_title ?? null,
+        coverUrl: t.cover_url ?? null,
+        playUrl: t.play_url ?? (path ? musicStreamUrl(path) : url),
       });
-      setPlaybackPlaying(true);
-      applyPlaybackThemeFromCover(cover, userId);
-    },
-    [audio, onCoverChange, userId]
-  );
-
-  const playNext = useCallback(() => {
-    const q = queueRef.current;
-    if (!q.length) return;
-    const next = (indexRef.current + 1) % q.length;
-    playAt(next, q);
-  }, [playAt]);
-
-  const playPrev = useCallback(() => {
-    const q = queueRef.current;
-    if (!q.length) return;
-    const prev = (indexRef.current - 1 + q.length) % q.length;
-    playAt(prev, q);
-  }, [playAt]);
-
-  useEffect(() => {
-    audio.setSessionHandlers({
-      previous: () => playPrev(),
-      next: () => playNext(),
-    });
-    return () => audio.setSessionHandlers(null);
-  }, [audio, playNext, playPrev]);
-
-  useEffect(() => {
-    const el = audio.audioRef.current;
-    if (!el) return;
-    const onPause = () => onPlaybackPaused(userId);
-    const onPlay = () => {
-      setPlaybackPlaying(true);
-      onPlaybackResumed(coverRef.current, userId);
-    };
-    const onEnd = () => {
-      if (repeatOne) {
-        el.currentTime = 0;
-        void el.play().catch(() => {});
-        return;
-      }
-      playNext();
-    };
-    el.addEventListener("pause", onPause);
-    el.addEventListener("play", onPlay);
-    el.addEventListener("ended", onEnd);
-    return () => {
-      el.removeEventListener("pause", onPause);
-      el.removeEventListener("play", onPlay);
-      el.removeEventListener("ended", onEnd);
-    };
-  }, [audio.audioRef, playNext, repeatOne, userId]);
+    }
+    if (!mapped.length) return;
+    const start = Math.max(0, Math.min(i, mapped.length - 1));
+    globalMusicPlayFrom(mapped, start);
+  }, []);
 
   if (!enabled) return null;
   // Keep chrome quiet until we know there is something to play.
   if (!loading && tracks.length === 0) return null;
 
-  const now = tracks[index];
-  const artistLabel = (now?.artist || "").trim();
+  const nowPath = globalMusic.current?.path;
+  const now =
+    tracks.find((t) => t.play_path === nowPath) ||
+    tracks.find((t) => playUrlFor(t) === globalMusic.current?.playUrl) ||
+    tracks[0];
+  const artistLabel = (now?.artist || globalMusic.current?.artist || "").trim();
   const sourceTitle = (now?.source_title || "").trim();
   const sourceFranchiseId = (now?.source_franchise_id || "").trim();
   const sourceModule = (now?.source_module || module) as ModuleHomeAudioKind;
   const canOpenRelease = Boolean(
-    now?.navigate_band_id &&
-      now?.navigate_release_id &&
+    (now?.navigate_band_id || globalMusic.current?.artistId) &&
+      (now?.navigate_release_id || globalMusic.current?.releaseId) &&
       onOpenMusicRelease
   );
-  const canOpenArtist = Boolean(now?.navigate_band_id && onOpenMusicArtist);
+  const canOpenArtist = Boolean(
+    (now?.navigate_band_id || globalMusic.current?.artistId) && onOpenMusicArtist
+  );
   const canOpenSource = Boolean(
     sourceTitle && sourceFranchiseId && onOpenSourceLeaf
   );
@@ -306,7 +267,7 @@ export default function ModuleHomeAudioPlayer({
   ) : (
     <>
       <div className="series-audio-player__now">
-        {now?.cover_url ? (
+        {(now?.cover_url || globalMusic.current?.coverUrl) ? (
           canOpenRelease ? (
             <button
               type="button"
@@ -317,19 +278,30 @@ export default function ModuleHomeAudioPlayer({
                 e.preventDefault();
                 e.stopPropagation();
                 onOpenMusicRelease?.(
-                  Number(now!.navigate_band_id),
-                  String(now!.navigate_release_id)
+                  Number(now?.navigate_band_id || globalMusic.current?.artistId),
+                  String(
+                    now?.navigate_release_id || globalMusic.current?.releaseId
+                  )
                 );
               }}
             >
-              <img src={now.cover_url} alt="" />
+              <img
+                src={now?.cover_url || globalMusic.current?.coverUrl || ""}
+                alt=""
+              />
             </button>
           ) : (
-            <img src={now.cover_url} alt="" />
+            <img
+              src={now?.cover_url || globalMusic.current?.coverUrl || ""}
+              alt=""
+            />
           )
         ) : null}
         <div>
-          <strong>{now?.title ? trackMainTitle(now.title) : "Now playing"}</strong>
+          <strong>
+            {globalMusic.current?.title ||
+              (now?.title ? trackMainTitle(now.title) : "Now playing")}
+          </strong>
           {artistLabel ? (
             canOpenArtist ? (
               <button
@@ -340,7 +312,11 @@ export default function ModuleHomeAudioPlayer({
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  onOpenMusicArtist?.(Number(now!.navigate_band_id));
+                  onOpenMusicArtist?.(
+                    Number(
+                      now?.navigate_band_id || globalMusic.current?.artistId
+                    )
+                  );
                 }}
               >
                 {artistLabel}
@@ -378,21 +354,21 @@ export default function ModuleHomeAudioPlayer({
         </div>
       </div>
       <MiniAudioPlayerControls
-        playing={audio.playing}
-        progress={audio.progress}
-        duration={audio.duration}
+        playing={playing}
+        progress={globalMusic.progress}
+        duration={globalMusic.duration}
         toggle={() => {
-          if (!audio.src && tracks.length) {
-            playAt(index, tracks);
+          if (!hasSrc && tracks.length) {
+            playAt(0, tracks);
             return;
           }
-          audio.toggle();
+          globalMusicToggle();
         }}
-        seek={audio.seek}
-        onPrev={playPrev}
-        onNext={playNext}
-        repeatOne={repeatOne}
-        onRepeatToggle={() => setRepeatOne((r) => !r)}
+        seek={(v) => globalMusicSeekRatio(v / 100)}
+        onPrev={() => globalMusicPrev()}
+        onNext={() => globalMusicNext()}
+        repeatOne={globalMusic.repeatOne}
+        onRepeatToggle={() => globalMusicToggleRepeatOne()}
       />
     </>
   );
@@ -413,9 +389,7 @@ export default function ModuleHomeAudioPlayer({
           <button
             type="button"
             className={`series-audio-player__toggle${
-              audio.playing && !open
-                ? " series-audio-player__toggle--live"
-                : ""
+              playing && !open ? " series-audio-player__toggle--live" : ""
             }`}
             aria-pressed={open}
             aria-label={open ? "Hide player" : "Show player"}
@@ -424,7 +398,7 @@ export default function ModuleHomeAudioPlayer({
             onClick={() => {
               const next = !open;
               setOpen(next);
-              if (next && tracks.length && !audio.src) {
+              if (next && tracks.length && !hasSrc) {
                 playAt(0, tracks);
               }
             }}
@@ -445,7 +419,6 @@ export default function ModuleHomeAudioPlayer({
             document.body
           )
         : null}
-      <audio ref={audio.audioRef} preload="auto" playsInline hidden />
     </>
   );
 }

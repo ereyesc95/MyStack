@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
 } from "react";
 import {
@@ -17,7 +18,6 @@ import {
   addReleaseStaffMember,
   removeReleaseStaffMember,
   patchReleaseStaffMember,
-  playTrack,
   refreshReleaseMetadata,
   resolveArtistName,
   searchArtistReleases,
@@ -89,21 +89,17 @@ import { invalidateWordCloud } from "../../../wordCloudInvalidation";
 import ReleaseVideoFetchModal, {
   type YoutubeFetchItem,
 } from "./ReleaseVideoFetchModal";
+import { warmMusicStreamForPath } from "../../../musicStreamUrl";
 import {
-  MiniAudioPlayerControls,
-  useMiniAudio,
-} from "../artist/MiniAudioPlayer";
-import {
-  musicStreamUrl,
-  warmMusicStreamForPath,
-} from "../../../musicStreamUrl";
-import {
-  getSharedPlaybackMeta,
-  setSharedPlaybackMeta,
-  useSharedMiniAudio,
-  useSharedPlaybackMeta,
-} from "../../../sharedMiniAudio";
-import { setNowPlaying } from "../../../mediaSession";
+  getGlobalMusicAudioElement,
+  getGlobalMusicSnapshot,
+  globalMusicPause,
+  globalMusicPlayFrom,
+  globalMusicToggle,
+  subscribeGlobalMusic,
+  type GlobalMusicTrack,
+} from "../../../globalMusicPlayer";
+import { setSharedPlaybackMeta } from "../../../sharedMiniAudio";
 import MediaBeatFx from "../MediaBeatFx";
 import MediaBeatFrame from "../MediaBeatFrame";
 import { useBeatPulse } from "../../../useBeatPulse";
@@ -449,7 +445,6 @@ export default function ReleasePage({
   onBackToCatalog,
   onBackToCollection,
   embedded = false,
-  onGoToReleasePage,
   onEmbedChromeChange,
 }: Props) {
   const layout = useDeviceLayout();
@@ -498,7 +493,6 @@ export default function ReleasePage({
   const [tracklistVisibilityReady, setTracklistVisibilityReady] = useState(() =>
     getCachedReleaseTracklist(bandId, releaseId) != null
   );
-  const [repeatOne, setRepeatOne] = useState(false);
   const [aboutEditOpen, setAboutEditOpen] = useState(false);
   const [videoSetOpen, setVideoSetOpen] = useState(false);
   const [lyricsSetOpen, setLyricsSetOpen] = useState(false);
@@ -575,12 +569,22 @@ export default function ReleasePage({
   const panelLabelRef = useRef<HTMLDivElement>(null);
   const panelBottomRef = useRef<HTMLDivElement>(null);
   const [tracklistKey, setTracklistKey] = useState(0);
-  const localMiniAudio = useMiniAudio();
-  const sharedMiniAudio = useSharedMiniAudio();
-  const sharedMeta = useSharedPlaybackMeta();
-  const miniAudio = embedded ? sharedMiniAudio : localMiniAudio;
-  const clearMiniAudio = localMiniAudio.clear;
-  const isPlaying = Boolean(playingPath && miniAudio.playing);
+  const globalMusic = useSyncExternalStore(
+    subscribeGlobalMusic,
+    getGlobalMusicSnapshot,
+    getGlobalMusicSnapshot
+  );
+  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
+  globalAudioRef.current = getGlobalMusicAudioElement();
+  const isPlaying = Boolean(
+    playingPath &&
+      globalMusic.playing &&
+      globalMusic.current?.path === playingPath
+  );
+  const hasGlobalCurrent =
+    Boolean(playingPath) &&
+    globalMusic.hasTrack &&
+    globalMusic.current?.path === playingPath;
   const displayPhotocards =
     isPlaying && trackPhotocards
       ? trackPhotocards
@@ -709,8 +713,8 @@ export default function ReleasePage({
     },
     [onOpenArtist]
   );
-  const beatActive = Boolean(playingPath && miniAudio.src);
-  useBeatPulse(miniAudio.audioRef, beatActive, miniAudio.playing);
+  const beatActive = Boolean(playingPath && globalMusic.hasTrack);
+  useBeatPulse(globalAudioRef, beatActive, isPlaying);
   const [bgLayers, setBgLayers] = useState<{
     current?: string;
     outgoing?: string;
@@ -806,27 +810,16 @@ export default function ReleasePage({
   );
 
   useLayoutEffect(() => {
-    /* Embedded leaf Audio shares the series player — don't kill playback on remount. */
-    if (!embedded) {
-      localMiniAudio.audioRef.current?.pause();
-      clearMiniAudio();
-    }
-    const keepShared =
-      embedded &&
-      Boolean(getSharedPlaybackMeta().path) &&
-      (getSharedPlaybackMeta().bandId == null ||
-        getSharedPlaybackMeta().bandId === bandId);
-    if (!keepShared) {
-      setPlayingPath(null);
-      setNowPlayingTitle(null);
-      setPlaybackArt(null);
-      setTrackPhotocards(null);
-      setVersionSource(null);
-      setPanelDateIso(null);
-      setPanelActionTrack(null);
-      setActiveTrack(null);
-      setTrackWriters([]);
-    }
+    // Reset release panel UI only — keep global playback running across navigation.
+    setPlayingPath(null);
+    setNowPlayingTitle(null);
+    setPlaybackArt(null);
+    setTrackPhotocards(null);
+    setVersionSource(null);
+    setPanelDateIso(null);
+    setPanelActionTrack(null);
+    setActiveTrack(null);
+    setTrackWriters([]);
     setCoverFailed(false);
     setCoverFlipped(false);
     setBannerFlipped(false);
@@ -845,29 +838,30 @@ export default function ReleasePage({
       void prefetchReleaseTracklist(bandId, resolvedReleaseId);
       load({ silent: Boolean(cached) });
     }
-  }, [
-    bandId,
-    resolvedReleaseId,
-    load,
-    clearMiniAudio,
-    embedded,
-    localMiniAudio.audioRef,
-  ]);
+  }, [bandId, resolvedReleaseId, load]);
 
-  /* Keep tracklist/visuals in sync with the shared leaf player. */
+  // When the global queue advances onto a track from this release, restore panel state.
   useEffect(() => {
-    if (!embedded) return;
-    const meta = sharedMeta;
-    if (!meta.path) return;
-    if (meta.bandId != null && meta.bandId !== bandId) return;
-    setPlayingPath(meta.path);
-    if (meta.title) setNowPlayingTitle(meta.title);
+    const cur = globalMusic.current;
+    if (!cur?.path) return;
+    if (cur.artistId != null && cur.artistId !== bandId) return;
+    if (
+      cur.releaseId &&
+      cur.releaseId !== releaseId &&
+      cur.releaseId !== data?.navigate_release_id
+    ) {
+      return;
+    }
+    if (playingPath === cur.path && nowPlayingTitle === cur.title) return;
+    setPlayingPath(cur.path);
+    setNowPlayingTitle(cur.title);
   }, [
-    embedded,
-    sharedMeta.path,
-    sharedMeta.title,
-    sharedMeta.bandId,
     bandId,
+    data?.navigate_release_id,
+    globalMusic.current,
+    nowPlayingTitle,
+    playingPath,
+    releaseId,
   ]);
 
   useEffect(() => {
@@ -1111,7 +1105,7 @@ export default function ReleasePage({
 
   // Only swap cover/disc/bg + track panel while audio is actually playing.
   // When paused/stopped, restore the release art and "Taken from…" meta.
-  const hasActiveTrack = Boolean(playingPath && miniAudio.playing);
+  const hasActiveTrack = isPlaying;
   const showPlaybackMotion = hasActiveTrack && isPlaying;
   const displayCover = hasActiveTrack
     ? (playbackArt?.cover_url ?? data?.cover_url ?? null)
@@ -1814,23 +1808,45 @@ export default function ReleasePage({
       _art?: ReleasePlaybackArt,
       _editionLabel?: string | null
     ) => {
-      if (playingPath === path && miniAudio.src) {
-        if (!miniAudio.playing) {
-          miniAudio.toggle();
-          return;
-        }
+      const snap = getGlobalMusicSnapshot();
+      if (playingPath === path && snap.hasTrack) {
+        globalMusicToggle();
         return;
       }
-      // Start audio first while still inside the tap gesture (mobile autoplay).
-      miniAudio.loadSrc(musicStreamUrl(path), true, {
-        media: {
-          title,
-          artist: data?.artist_name ?? null,
-          album: data?.title ?? null,
-          artworkUrl:
-            _art?.cover_url ?? data?.cover_url ?? null,
-        },
-      });
+
+      const list = (tracklistRef.current?.allTracks() ?? []).filter(
+        (t) => !t.is_video && Boolean(t.play_path)
+      );
+      const globalTracks: GlobalMusicTrack[] = list.map((t) => ({
+        id: t.play_path!,
+        path: t.play_path!,
+        title: t.title || "Track",
+        artist: data?.artist_name ?? null,
+        artistId: bandId,
+        releaseId: data?.navigate_release_id ?? releaseId,
+        releaseTitle: data?.title ?? null,
+        coverUrl: t.cover_url ?? data?.cover_url ?? null,
+      }));
+      const start = globalTracks.findIndex((t) => t.path === path);
+      if (start < 0) {
+        globalMusicPlayFrom(
+          [
+            {
+              id: path,
+              path,
+              title,
+              artist: data?.artist_name ?? null,
+              artistId: bandId,
+              releaseId: data?.navigate_release_id ?? releaseId,
+              releaseTitle: data?.title ?? null,
+              coverUrl: _art?.cover_url ?? data?.cover_url ?? null,
+            },
+          ],
+          0
+        );
+      } else {
+        globalMusicPlayFrom(globalTracks, start);
+      }
 
       setPlayingPath(path);
       setNowPlayingTitle(title);
@@ -1889,136 +1905,17 @@ export default function ReleasePage({
           source: "release",
         });
       }
-      // History / stats only — playback already started from the stream URL.
-      void playTrack({
-        path,
-        artist_id: bandId,
-        title,
-        release: data?.title,
-      }).catch(() => {});
     },
     [
       bandId,
       data,
       embedded,
-      miniAudio,
       playingPath,
       releaseId,
       resolveTrackSource,
       warmAdjacentStreams,
     ]
   ); // sync handler — keep play() inside the tap gesture
-
-  const playAdjacentTrack = useCallback(
-    (direction: "prev" | "next") => {
-      if (!playingPath || !tracklistRef.current) return;
-      const tracks = tracklistRef.current
-        .allTracks()
-        .filter((t) => !t.is_video);
-      if (!tracks.length) return;
-      const idx = tracks.findIndex((t) => t.play_path === playingPath);
-      if (idx < 0) return;
-      const target =
-        direction === "next"
-          ? tracks[(idx + 1) % tracks.length]
-          : tracks[(idx - 1 + tracks.length) % tracks.length];
-      const ctx = tracklistRef.current.findTrackContext(target.play_path);
-      void handlePlayTrack(
-        target.play_path,
-        target.title,
-        ctx?.art ?? {
-          cover_url: target.cover_url,
-          cover_animation_url: target.cover_animation_url,
-          canvas_url: target.canvas_url,
-          disc_url: target.disc_url,
-        }
-      );
-    },
-    [handlePlayTrack, playingPath]
-  );
-
-  const handlePanelPlayToggle = useCallback(async () => {
-    if (playingPath && miniAudio.src) {
-      miniAudio.toggle();
-      return;
-    }
-    let tracks = (tracklistRef.current?.allTracks() ?? []).filter(
-      (t) => !t.is_video
-    );
-    if (!tracks.length) {
-      try {
-        const payload = await fetchReleaseTracklist(bandId, releaseId);
-        tracks = payload.editions
-          .flatMap((ed) => ed.groups.flatMap((g) => g.tracks))
-          .filter((t) => !t.is_video);
-      } catch {
-        return;
-      }
-    }
-    const first = tracks[0];
-    if (!first) return;
-    const ctx = tracklistRef.current?.findTrackContext(first.play_path);
-    void handlePlayTrack(
-      first.play_path,
-      first.title,
-      ctx?.art ?? {
-        cover_url: first.cover_url,
-        cover_animation_url: first.cover_animation_url,
-        canvas_url: first.canvas_url,
-        disc_url: first.disc_url,
-      }
-    );
-  }, [bandId, releaseId, handlePlayTrack, miniAudio, playingPath]);
-
-  useEffect(() => {
-    const el = miniAudio.audioRef.current;
-    if (!el) return;
-    const onEnded = () => {
-      if (!playingPath) return;
-      if (repeatOne) {
-        const audio = miniAudio.audioRef.current;
-        if (audio) {
-          audio.currentTime = 0;
-          void audio.play().catch(() => {});
-        }
-        return;
-      }
-      playAdjacentTrack("next");
-    };
-    el.addEventListener("ended", onEnded);
-    return () => el.removeEventListener("ended", onEnded);
-  }, [miniAudio.audioRef, playAdjacentTrack, playingPath, repeatOne]);
-
-  useEffect(() => {
-    miniAudio.setSessionHandlers({
-      previous: () => playAdjacentTrack("prev"),
-      next: () => playAdjacentTrack("next"),
-    });
-    return () => miniAudio.setSessionHandlers(null);
-  }, [miniAudio, playAdjacentTrack]);
-
-  useEffect(() => {
-    if (!playingPath || !nowPlayingTitle || !miniAudio.src) return;
-    const el = miniAudio.audioRef.current;
-    setNowPlaying(
-      {
-        title: nowPlayingTitle,
-        artist: data?.artist_name ?? null,
-        album: data?.title ?? null,
-        artworkUrl: playbackArt?.cover_url ?? data?.cover_url ?? null,
-      },
-      { element: el }
-    );
-  }, [
-    data?.artist_name,
-    data?.cover_url,
-    data?.title,
-    miniAudio.audioRef,
-    miniAudio.src,
-    nowPlayingTitle,
-    playbackArt?.cover_url,
-    playingPath,
-  ]);
 
   useEffect(() => {
     if (!playingPath) return;
@@ -2101,9 +1998,9 @@ export default function ReleasePage({
       ? "release-page--tab-gallery"
       : "",
     beatActive ? "release-page--beat-ready" : "",
-    playingPath && miniAudio.playing ? "release-page--playing" : "",
-    playingPath && isTapePlayback ? "release-page--tape" : "",
-    playingPath && isVinylPlayback ? "release-page--vinyl" : "",
+    isPlaying ? "release-page--playing" : "",
+    hasGlobalCurrent && isTapePlayback ? "release-page--tape" : "",
+    hasGlobalCurrent && isVinylPlayback ? "release-page--vinyl" : "",
     pageCanvasActive ? "release-page--canvas" : "",
   ]
     .filter(Boolean)
@@ -2335,7 +2232,7 @@ export default function ReleasePage({
                 "release-page__disc",
                 bannerLayout ? "release-page__disc--banner" : "",
                 hasActiveTrack ? "release-page__disc--spin" : "",
-                hasActiveTrack && !miniAudio.playing ? "release-page__disc--spin-paused" : "",
+                hasActiveTrack && !isPlaying ? "release-page__disc--spin-paused" : "",
               ]
                 .filter(Boolean)
                 .join(" ")}
@@ -2798,16 +2695,6 @@ export default function ReleasePage({
           )}
 
           <div className="release-page__panel-footer">
-          <div className="release-page__panel-player">
-            <MiniAudioPlayerControls
-              {...miniAudio}
-              toggle={handlePanelPlayToggle}
-              onPrev={() => playAdjacentTrack("prev")}
-              onNext={() => playAdjacentTrack("next")}
-              repeatOne={repeatOne}
-              onRepeatToggle={() => setRepeatOne((r) => !r)}
-            />
-          </div>
           {data.prev || data.next ? (
             <div className="release-page__panel-bottom-bar">
               {data.prev ? (
@@ -2888,16 +2775,6 @@ export default function ReleasePage({
       {bannerLayout ? (
         <div className="release-page__panel-dock" ref={panelBottomRef}>
             <div className="release-page__panel-footer">
-            <div className="release-page__panel-player">
-              <MiniAudioPlayerControls
-                {...miniAudio}
-                toggle={handlePanelPlayToggle}
-                onPrev={() => playAdjacentTrack("prev")}
-                onNext={() => playAdjacentTrack("next")}
-                repeatOne={repeatOne}
-                onRepeatToggle={() => setRepeatOne((r) => !r)}
-              />
-            </div>
             {data.prev || data.next ? (
               <div className="release-page__panel-bottom-bar">
                 {data.prev ? (
@@ -2930,7 +2807,7 @@ export default function ReleasePage({
                 )}
               </div>
             ) : null}
-          </div>
+            </div>
         </div>
       ) : null}
       </div>
@@ -3511,7 +3388,11 @@ export default function ReleasePage({
                   stacked={stacked}
                   compactLyricsHead={stacked || tabletPortrait}
                   playingPath={playingPath}
-                  playbackProgress={tab === "tracklist" ? miniAudio.progress : 0}
+                  playbackProgress={
+                    tab === "tracklist" && hasGlobalCurrent
+                      ? globalMusic.progress
+                      : 0
+                  }
                   mobileView={mobileTrackView}
                   onMobileViewChange={setMobileTrackView}
                   mobileBackdropUrl={displayCover}
@@ -3528,7 +3409,7 @@ export default function ReleasePage({
                   reloadKey={tracklistKey}
                   isAdmin={isAdmin}
                   onOpenLyricsSet={isAdmin ? () => setLyricsSetOpen(true) : undefined}
-                  onPausePlayback={() => miniAudio.audioRef.current?.pause()}
+                  onPausePlayback={() => globalMusicPause()}
                 />
               </div>
             )}
@@ -3825,13 +3706,6 @@ export default function ReleasePage({
         />
       )}
 
-      {!embedded ? (
-        <audio
-          ref={localMiniAudio.audioRef}
-          preload="auto"
-          playsInline
-        />
-      ) : null}
     </div>
   );
 }

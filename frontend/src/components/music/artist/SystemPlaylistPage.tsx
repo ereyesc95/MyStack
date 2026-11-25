@@ -4,12 +4,12 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
 } from "react";
 import {
   fetchGlobalLiveShowsDetail,
   fetchTrackSourceArt,
-  playTrack,
   resolveArtistName,
   uploadUserPlaylistCover,
   updateUserPlaylist,
@@ -17,7 +17,16 @@ import {
   fetchPlaylistSubgenres,
   fetchFilterOptions,
 } from "../../../api";
-import { musicStreamUrl } from "../../../musicStreamUrl";
+import {
+  getGlobalMusicAudioElement,
+  getGlobalMusicSnapshot,
+  globalMusicPause,
+  globalMusicPlayFrom,
+  globalMusicSeekRatio,
+  globalMusicToggle,
+  subscribeGlobalMusic,
+  type GlobalMusicTrack,
+} from "../../../globalMusicPlayer";
 import { getCachedOverview, prefetchBandOverview } from "../../../overviewCache";
 import {
   getCachedArtistPlaylistDetail,
@@ -66,7 +75,6 @@ import type {
   BandOverview,
   ReleaseTrackItem,
 } from "../../../types";
-import { MiniAudioPlayerControls, useMiniAudio } from "./MiniAudioPlayer";
 import PlaylistBoot from "../../PlaylistBoot";
 import ConfirmDialog from "../../ConfirmDialog";
 import MsDisclosure from "../../MsDisclosure";
@@ -411,7 +419,6 @@ export default function SystemPlaylistPage({
     date_iso?: string | null;
     display_date?: string | null;
   } | null>(null);
-  const [repeatOne, setRepeatOne] = useState(false);
   const [mobileTrackView, setMobileTrackView] =
     useState<ReleaseMobileTrackView>("tracks");
   const [moreInfoOpen, setMoreInfoOpen] = useState(false);
@@ -433,9 +440,19 @@ export default function SystemPlaylistPage({
   const sourceArtCacheRef = useRef<Map<string, ReleasePlaybackArt>>(new Map());
   const prevBgRef = useRef<string | undefined>(undefined);
 
-  const miniAudio = useMiniAudio();
-  const beatActive = Boolean(playingPath && miniAudio.src);
-  useBeatPulse(miniAudio.audioRef, beatActive, miniAudio.playing);
+  const globalMusic = useSyncExternalStore(
+    subscribeGlobalMusic,
+    getGlobalMusicSnapshot,
+    getGlobalMusicSnapshot
+  );
+  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
+  globalAudioRef.current = getGlobalMusicAudioElement();
+  const beatActive = Boolean(playingPath && globalMusic.hasTrack);
+  useBeatPulse(
+    globalAudioRef,
+    beatActive,
+    Boolean(globalMusic.playing && globalMusic.current?.path === playingPath)
+  );
 
   const overview = bandId != null ? getCachedOverview(bandId, "landscape") : null;
 
@@ -636,7 +653,7 @@ export default function SystemPlaylistPage({
   }, [bandId, isGlobalLiveShows, isUserPlaylist, slug, userPlaylistId]);
 
   useEffect(() => {
-    miniAudio.clear();
+    // Reset playlist panel UI only — keep global playback running across navigation.
     setPlayingPath(null);
     setNowPlayingTitle(null);
     setPlaybackArt(null);
@@ -651,9 +668,7 @@ export default function SystemPlaylistPage({
     setMoreInfoOpen(false);
     sourceArtCacheRef.current.clear();
     prevBgRef.current = undefined;
-  }, [slug, userPlaylistId, miniAudio.clear]);
-
-  useEffect(() => () => miniAudio.clear(), [miniAudio.clear]);
+  }, [slug, userPlaylistId]);
 
   const allTracks = detail?.tracks ?? [];
   const isSnapshotPlaylist = detail?.snapshot_filters === true;
@@ -950,9 +965,17 @@ export default function SystemPlaylistPage({
     setCoverFailed(false);
   }, [coverUrl, playingPath, editPlaylist, userPlaylistId, slug]);
 
-  const isPlaying = Boolean(playingPath && miniAudio.playing);
-  // Restore playlist panel art/meta when paused or stopped (matches ReleasePage).
-  const hasActiveTrack = Boolean(playingPath && miniAudio.playing);
+  const isPlaying = Boolean(
+    playingPath &&
+      globalMusic.playing &&
+      globalMusic.current?.path === playingPath
+  );
+  // Panel art/meta while this playlist's track is current (playing or paused).
+  const hasActiveTrack = Boolean(
+    playingPath &&
+      globalMusic.hasTrack &&
+      globalMusic.current?.path === playingPath
+  );
   const showTrackPanel = Boolean(hasActiveTrack && nowPlayingTitle);
   // Idle / playlist-head mode: always show the playlist cover beside the disc.
   const usePlaylistCoverArt = isUserPlaylist && !showTrackPanel;
@@ -1083,56 +1106,6 @@ export default function SystemPlaylistPage({
     });
   }, []);
 
-  const playAdjacentTrack = useCallback(
-    (direction: "prev" | "next") => {
-      if (!playingPath) return;
-      const adj =
-        !isUserPlaylist && slug === "setlists" && setlistRef.current
-          ? setlistRef.current.adjacentTracks(playingPath)
-          : tracklistRef.current?.adjacentTracks(playingPath);
-      if (!adj) return;
-      const target = direction === "prev" ? adj.prev : adj.next;
-      if (!target?.play_path) return;
-      const source = tracks.find((t) => t.play_path === target.play_path);
-      setPlayingPath(target.play_path!);
-      setNowPlayingTitle(target.title);
-      miniAudio.loadSrc(musicStreamUrl(target.play_path!), true, {
-        media: {
-          title: target.title,
-          artist: source?.artist_name ?? overview?.name ?? null,
-          album: source?.album_title ?? null,
-          artworkUrl: source?.cover_url ?? null,
-        },
-      });
-      const artArgs = artArgsForTrack(source);
-      void resolvePlaybackArt(
-        artArgs.path || target.play_path!,
-        artArgs.releaseId ?? target.navigate_release_id ?? source?.navigate_release_id,
-        target.navigate_band_id ?? source?.navigate_band_id ?? bandId
-      ).then((art) => {
-        if (art) setPlaybackArt(art);
-      });
-      void playTrack({
-        path: target.play_path!,
-        artist_id: target.navigate_band_id ?? source?.navigate_band_id ?? bandId ?? undefined,
-        title: target.title,
-      }).catch((e) => {
-        setError(e instanceof Error ? e.message : String(e));
-      });
-    },
-    [
-      artArgsForTrack,
-      bandId,
-      isUserPlaylist,
-      miniAudio,
-      overview?.name,
-      playingPath,
-      resolvePlaybackArt,
-      slug,
-      tracks,
-    ]
-  );
-
   const handlePlayTrack = useCallback(
     (
       path: string,
@@ -1148,13 +1121,11 @@ export default function SystemPlaylistPage({
         setlistPlaybackKey === playbackKey;
       if (
         playingPath === path &&
-        miniAudio.src &&
+        globalMusic.hasTrack &&
+        globalMusic.current?.path === path &&
         (isUserPlaylist || slug !== "setlists" || sameSetlistPlayback)
       ) {
-        if (!miniAudio.playing) {
-          miniAudio.toggle();
-          return;
-        }
+        globalMusicToggle();
         return;
       }
       if (playbackKey) setSetlistPlaybackKey(playbackKey);
@@ -1169,18 +1140,48 @@ export default function SystemPlaylistPage({
       if (source?.cover_url || source?.art_play_path) {
         sourceArtCacheRef.current.set(path, fallbackArt);
       }
+
+      const queueSource = tracks.filter((t) => Boolean(t.play_path));
+      const globalTracks: GlobalMusicTrack[] = queueSource.map((t) => ({
+        id: t.play_path!,
+        path: t.play_path!,
+        title: t.title || "Track",
+        artist: t.artist_name ?? overview?.name ?? null,
+        artistId: t.navigate_band_id ?? bandId ?? null,
+        releaseId: t.navigate_release_id ?? null,
+        releaseTitle: t.album_title ?? null,
+        coverUrl: t.cover_url ?? null,
+      }));
+      const start = globalTracks.findIndex((t) => t.path === path);
+      if (start < 0) {
+        globalMusicPlayFrom(
+          [
+            {
+              id: path,
+              path,
+              title,
+              artist: source?.artist_name ?? overview?.name ?? null,
+              artistId: source?.navigate_band_id ?? bandId ?? null,
+              releaseId: source?.navigate_release_id ?? null,
+              releaseTitle: source?.album_title ?? null,
+              coverUrl: fallbackArt.cover_url ?? source?.cover_url ?? null,
+            },
+          ],
+          0
+        );
+      } else {
+        globalMusicPlayFrom(globalTracks, start);
+      }
+
       const restart =
-        !isUserPlaylist && slug === "setlists" && playingPath === path && !sameSetlistPlayback;
-      miniAudio.loadSrc(musicStreamUrl(path), true, {
-        restart,
-        media: {
-          title,
-          artist: source?.artist_name ?? overview?.name ?? null,
-          album: source?.album_title ?? null,
-          artworkUrl:
-            fallbackArt.cover_url ?? source?.cover_url ?? null,
-        },
-      });
+        !isUserPlaylist &&
+        slug === "setlists" &&
+        playingPath === path &&
+        !sameSetlistPlayback;
+      if (restart) {
+        globalMusicSeekRatio(0);
+      }
+
       const artArgs = artArgsForTrack(source);
       void resolvePlaybackArt(
         artArgs.path || path,
@@ -1194,13 +1195,6 @@ export default function SystemPlaylistPage({
           sourceArtCacheRef.current.set(path, resolved);
         }
       });
-      void playTrack({
-        path,
-        artist_id: source?.navigate_band_id ?? bandId ?? undefined,
-        title,
-      }).catch((e) => {
-        setError(e instanceof Error ? e.message : String(e));
-      });
       void prefetchTrackCredits(
         source?.navigate_band_id ?? bandId ?? 0,
         source?.navigate_release_id ?? "",
@@ -1212,8 +1206,9 @@ export default function SystemPlaylistPage({
     [
       artArgsForTrack,
       bandId,
+      globalMusic.current?.path,
+      globalMusic.hasTrack,
       isUserPlaylist,
-      miniAudio,
       overview?.name,
       panelActionTrack?.navigate_release_id,
       playingPath,
@@ -1222,16 +1217,32 @@ export default function SystemPlaylistPage({
       slug,
       stacked,
       trackFallbackArt,
+      tracks,
     ]
   );
 
+  // When global queue advances, keep playlist panel art/title in sync.
   useEffect(() => {
-    miniAudio.setSessionHandlers({
-      previous: () => playAdjacentTrack("prev"),
-      next: () => playAdjacentTrack("next"),
-    });
-    return () => miniAudio.setSessionHandlers(null);
-  }, [miniAudio, playAdjacentTrack]);
+    const cur = globalMusic.current;
+    if (!cur?.path) return;
+    const inList = tracks.some((t) => t.play_path === cur.path);
+    if (!inList) return;
+    if (playingPath === cur.path && nowPlayingTitle === cur.title) return;
+    setPlayingPath(cur.path);
+    setNowPlayingTitle(cur.title);
+    const source = tracks.find((t) => t.play_path === cur.path);
+    if (source) {
+      const cached = sourceArtCacheRef.current.get(cur.path);
+      if (cached) setPlaybackArt(cached);
+      else setPlaybackArt(trackFallbackArt(source));
+    }
+  }, [
+    globalMusic.current,
+    nowPlayingTitle,
+    playingPath,
+    trackFallbackArt,
+    tracks,
+  ]);
 
   useEffect(() => {
     if (!playingPath) return;
@@ -1392,22 +1403,6 @@ export default function SystemPlaylistPage({
       cancelled = true;
     };
   }, [bandId, creditsBandId, nowPlayingTitle, panelActionTrack?.navigate_release_id]);
-
-  useEffect(() => {
-    const el = miniAudio.audioRef.current;
-    if (!el) return;
-    const onEnded = () => {
-      if (!playingPath) return;
-      if (repeatOne) {
-        el.currentTime = 0;
-        void el.play().catch(() => {});
-        return;
-      }
-      playAdjacentTrack("next");
-    };
-    el.addEventListener("ended", onEnded);
-    return () => el.removeEventListener("ended", onEnded);
-  }, [miniAudio.audioRef, playAdjacentTrack, playingPath, repeatOne]);
 
   const hidePerformerName =
     !isUserPlaylist && (slug === "appearances" || slug === "features") ? artistName : undefined;
@@ -2118,8 +2113,8 @@ export default function SystemPlaylistPage({
                     className={`release-page__disc${
                       bannerLayout ? " release-page__disc--banner" : ""
                     }${
-                      playingPath && miniAudio.playing ? " release-page__disc--spin" : ""
-                    }${playingPath && !miniAudio.playing ? " release-page__disc--spin-paused" : ""}`}
+                      hasActiveTrack && isPlaying ? " release-page__disc--spin" : ""
+                    }${hasActiveTrack && !isPlaying ? " release-page__disc--spin-paused" : ""}`}
                     draggable={false}
                   />
                 ) : null}
@@ -2386,7 +2381,7 @@ export default function SystemPlaylistPage({
                             </p>
                           </div>
                         ) : null}
-                        {bannerLayout && panelActionTrack && miniAudio.playing ? (
+                        {bannerLayout && panelActionTrack && hasActiveTrack ? (
                           <div className="release-page__track-actions release-page__track-actions--in-info">
                             {showLyricsAction && (
                               <button
@@ -2491,7 +2486,7 @@ export default function SystemPlaylistPage({
                     </p>
                   </div>
                 ) : null}
-                {panelActionTrack && miniAudio.playing && (
+                {panelActionTrack && hasActiveTrack && (
                   <div className="release-page__track-actions release-page__track-actions--above-player">
                     {showLyricsAction && (
                       <button
@@ -2534,21 +2529,6 @@ export default function SystemPlaylistPage({
                 )}
 
                 <div className="release-page__panel-footer">
-                  {slug !== "music-videos" ? (
-                    <div className="release-page__panel-player">
-                      <MiniAudioPlayerControls
-                        playing={miniAudio.playing}
-                        progress={miniAudio.progress}
-                        duration={miniAudio.duration}
-                        toggle={miniAudio.toggle}
-                        seek={miniAudio.seek}
-                        onPrev={() => playAdjacentTrack("prev")}
-                        onNext={() => playAdjacentTrack("next")}
-                        repeatOne={repeatOne}
-                        onRepeatToggle={() => setRepeatOne((r) => !r)}
-                      />
-                    </div>
-                  ) : null}
                   {detail.prev || detail.next ? (
                     <div className="release-page__panel-bottom-bar">
                       {detail.prev ? (
@@ -2586,21 +2566,6 @@ export default function SystemPlaylistPage({
             {bannerLayout ? (
               <div className="release-page__panel-dock">
                 <div className="release-page__panel-footer">
-                  {slug !== "music-videos" ? (
-                    <div className="release-page__panel-player">
-                      <MiniAudioPlayerControls
-                        playing={miniAudio.playing}
-                        progress={miniAudio.progress}
-                        duration={miniAudio.duration}
-                        toggle={miniAudio.toggle}
-                        seek={miniAudio.seek}
-                        onPrev={() => playAdjacentTrack("prev")}
-                        onNext={() => playAdjacentTrack("next")}
-                        repeatOne={repeatOne}
-                        onRepeatToggle={() => setRepeatOne((r) => !r)}
-                      />
-                    </div>
-                  ) : null}
                   {detail.prev || detail.next ? (
                     <div className="release-page__panel-bottom-bar">
                       {detail.prev ? (
@@ -2724,14 +2689,16 @@ export default function SystemPlaylistPage({
                 stacked={stacked}
                 compactLyricsHead={stacked || tabletPortrait}
                 playingPath={playingPath}
-                playbackProgress={miniAudio.progress}
+                playbackProgress={
+                  hasActiveTrack ? globalMusic.progress : 0
+                }
                 mobileView={mobileTrackView}
                 mobileBackdropUrl={displayCover}
                 onPlay={(path, title, art, track) =>
                   void handlePlayTrack(path, title, art, track)
                 }
                 onPanelActionsChange={handlePanelActionsChange}
-                onPausePlayback={() => miniAudio.audioRef.current?.pause()}
+                onPausePlayback={() => globalMusicPause()}
                 isAdmin={isAdmin}
                 hidePerformer={hidePerformerName}
                 hideCoverArtist={hideCoverArtist}
@@ -2742,7 +2709,6 @@ export default function SystemPlaylistPage({
         </main>
       </div>
 
-      <audio ref={miniAudio.audioRef} preload="auto" playsInline />
       {isUserPlaylist && (
         <input
           ref={coverInputRef}
