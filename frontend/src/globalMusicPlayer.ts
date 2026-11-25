@@ -342,7 +342,8 @@ function collectManualInserts(): {
 
 function applyManualInserts(
   base: GlobalMusicTrack[],
-  manuals: { nexts: GlobalMusicTrack[]; lasts: GlobalMusicTrack[] }
+  manuals: { nexts: GlobalMusicTrack[]; lasts: GlobalMusicTrack[] },
+  currentIndex = 0
 ): GlobalMusicTrack[] {
   const out = base.slice();
   const seen = new Set(out.map((t) => t.id));
@@ -356,7 +357,8 @@ function applyManualInserts(
     seen.add(t.id);
     return true;
   });
-  if (nexts.length) out.splice(1, 0, ...nexts);
+  const insertAt = Math.min(Math.max(0, currentIndex + 1), out.length);
+  if (nexts.length) out.splice(insertAt, 0, ...nexts);
   if (lasts.length) out.push(...lasts);
   return out;
 }
@@ -464,7 +466,11 @@ export function setGlobalMusicUserId(id: number | undefined) {
   userId = id;
 }
 
-/** Play from clicked track through the rest of the list (locked 4b). */
+/**
+ * Play a tracklist starting at `startIndex`.
+ * Queue keeps tracks before the current one so Previous can walk backward.
+ * Manual play-next / play-last inserts are re-seated after current / at end.
+ */
 export function globalMusicPlayFrom(
   tracks: GlobalMusicTrack[],
   startIndex: number,
@@ -475,17 +481,30 @@ export function globalMusicPlayFrom(
   const start = Math.max(0, Math.min(startIndex, list.length - 1));
   const previousId = currentTrack()?.id ?? null;
   const manuals = collectManualInserts();
-  // From clicked track onward — replace context queue, keep manual inserts.
-  const onward = list.slice(start).map((t) => ({ ...t, queuedBy: null }));
-  originalQueue = onward.slice();
+  const base = list.map((t) => ({ ...t, queuedBy: null as const }));
+  originalQueue = base.slice();
+  const startId = base[start]?.id ?? null;
   let nextQueue = shuffle
-    ? buildShuffledOrder(originalQueue, onward[0]?.id ?? null)
+    ? buildShuffledOrder(originalQueue, startId)
     : originalQueue.slice();
-  nextQueue = applyManualInserts(nextQueue, manuals);
+  let playAt = shuffle
+    ? 0
+    : Math.max(
+        0,
+        nextQueue.findIndex((t) => t.id === startId)
+      );
+  nextQueue = applyManualInserts(nextQueue, manuals, playAt);
+  // Re-resolve index in case manuals shifted the current track.
+  if (!shuffle && startId) {
+    playAt = Math.max(
+      0,
+      nextQueue.findIndex((t) => t.id === startId)
+    );
+  }
   queue = nextQueue;
-  index = 0;
+  index = playAt;
   queueOpen = false;
-  void loadIndex(0, opts?.autoPlay !== false, { previousId });
+  void loadIndex(playAt, opts?.autoPlay !== false, { previousId });
 }
 
 /** Insert immediately after the current track (manual — survives playFrom). */

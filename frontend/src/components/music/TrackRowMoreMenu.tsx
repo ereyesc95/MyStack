@@ -96,16 +96,16 @@ export default function TrackRowMoreMenu({
       const rect = btnRef.current!.getBoundingClientRect();
       const menuH = menuRef.current?.offsetHeight || 128;
       const menuW = menuRef.current?.offsetWidth || 180;
-      const spaceAbove = rect.top;
-      const openDown = spaceAbove < menuH + 12;
-      const top = openDown
-        ? Math.min(window.innerHeight - menuH - 8, rect.bottom + 4)
-        : Math.max(8, rect.top - menuH - 4);
+      // Always open under the button; clamp into the viewport if needed.
+      const top = Math.min(
+        window.innerHeight - menuH - 8,
+        Math.max(8, rect.bottom + 4)
+      );
       const left = Math.min(
         Math.max(8, rect.right - menuW),
         window.innerWidth - menuW - 8
       );
-      setPos({ top, left, openDown });
+      setPos({ top, left, openDown: true });
     };
     place();
     window.addEventListener("resize", place);
@@ -143,9 +143,7 @@ export default function TrackRowMoreMenu({
       ? createPortal(
           <div
             ref={menuRef}
-            className={`track-row-more__menu${shown ? " is-shown" : ""}${
-              pos.openDown ? " is-down" : " is-up"
-            }`}
+            className={`track-row-more__menu${shown ? " is-shown" : ""}`}
             role="menu"
             style={{ top: pos.top, left: pos.left }}
           >
@@ -218,15 +216,15 @@ export default function TrackRowMoreMenu({
               const rect = btnRef.current.getBoundingClientRect();
               const menuH = 128;
               const menuW = 180;
-              const openDown = rect.top < menuH + 12;
-              const top = openDown
-                ? Math.min(window.innerHeight - menuH - 8, rect.bottom + 4)
-                : Math.max(8, rect.top - menuH - 4);
+              const top = Math.min(
+                window.innerHeight - menuH - 8,
+                Math.max(8, rect.bottom + 4)
+              );
               const left = Math.min(
                 Math.max(8, rect.right - menuW),
                 window.innerWidth - menuW - 8
               );
-              setPos({ top, left, openDown });
+              setPos({ top, left, openDown: true });
             }
             return next;
           });

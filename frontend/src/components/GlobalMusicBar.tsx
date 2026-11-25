@@ -51,7 +51,7 @@ function formatTime(sec: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-/** Classic map-pin — clearer than a thin thumbtack at small size. */
+/** Pushpin / thumbtack — not a map location marker. */
 function PinIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -62,7 +62,7 @@ function PinIcon({ className }: { className?: string }) {
       aria-hidden
     >
       <path
-        d="M12 2C8.7 2 6 4.7 6 8c0 4.5 6 12 6 12s6-7.5 6-12c0-3.3-2.7-6-6-6zm0 8.2a2.2 2.2 0 1 1 0-4.4 2.2 2.2 0 0 1 0 4.4z"
+        d="M16 3c.6 0 1 .4 1 1v1h1c.6 0 1 .4 1 1s-.4 1-1 1h-1.1l-1.2 7H17c.6 0 1 .4 1 1s-.4 1-1 1h-4v6c0 .6-.4 1-1 1s-1-.4-1-1v-6H7c-.6 0-1-.4-1-1s.4-1 1-1h1.3L7.1 7H6c-.6 0-1-.4-1-1s.4-1 1-1h1V4c0-.6.4-1 1-1h8z"
         fill="currentColor"
       />
     </svg>
@@ -314,16 +314,9 @@ export default function GlobalMusicBar({
 
   return (
     <>
+      {/* Invisible bottom hover strip when hidden — no floating pin chrome. */}
       {snap.barHidden && !visible ? (
-        <button
-          type="button"
-          className="global-music-edge global-music-edge--pin"
-          aria-label="Pin player"
-          title="Pin player"
-          onClick={() => globalMusicSetBarHidden(false)}
-        >
-          <PinIcon className="global-music-edge__pin" />
-        </button>
+        <div className="global-music-edge" aria-hidden />
       ) : null}
       <div
         ref={barRef}
