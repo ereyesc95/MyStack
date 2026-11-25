@@ -1,4 +1,11 @@
-import { useEffect, useSyncExternalStore, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+} from "react";
 import {
   getGlobalMusicSnapshot,
   globalMusicClear,
@@ -17,6 +24,8 @@ import {
   subscribeGlobalMusic,
   type GlobalMusicTrack,
 } from "../globalMusicPlayer";
+import { trackMainTitle } from "./music/release/releaseTrackPanelMeta";
+import { formatTrackDate } from "../formatDate";
 
 export type GlobalMusicBarNav = {
   onOpenArtist?: (bandId: number, name?: string | null) => void;
@@ -42,6 +51,93 @@ function formatTime(sec: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+function PinIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      width="1em"
+      height="1em"
+      aria-hidden
+    >
+      <path
+        d="M12 2l1.2 5.2L18 9l-4.2 2.2L15 19l-3-3.5L9 19l1.2-7.8L6 9l4.8-1.8L12 2z"
+        fill="currentColor"
+      />
+      <path
+        d="M12 15.5V22"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function ScrollingTitle({
+  text,
+  onClick,
+  disabled,
+}: {
+  text: string;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  const clipRef = useRef<HTMLSpanElement>(null);
+  const innerRef = useRef<HTMLSpanElement>(null);
+  const [scroll, setScroll] = useState(false);
+  const [end, setEnd] = useState("0px");
+  const [duration, setDuration] = useState("8s");
+
+  useLayoutEffect(() => {
+    const clip = clipRef.current;
+    const inner = innerRef.current;
+    if (!clip || !inner) return;
+    const measure = () => {
+      inner.style.transform = "";
+      void inner.offsetWidth;
+      const overflow = Math.max(0, inner.scrollWidth - clip.clientWidth);
+      const needs = overflow > 2;
+      setScroll(needs);
+      setEnd(needs ? `-${overflow}px` : "0px");
+      setDuration(`${Math.max(6, overflow / 28)}s`);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(clip);
+    return () => ro.disconnect();
+  }, [text]);
+
+  return (
+    <button
+      type="button"
+      className="global-music-bar__title"
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <span
+        ref={clipRef}
+        className={`global-music-bar__title-clip${
+          scroll ? " is-scroll" : ""
+        }`}
+        style={
+          scroll
+            ? ({
+                "--scroll-end": end,
+                "--scroll-duration": duration,
+              } as CSSProperties)
+            : undefined
+        }
+      >
+        <span ref={innerRef} className="global-music-bar__title-inner">
+          {text}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 type Props = GlobalMusicBarNav;
 
 export default function GlobalMusicBar({
@@ -54,8 +150,10 @@ export default function GlobalMusicBar({
   const barRef = useRef<HTMLDivElement>(null);
   const volumeBeforeMute = useRef(1);
 
+  const pinned = snap.hasTrack && !snap.barHidden;
   const visible =
-    snap.hasTrack && (!snap.barHidden || edgeHover || snap.queueOpen);
+    snap.hasTrack &&
+    (!snap.barHidden || edgeHover || snap.queueOpen || snap.barPeeking);
 
   useEffect(() => {
     if (!snap.barHidden) {
@@ -70,7 +168,6 @@ export default function GlobalMusicBar({
     return () => window.removeEventListener("pointermove", onMove);
   }, [snap.barHidden]);
 
-  // Mobile: tap bottom edge zone to reveal when hidden
   useEffect(() => {
     if (!snap.barHidden) return;
     const onTap = (e: PointerEvent) => {
@@ -78,7 +175,6 @@ export default function GlobalMusicBar({
       const fromBottom = window.innerHeight - e.clientY;
       if (fromBottom < 36) {
         setEdgeHover(true);
-        globalMusicSetBarHidden(false);
       }
     };
     window.addEventListener("pointerdown", onTap, { passive: true });
@@ -97,11 +193,37 @@ export default function GlobalMusicBar({
     return () => document.removeEventListener("pointerdown", onDown, true);
   }, [snap.queueOpen]);
 
-  if (!snap.hasTrack && !snap.barHidden) return null;
+  // Spacebar play/pause when a track is loaded (ignore typing in fields).
+  useEffect(() => {
+    if (!snap.hasTrack) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== "Space" && e.key !== " ") return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      e.preventDefault();
+      globalMusicToggle();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [snap.hasTrack]);
+
   if (!snap.hasTrack) return null;
 
   const cur = snap.current as GlobalMusicTrack;
   const pct = snap.duration ? (snap.progress / snap.duration) * 100 : 0;
+  const displayTitle = trackMainTitle(cur.title) || cur.title;
+  const releaseTipTitle = (cur.releaseTitle || "").trim();
+  const releaseTipDate = formatTrackDate(cur.releaseDate);
 
   const openArtist = () => {
     if (cur.artistId != null) onOpenArtist?.(cur.artistId, cur.artist);
@@ -120,21 +242,26 @@ export default function GlobalMusicBar({
       {snap.barHidden && !visible ? (
         <button
           type="button"
-          className="global-music-edge"
-          aria-label="Show player"
+          className="global-music-edge global-music-edge--pin"
+          aria-label="Pin player"
+          title="Pin player"
           onClick={() => globalMusicSetBarHidden(false)}
-        />
+        >
+          <PinIcon className="global-music-edge__pin" />
+        </button>
       ) : null}
       <div
         ref={barRef}
         className={`global-music-bar${visible ? " is-visible" : " is-hidden"}${
-          snap.queueOpen ? " is-queue-open" : ""
-        }`}
+          pinned ? " is-pinned" : " is-overlay"
+        }${snap.queueOpen ? " is-queue-open" : ""}`}
         onMouseEnter={() => {
           if (snap.barHidden) setEdgeHover(true);
         }}
         onMouseLeave={() => {
-          if (snap.barHidden && !snap.queueOpen) setEdgeHover(false);
+          if (snap.barHidden && !snap.queueOpen && !snap.barPeeking) {
+            setEdgeHover(false);
+          }
         }}
       >
         {snap.queueOpen ? (
@@ -183,7 +310,9 @@ export default function GlobalMusicBar({
                     <span className="global-music-queue__cover global-music-queue__cover--empty" />
                   )}
                   <span className="global-music-queue__meta">
-                    <span className="global-music-queue__title">{t.title}</span>
+                    <span className="global-music-queue__title">
+                      {trackMainTitle(t.title) || t.title}
+                    </span>
                     {t.artist ? (
                       <span className="global-music-queue__artist">
                         {t.artist}
@@ -217,17 +346,26 @@ export default function GlobalMusicBar({
             ) : (
               <span className="global-music-bar__cover global-music-bar__cover--empty" />
             )}
+            {releaseTipTitle ? (
+              <span className="global-music-bar__cover-tip" role="tooltip">
+                <span className="global-music-bar__cover-tip-title">
+                  {releaseTipTitle}
+                </span>
+                {releaseTipDate ? (
+                  <span className="global-music-bar__cover-tip-date">
+                    {releaseTipDate}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
           </button>
 
           <div className="global-music-bar__text">
-            <button
-              type="button"
-              className="global-music-bar__title"
+            <ScrollingTitle
+              text={displayTitle}
               onClick={openRelease}
               disabled={!(cur.artistId != null && cur.releaseId)}
-            >
-              {cur.title}
-            </button>
+            />
             {cur.artist ? (
               <button
                 type="button"
@@ -267,7 +405,7 @@ export default function GlobalMusicBar({
             />
             <input
               type="range"
-              className="artist-mini-player__seek"
+              className="artist-mini-player__seek global-music-bar__seek"
               min={0}
               max={100}
               step={0.1}
@@ -353,14 +491,27 @@ export default function GlobalMusicBar({
             >
               ≡
             </button>
-            <button
-              type="button"
-              className="global-music-bar__hide"
-              onClick={() => globalMusicSetBarHidden(true)}
-              aria-label="Hide player"
-            >
-              ▾
-            </button>
+            {snap.barHidden ? (
+              <button
+                type="button"
+                className="global-music-bar__hide global-music-bar__pin"
+                onClick={() => globalMusicSetBarHidden(false)}
+                aria-label="Pin player"
+                title="Pin player"
+              >
+                <PinIcon />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="global-music-bar__hide"
+                onClick={() => globalMusicSetBarHidden(true)}
+                aria-label="Hide player"
+                title="Hide player"
+              >
+                ▾
+              </button>
+            )}
           </div>
         </div>
       </div>

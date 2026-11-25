@@ -1149,7 +1149,9 @@ export default function SystemPlaylistPage({
         artist: t.artist_name ?? overview?.name ?? null,
         artistId: t.navigate_band_id ?? bandId ?? null,
         releaseId: t.navigate_release_id ?? null,
-        releaseTitle: t.album_title ?? null,
+        releaseTitle: t.album_title ?? t.source_release_title ?? null,
+        releaseDate:
+          t.source_release_date ?? t.release_date ?? t.source_display_date ?? null,
         coverUrl: t.cover_url ?? null,
       }));
       const start = globalTracks.findIndex((t) => t.path === path);
@@ -1163,7 +1165,13 @@ export default function SystemPlaylistPage({
               artist: source?.artist_name ?? overview?.name ?? null,
               artistId: source?.navigate_band_id ?? bandId ?? null,
               releaseId: source?.navigate_release_id ?? null,
-              releaseTitle: source?.album_title ?? null,
+              releaseTitle:
+                source?.album_title ?? source?.source_release_title ?? null,
+              releaseDate:
+                source?.source_release_date ??
+                source?.release_date ??
+                source?.source_display_date ??
+                null,
               coverUrl: fallbackArt.cover_url ?? source?.cover_url ?? null,
             },
           ],

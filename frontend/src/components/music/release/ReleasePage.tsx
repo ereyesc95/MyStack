@@ -1825,6 +1825,7 @@ export default function ReleasePage({
         artistId: bandId,
         releaseId: data?.navigate_release_id ?? releaseId,
         releaseTitle: data?.title ?? null,
+        releaseDate: t.source_date_iso ?? data?.date_iso ?? null,
         coverUrl: t.cover_url ?? data?.cover_url ?? null,
       }));
       const start = globalTracks.findIndex((t) => t.path === path);
@@ -1839,6 +1840,7 @@ export default function ReleasePage({
               artistId: bandId,
               releaseId: data?.navigate_release_id ?? releaseId,
               releaseTitle: data?.title ?? null,
+              releaseDate: data?.date_iso ?? null,
               coverUrl: _art?.cover_url ?? data?.cover_url ?? null,
             },
           ],
@@ -3385,6 +3387,7 @@ export default function ReleasePage({
                   releaseNavigateId={tracklistMeta.releaseNavigateId}
                   artistName={tracklistMeta.artistName}
                   releaseTitle={tracklistMeta.releaseTitle}
+                  releaseDate={data?.date_iso ?? null}
                   stacked={stacked}
                   compactLyricsHead={stacked || tabletPortrait}
                   playingPath={playingPath}

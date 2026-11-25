@@ -43,6 +43,8 @@ import ReleaseLyricsEditModal from "./ReleaseLyricsEditModal";
 import LyricsStatusBadge from "./LyricsStatusBadge";
 import { ChevronIcon, parseTrackPanelMeta, trackDisplayTitle, trackMainTitle } from "./releaseTrackPanelMeta";
 import { TrackActionEditIcon, TrackActionRetryIcon } from "./releaseTrackActionIcons";
+import TrackRowMoreMenu from "../TrackRowMoreMenu";
+import type { GlobalMusicTrack } from "../../../globalMusicPlayer";
 
 function openVideoTrack(track: ReleaseTrackItem) {
   const url =
@@ -135,6 +137,30 @@ export type ReleaseTracklistHandle = {
     editionIndex: number;
   } | null;
 };
+
+function globalTrackFromReleaseItem(
+  track: ReleaseTrackItem,
+  meta: {
+    artistName: string;
+    bandId: number;
+    releaseId: string;
+    releaseTitle: string;
+    releaseDate?: string | null;
+    coverUrl?: string | null;
+  }
+): GlobalMusicTrack {
+  return {
+    id: track.play_path,
+    path: track.play_path,
+    title: track.title || "Track",
+    artist: meta.artistName,
+    artistId: track.navigate_band_id ?? meta.bandId,
+    releaseId: track.navigate_release_id ?? meta.releaseId,
+    releaseTitle: track.source_album_title ?? meta.releaseTitle,
+    releaseDate: track.source_date_iso ?? meta.releaseDate ?? null,
+    coverUrl: track.cover_url ?? meta.coverUrl ?? null,
+  };
+}
 
 function stripBracketSuffix(text: string): string {
   return text.replace(/\s*\[[^\]]+\]\s*/g, " ").replace(/\s+/g, " ").trim();
@@ -323,6 +349,8 @@ type Props = {
   releaseNavigateId?: string | null;
   artistName: string;
   releaseTitle: string;
+  /** Folder / original release date for player cover tooltip. */
+  releaseDate?: string | null;
   stacked: boolean;
   compactLyricsHead?: boolean;
   playingPath: string | null;
@@ -506,6 +534,7 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
     releaseNavigateId,
     artistName,
     releaseTitle,
+    releaseDate = null,
     stacked,
     compactLyricsHead = false,
     playingPath,
@@ -550,6 +579,31 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
   const [versionsLoading, setVersionsLoading] = useState(false);
   const [versionsError, setVersionsError] = useState<string | null>(null);
   const [plusTrack, setPlusTrack] = useState<ReleaseTrackItem | null>(null);
+  const durationCell = (track: ReleaseTrackItem, coverFallback?: string | null) => (
+    <span className="release-tracklist__duration-wrap">
+      {!track.is_video && track.play_path ? (
+        <TrackRowMoreMenu
+          track={globalTrackFromReleaseItem(track, {
+            artistName,
+            bandId,
+            releaseId: releaseNavigateId || releaseId,
+            releaseTitle,
+            releaseDate,
+            coverUrl: coverFallback ?? null,
+          })}
+          onAddToPlaylist={() => setPlusTrack(track)}
+        />
+      ) : null}
+      {track.duration ? (
+        <span className="release-tracklist__duration">{track.duration}</span>
+      ) : (
+        <span
+          className="release-tracklist__duration release-tracklist__duration--empty"
+          aria-hidden
+        />
+      )}
+    </span>
+  );
   const [lyricsEditOpen, setLyricsEditOpen] = useState(false);
   const [collectionModal, setCollectionModal] = useState<{
     folderPath: string;
@@ -1286,12 +1340,9 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
                                       }}
                                     />
                                   </span>
-                                  {track.duration ? (
-                                    <span className="release-tracklist__duration">
-                                      {track.duration}
-                                    </span>
-                                  ) : (
-                                    <span className="release-tracklist__duration release-tracklist__duration--empty" aria-hidden />
+                                  {durationCell(
+                                    track,
+                                    track.cover_url ?? editionArt.cover_url
                                   )}
                                 </li>
                               );
@@ -1393,12 +1444,9 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
                             }}
                           />
                         </span>
-                        {track.duration ? (
-                          <span className="release-tracklist__duration">
-                            {track.duration}
-                          </span>
-                        ) : (
-                          <span className="release-tracklist__duration release-tracklist__duration--empty" aria-hidden />
+                        {durationCell(
+                          track,
+                          track.cover_url ?? editionArt.cover_url
                         )}
                       </li>
                     );

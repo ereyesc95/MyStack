@@ -48,6 +48,8 @@ import {
   diskCreditFromTitle,
 } from "../release/releaseTrackPanelMeta";
 import { TrackActionRetryIcon, TrackActionSearchIcon, TrackActionYoutubeIcon } from "../release/releaseTrackActionIcons";
+import TrackRowMoreMenu from "../TrackRowMoreMenu";
+import type { GlobalMusicTrack } from "../../../globalMusicPlayer";
 import TrackYoutubeButton, { trackYoutubeVideos } from "../TrackYoutubeButton";
 import FindInDiskModal from "../FindInDiskModal";
 import SortChevron from "../SortChevron";
@@ -1022,6 +1024,26 @@ const SystemPlaylistTracklist = forwardRef<SystemPlaylistTracklistHandle, Props>
               ]
                 .filter(Boolean)
                 .join(" ");
+              const liveGlobalTrack: GlobalMusicTrack | null =
+                track.play_path && !unavailable
+                  ? {
+                      id: track.play_path,
+                      path: track.play_path,
+                      title: track.title || "Track",
+                      artist: rowArtistName || artistName,
+                      artistId: track.navigate_band_id ?? bandId,
+                      releaseId: track.navigate_release_id ?? null,
+                      releaseTitle:
+                        track.album_title ??
+                        liveFileReleaseTitle(track) ??
+                        null,
+                      releaseDate:
+                        track.source_release_date ??
+                        track.release_date ??
+                        null,
+                      coverUrl: track.cover_url ?? null,
+                    }
+                  : null;
               const endActions = (
                 <span className="live-shows-tracklist__end-actions">
                   {unavailable && youtubeQuery ? (
@@ -1036,15 +1058,29 @@ const SystemPlaylistTracklist = forwardRef<SystemPlaylistTracklistHandle, Props>
                     >
                       <TrackActionYoutubeIcon className="setlist-tracklist__youtube-icon" />
                     </a>
-                  ) : durationLabel ? (
-                    <span className="release-tracklist__duration">{durationLabel}</span>
-                  ) : youtubeBtn ? (
-                    youtubeBtn
                   ) : (
-                    <span
-                      className="release-tracklist__duration release-tracklist__duration--empty"
-                      aria-hidden
-                    />
+                    <span className="release-tracklist__duration-wrap">
+                      {liveGlobalTrack ? (
+                        <TrackRowMoreMenu
+                          track={liveGlobalTrack}
+                          onAddToPlaylist={() =>
+                            setPlusTrack(toTrackItem(track, index))
+                          }
+                        />
+                      ) : null}
+                      {durationLabel ? (
+                        <span className="release-tracklist__duration">
+                          {durationLabel}
+                        </span>
+                      ) : youtubeBtn ? (
+                        youtubeBtn
+                      ) : (
+                        <span
+                          className="release-tracklist__duration release-tracklist__duration--empty"
+                          aria-hidden
+                        />
+                      )}
+                    </span>
                   )}
                 </span>
               );
@@ -1448,13 +1484,41 @@ const SystemPlaylistTracklist = forwardRef<SystemPlaylistTracklistHandle, Props>
               </span>
             ) : null;
             const durationLabel = formatTrackDuration(track);
+            const globalTrack: GlobalMusicTrack | null = track.play_path
+              ? {
+                  id: track.play_path,
+                  path: track.play_path,
+                  title: track.title || "Track",
+                  artist: track.artist_name ?? artistName,
+                  artistId: track.navigate_band_id ?? bandId,
+                  releaseId: track.navigate_release_id ?? null,
+                  releaseTitle:
+                    track.album_title ?? track.source_release_title ?? null,
+                  releaseDate:
+                    track.source_release_date ??
+                    track.release_date ??
+                    track.source_display_date ??
+                    null,
+                  coverUrl: track.cover_url ?? null,
+                }
+              : null;
             const durationCell = (
-              <span
-                className={`release-tracklist__duration${
-                  !durationLabel ? " release-tracklist__duration--empty" : ""
-                }`}
-              >
-                {durationLabel ?? ""}
+              <span className="release-tracklist__duration-wrap">
+                {globalTrack && !unavailable ? (
+                  <TrackRowMoreMenu
+                    track={globalTrack}
+                    onAddToPlaylist={() =>
+                      setPlusTrack(toTrackItem(track, index))
+                    }
+                  />
+                ) : null}
+                <span
+                  className={`release-tracklist__duration${
+                    !durationLabel ? " release-tracklist__duration--empty" : ""
+                  }`}
+                >
+                  {durationLabel ?? ""}
+                </span>
               </span>
             );
             const removeCell =
@@ -1516,9 +1580,7 @@ const SystemPlaylistTracklist = forwardRef<SystemPlaylistTracklistHandle, Props>
                 </span>
               ) : (
                 <span className="user-playlist-tracklist__trailing">
-                  {durationLabel ? (
-                    <span className="release-tracklist__duration">{durationLabel}</span>
-                  ) : null}
+                  {durationCell}
                 </span>
               );
             const rowContent = snapshotMetadataMode ? (

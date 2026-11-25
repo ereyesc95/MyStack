@@ -19,6 +19,8 @@ import {
 } from "./mediaTheme";
 import { musicStreamUrl } from "./musicStreamUrl";
 
+export type GlobalMusicQueuedBy = "next" | "last";
+
 export type GlobalMusicTrack = {
   /** Stable id for React keys / reorder (defaults to path). */
   id: string;
@@ -28,9 +30,16 @@ export type GlobalMusicTrack = {
   artistId?: number | null;
   releaseId?: string | null;
   releaseTitle?: string | null;
+  /** ISO / folder date for cover tooltip. */
+  releaseDate?: string | null;
   coverUrl?: string | null;
   /** Optional absolute stream URL; otherwise derived from path. */
   playUrl?: string | null;
+  /**
+   * Manual queue inserts (Play next / Play last). Survives playFrom refresh
+   * and is re-applied at the same relative slots (after current / at end).
+   */
+  queuedBy?: GlobalMusicQueuedBy | null;
 };
 
 export type GlobalMusicSnapshot = {
@@ -43,7 +52,10 @@ export type GlobalMusicSnapshot = {
   volume: number;
   repeatOne: boolean;
   shuffle: boolean;
+  /** Unpinned / auto-hide mode. When false, bar is pinned (always on). */
   barHidden: boolean;
+  /** Temporary reveal while unpinned (hover peek or track-change flash). */
+  barPeeking: boolean;
   queueOpen: boolean;
   hasTrack: boolean;
 };
@@ -73,6 +85,8 @@ let volume = 1;
 let repeatOne = false;
 let shuffle = false;
 let barHidden = false;
+let barPeeking = false;
+let peekTimer: ReturnType<typeof setTimeout> | null = null;
 let queueOpen = false;
 let userId: number | undefined;
 let endedHandlerAttached = false;
@@ -89,6 +103,7 @@ let snapshot: GlobalMusicSnapshot = {
   repeatOne: false,
   shuffle: false,
   barHidden: false,
+  barPeeking: false,
   queueOpen: false,
   hasTrack: false,
 };
@@ -106,6 +121,7 @@ function buildSnapshot(): GlobalMusicSnapshot {
     repeatOne,
     shuffle,
     barHidden,
+    barPeeking,
     queueOpen,
     hasTrack: Boolean(cur),
   };
@@ -259,6 +275,17 @@ function reportPlay(track: GlobalMusicTrack) {
   }).catch(() => {});
 }
 
+function scheduleBarPeek(ms = 2400) {
+  if (!barHidden) return;
+  barPeeking = true;
+  if (peekTimer) clearTimeout(peekTimer);
+  peekTimer = setTimeout(() => {
+    peekTimer = null;
+    barPeeking = false;
+    notify();
+  }, ms);
+}
+
 async function loadIndex(i: number, autoPlay: boolean) {
   const el = ensureAudio();
   if (!el) return;
@@ -266,6 +293,7 @@ async function loadIndex(i: number, autoPlay: boolean) {
     clearPlayback(true);
     return;
   }
+  const prevId = currentTrack()?.id ?? null;
   index = i;
   const track = queue[i];
   const url = streamUrlFor(track);
@@ -274,6 +302,9 @@ async function loadIndex(i: number, autoPlay: boolean) {
   publishSession(track, el);
   applyPlaybackThemeFromCover(track.coverUrl ?? null, userId);
   reportPlay(track);
+  if (barHidden && track.id !== prevId) {
+    scheduleBarPeek();
+  }
   notify();
   persist();
   if (autoPlay) {
@@ -283,6 +314,46 @@ async function loadIndex(i: number, autoPlay: boolean) {
       /* autoplay blocked */
     }
   }
+}
+
+/** Collect manual inserts so a playFrom refresh can re-seat them. */
+function collectManualInserts(): {
+  nexts: GlobalMusicTrack[];
+  lasts: GlobalMusicTrack[];
+} {
+  const nexts: GlobalMusicTrack[] = [];
+  const lasts: GlobalMusicTrack[] = [];
+  for (const t of queue) {
+    if (t.queuedBy === "next") nexts.push({ ...t });
+    else if (t.queuedBy === "last") lasts.push({ ...t });
+  }
+  return { nexts, lasts };
+}
+
+function applyManualInserts(
+  base: GlobalMusicTrack[],
+  manuals: { nexts: GlobalMusicTrack[]; lasts: GlobalMusicTrack[] }
+): GlobalMusicTrack[] {
+  const out = base.slice();
+  const seen = new Set(out.map((t) => t.id));
+  const nexts = manuals.nexts.filter((t) => {
+    if (seen.has(t.id)) return false;
+    seen.add(t.id);
+    return true;
+  });
+  const lasts = manuals.lasts.filter((t) => {
+    if (seen.has(t.id)) return false;
+    seen.add(t.id);
+    return true;
+  });
+  if (nexts.length) out.splice(1, 0, ...nexts);
+  if (lasts.length) out.push(...lasts);
+  return out;
+}
+
+function normalizeOne(track: GlobalMusicTrack): GlobalMusicTrack | null {
+  const list = normalizeTracks([track]);
+  return list[0] ?? null;
 }
 
 async function handleEnded() {
@@ -332,6 +403,11 @@ function clearPlayback(clearStorage: boolean) {
   progress = 0;
   duration = 0;
   queueOpen = false;
+  barPeeking = false;
+  if (peekTimer) {
+    clearTimeout(peekTimer);
+    peekTimer = null;
+  }
   setPlaybackPlaying(false);
   endPlaybackThemeSession(userId);
   notify();
@@ -387,17 +463,61 @@ export function globalMusicPlayFrom(
   const list = normalizeTracks(tracks);
   if (!list.length) return;
   const start = Math.max(0, Math.min(startIndex, list.length - 1));
-  // From clicked track onward
-  const onward = list.slice(start);
+  const manuals = collectManualInserts();
+  // From clicked track onward — replace context queue, keep manual inserts.
+  const onward = list.slice(start).map((t) => ({ ...t, queuedBy: null }));
   originalQueue = onward.slice();
-  if (shuffle) {
-    queue = buildShuffledOrder(originalQueue, onward[0]?.id ?? null);
-  } else {
-    queue = originalQueue.slice();
-  }
+  let nextQueue = shuffle
+    ? buildShuffledOrder(originalQueue, onward[0]?.id ?? null)
+    : originalQueue.slice();
+  nextQueue = applyManualInserts(nextQueue, manuals);
+  queue = nextQueue;
   index = 0;
   queueOpen = false;
   void loadIndex(0, opts?.autoPlay !== false);
+}
+
+/** Insert immediately after the current track (manual — survives playFrom). */
+export function globalMusicPlayNext(track: GlobalMusicTrack) {
+  const t = normalizeOne({ ...track, queuedBy: "next" });
+  if (!t) return;
+  if (!queue.length || index < 0) {
+    queue = [t];
+    originalQueue = [{ ...t, queuedBy: null }];
+    void loadIndex(0, true);
+    return;
+  }
+  const existing = queue.findIndex((q) => q.id === t.id);
+  if (existing === index) return;
+  if (existing >= 0) {
+    queue.splice(existing, 1);
+    if (existing < index) index -= 1;
+  }
+  const at = Math.min(index + 1, queue.length);
+  queue.splice(at, 0, t);
+  notify();
+  persist();
+}
+
+/** Append to the end of the queue (manual — survives playFrom). */
+export function globalMusicPlayLast(track: GlobalMusicTrack) {
+  const t = normalizeOne({ ...track, queuedBy: "last" });
+  if (!t) return;
+  if (!queue.length || index < 0) {
+    queue = [t];
+    originalQueue = [{ ...t, queuedBy: null }];
+    void loadIndex(0, true);
+    return;
+  }
+  const existing = queue.findIndex((q) => q.id === t.id);
+  if (existing === index) return;
+  if (existing >= 0) {
+    queue.splice(existing, 1);
+    if (existing < index) index -= 1;
+  }
+  queue.push(t);
+  notify();
+  persist();
 }
 
 /** Replace queue with full list and start at index (used when reshuffling context). */
@@ -563,9 +683,22 @@ export function globalMusicClear() {
 
 export function globalMusicSetBarHidden(hidden: boolean) {
   barHidden = hidden;
-  if (hidden) queueOpen = false;
+  if (hidden) {
+    queueOpen = false;
+  } else {
+    barPeeking = false;
+    if (peekTimer) {
+      clearTimeout(peekTimer);
+      peekTimer = null;
+    }
+  }
   notify();
   persist();
+}
+
+/** Pin = always visible; unpin = auto-hide (overlay on hover). */
+export function globalMusicTogglePinned() {
+  globalMusicSetBarHidden(!barHidden);
 }
 
 export function globalMusicToggleQueueOpen() {
