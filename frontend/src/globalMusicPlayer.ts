@@ -77,8 +77,42 @@ let queueOpen = false;
 let userId: number | undefined;
 let endedHandlerAttached = false;
 let restoredPaused = false;
+/** Cached for useSyncExternalStore — must be referentially stable until notify(). */
+let snapshot: GlobalMusicSnapshot = {
+  queue: [],
+  index: -1,
+  current: null,
+  playing: false,
+  progress: 0,
+  duration: 0,
+  volume: 1,
+  repeatOne: false,
+  shuffle: false,
+  barHidden: false,
+  queueOpen: false,
+  hasTrack: false,
+};
+
+function buildSnapshot(): GlobalMusicSnapshot {
+  const cur = currentTrack();
+  return {
+    queue: queue.slice(),
+    index,
+    current: cur,
+    playing,
+    progress,
+    duration,
+    volume,
+    repeatOne,
+    shuffle,
+    barHidden,
+    queueOpen,
+    hasTrack: Boolean(cur),
+  };
+}
 
 function notify() {
+  snapshot = buildSnapshot();
   listeners.forEach((fn) => fn());
 }
 
@@ -332,21 +366,7 @@ function normalizeTracks(tracks: GlobalMusicTrack[]): GlobalMusicTrack[] {
 }
 
 export function getGlobalMusicSnapshot(): GlobalMusicSnapshot {
-  const cur = currentTrack();
-  return {
-    queue: queue.slice(),
-    index,
-    current: cur,
-    playing,
-    progress,
-    duration,
-    volume,
-    repeatOne,
-    shuffle,
-    barHidden,
-    queueOpen,
-    hasTrack: Boolean(cur),
-  };
+  return snapshot;
 }
 
 export function subscribeGlobalMusic(fn: () => void): () => void {
