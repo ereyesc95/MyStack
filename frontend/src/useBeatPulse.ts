@@ -113,7 +113,12 @@ function decayValue(value: number) {
   return next < 0.006 ? 0 : next;
 }
 
-function writeBeatVars(root: HTMLElement, bass: number, pulse: number) {
+function writeBeatVars(
+  root: HTMLElement,
+  bass: number,
+  pulse: number,
+  extraHosts?: React.RefObject<HTMLElement | null>[]
+) {
   const boostedBass = Math.min(1, bass * OUTPUT_GAIN);
   const boostedPulse = Math.min(1, pulse * OUTPUT_GAIN);
   const strength = Math.min(
@@ -124,27 +129,50 @@ function writeBeatVars(root: HTMLElement, bass: number, pulse: number) {
       boostedPulse * 0.82
     )
   );
-  root.style.setProperty("--beat-bass", String(boostedBass));
-  root.style.setProperty("--beat-pulse", String(boostedPulse));
-  root.style.setProperty("--beat-strength", String(strength));
+  const apply = (el: HTMLElement) => {
+    el.style.setProperty("--beat-bass", String(boostedBass));
+    el.style.setProperty("--beat-pulse", String(boostedPulse));
+    el.style.setProperty("--beat-strength", String(strength));
+  };
+  apply(root);
+  if (extraHosts) {
+    for (const ref of extraHosts) {
+      const host = ref.current;
+      if (host && host !== root) apply(host);
+    }
+  }
 }
 
-function clearBeatVars(root: HTMLElement) {
-  root.style.setProperty("--beat-bass", "0");
-  root.style.setProperty("--beat-pulse", "0");
-  root.style.setProperty("--beat-strength", "0");
+function clearBeatVars(
+  root: HTMLElement,
+  extraHosts?: React.RefObject<HTMLElement | null>[]
+) {
+  const clear = (el: HTMLElement) => {
+    el.style.setProperty("--beat-bass", "0");
+    el.style.setProperty("--beat-pulse", "0");
+    el.style.setProperty("--beat-strength", "0");
+  };
+  clear(root);
+  if (extraHosts) {
+    for (const ref of extraHosts) {
+      const host = ref.current;
+      if (host && host !== root) clear(host);
+    }
+  }
 }
 
 let beatPulseConsumers = 0;
 
 /**
- * Drives beat CSS vars from audio. `active` keeps the layer mounted (smooth fade);
- * `playing` mirrors transport state for CSS; analysis uses the audio element directly.
+ * Drives beat CSS vars from audio/video. `active` keeps the layer mounted (smooth fade);
+ * `playing` mirrors transport state for CSS; analysis uses the media element directly.
+ * Optional `extraHosts` also receive the same --beat-* vars (e.g. dash cards).
  */
 export function useBeatPulse(
-  audioRef: React.RefObject<HTMLAudioElement | null>,
+  audioRef: React.RefObject<HTMLMediaElement | null>,
   active: boolean,
-  playing: boolean
+  playing: boolean,
+  extraHosts?: React.RefObject<HTMLElement | null>[]
 ) {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const wiredAudioRef = useRef<HTMLMediaElement | null>(null);
@@ -162,10 +190,12 @@ export function useBeatPulse(
   const consumerRef = useRef(false);
   const activeRef = useRef(active);
   const playingRef = useRef(playing);
+  const extraHostsRef = useRef(extraHosts);
   const lastWrittenRef = useRef({ bass: -1, pulse: -1 });
 
   activeRef.current = active;
   playingRef.current = playing;
+  extraHostsRef.current = extraHosts;
 
   useEffect(() => {
     const reduced =
@@ -174,6 +204,8 @@ export function useBeatPulse(
 
     const root = document.documentElement;
     let cancelled = false;
+    // Preview consumers own documentElement while live; skip yield for them.
+    const isPreviewConsumer = Boolean(extraHostsRef.current?.length);
 
     const ensureAnalyser = () => {
       const audio = audioRef.current;
@@ -233,8 +265,9 @@ export function useBeatPulse(
       syncAudioListeners();
       resumeBeatAudioContext();
 
-      // Dash-card preview owns --beat-* while its media is live; don't overwrite.
-      if (isDashPreviewMediaActive()) {
+      // Dash-card preview owns --beat-* while its media is live; don't overwrite
+      // (unless this hook *is* the preview consumer writing via extraHosts).
+      if (isDashPreviewMediaActive() && !isPreviewConsumer) {
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
@@ -250,9 +283,14 @@ export function useBeatPulse(
         pulseOutRef.current = decayValue(pulseOutRef.current);
         if (beatPulseConsumers === 0) {
           if (bassOutRef.current > 0 || pulseOutRef.current > 0) {
-            writeBeatVars(root, bassOutRef.current, pulseOutRef.current);
+            writeBeatVars(
+              root,
+              bassOutRef.current,
+              pulseOutRef.current,
+              extraHostsRef.current
+            );
           } else {
-            clearBeatVars(root);
+            clearBeatVars(root, extraHostsRef.current);
           }
         }
         rafRef.current = requestAnimationFrame(tick);
@@ -346,7 +384,7 @@ export function useBeatPulse(
         (last.bass >= 0.01 || last.pulse >= 0.01);
       if (changed || settling) {
         lastWrittenRef.current = { bass, pulse };
-        writeBeatVars(root, bass, pulse);
+        writeBeatVars(root, bass, pulse, extraHostsRef.current);
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -362,7 +400,7 @@ export function useBeatPulse(
         beatPulseConsumers = Math.max(0, beatPulseConsumers - 1);
       }
       if (beatPulseConsumers === 0) {
-        clearBeatVars(root);
+        clearBeatVars(root, extraHostsRef.current);
       }
     };
   }, [audioRef]);

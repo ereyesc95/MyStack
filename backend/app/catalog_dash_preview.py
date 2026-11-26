@@ -10,13 +10,13 @@ from urllib.parse import quote
 
 from sqlalchemy.orm import Session
 
-from app.band_library import artwork_role_urls_for_track_path, display_track_title_from_path
+from app.band_library import artwork_role_urls_for_track_path
 from app.config import settings
 from app.media_item_overview import VIDEO_EXTS
 from app.media_paths_util import safe_relative
 from app.series_paths import find_audio_bucket, find_episodes_root, find_extras_dir
 
-PreviewModule = Literal["series", "movies"]
+PreviewModule = Literal["series", "movies", "books", "games"]
 PreviewKind = Literal[
     "show",
     "franchise",
@@ -24,7 +24,280 @@ PreviewKind = Literal[
     "genre",
     "country",
     "film",
+    "book",
+    "game",
 ]
+
+
+def _genre_matches(
+    card: dict[str, Any],
+    *,
+    genre_id: int | None,
+    genre_name_by_id: dict[int, str] | None = None,
+) -> bool:
+    """Match genre_ids, or genre_names when ids were never stamped."""
+    if genre_id is None:
+        return True
+    gids = card.get("genre_ids") or []
+    if genre_id in gids or str(genre_id) in {str(g) for g in gids}:
+        return True
+    want = ""
+    if genre_name_by_id:
+        want = (genre_name_by_id.get(genre_id) or "").casefold()
+    if not want:
+        return False
+    names = {
+        str(n).casefold()
+        for n in (card.get("genre_names") or [])
+        if n
+    }
+    return want in names
+
+
+def _subgenre_name_map(db: Session) -> dict[int, str]:
+    from sqlalchemy import select
+
+    from app.models import Subgenre
+
+    out: dict[int, str] = {}
+    for row in db.scalars(select(Subgenre)).all():
+        if row.sgn_id is None:
+            continue
+        name = (row.sgn_name or "").strip()
+        if name:
+            out[int(row.sgn_id)] = name
+    return out
+
+
+def _country_matches(
+    card: dict[str, Any],
+    *,
+    country_id: int | None,
+    country_name: str | None,
+    country_iso: str | None,
+) -> bool:
+    """Match catalog cards by id, ISO code, or country name (name alone ≠ ISO)."""
+    iso = (card.get("country_iso") or card.get("iso") or "").casefold()[:2]
+    extra_isos = {
+        str(x).casefold()[:2]
+        for x in (card.get("country_isos") or [])
+        if x
+    }
+    cname = (
+        card.get("country") or card.get("country_name") or ""
+    ).casefold()
+    want_iso = (country_iso or "").casefold()[:2]
+    want_name = (country_name or "").casefold()
+    cid = card.get("country_id")
+    if country_id is not None and cid in {country_id, str(country_id)}:
+        return True
+    if want_iso and (iso == want_iso or want_iso in extra_isos):
+        return True
+    if want_name and want_name in {cname, iso}:
+        return True
+    return False
+
+
+def _universe_member_folders(
+    db: Session,
+    *,
+    module: PreviewModule,
+    media_root: Path,
+    universe_id: str | None,
+    catalog: dict[str, Any],
+) -> list[tuple[Path, str | None]]:
+    """Resolve folder paths for franchises/leaves belonging to a universe."""
+    if not universe_id:
+        return []
+    try:
+        uid = int(universe_id)
+    except (TypeError, ValueError):
+        return []
+
+    from sqlalchemy import select
+
+    from app.franchise_index import normalize_franchise_slug
+    from app.models import UniverseFranchiseSync, UniverseMember
+
+    folders: list[tuple[Path, str | None]] = []
+    seen: set[str] = set()
+
+    def _add(rel: str | None, title: str | None) -> None:
+        if not rel:
+            return
+        key = rel.replace("\\", "/").casefold()
+        if key in seen:
+            return
+        p = media_root / Path(rel.replace("/", "\\"))
+        if not p.is_dir():
+            return
+        seen.add(key)
+        folders.append((p, title or p.name))
+
+    member_slugs: set[str] = set()
+    for row in db.scalars(
+        select(UniverseMember).where(
+            UniverseMember.ume_universe_id == uid,
+            UniverseMember.ume_module == module,
+        )
+    ).all():
+        slug = (row.ume_slug or "").strip()
+        if slug:
+            member_slugs.add(normalize_franchise_slug(slug) or slug.casefold())
+            member_slugs.add(slug.casefold())
+
+    for row in db.scalars(
+        select(UniverseFranchiseSync).where(
+            UniverseFranchiseSync.ufs_universe_id == uid,
+            UniverseFranchiseSync.ufs_module == module,
+        )
+    ).all():
+        slug = (row.ufs_franchise_slug or "").strip()
+        if slug:
+            member_slugs.add(normalize_franchise_slug(slug) or slug.casefold())
+            member_slugs.add(slug.casefold())
+
+    if not member_slugs:
+        return folders
+
+    for fr in catalog.get("franchises") or []:
+        if not isinstance(fr, dict):
+            continue
+        fid = str(fr.get("id") or "").strip()
+        name = str(fr.get("name") or "").strip()
+        keys = {
+            fid.casefold(),
+            name.casefold(),
+            (normalize_franchise_slug(name) or "").casefold(),
+            (normalize_franchise_slug(fid) or "").casefold(),
+        }
+        keys.discard("")
+        if not (keys & member_slugs):
+            continue
+        _add(fr.get("folder_path"), fr.get("name"))
+        for leaf in (
+            fr.get("subseries")
+            or fr.get("games")
+            or fr.get("books")
+            or fr.get("films")
+            or []
+        ):
+            if not isinstance(leaf, dict):
+                continue
+            _add(
+                leaf.get("folder_path"),
+                leaf.get("title") or leaf.get("name"),
+            )
+        if len(folders) >= 24:
+            break
+
+    # Movies often list films at top level (no franchise wrap for every title)
+    for film in catalog.get("films") or []:
+        if not isinstance(film, dict):
+            continue
+        fid = str(film.get("id") or film.get("work_id") or "").strip()
+        name = str(film.get("name") or film.get("title") or "").strip()
+        keys = {
+            fid.casefold(),
+            name.casefold(),
+            (normalize_franchise_slug(name) or "").casefold(),
+            (normalize_franchise_slug(fid) or "").casefold(),
+        }
+        keys.discard("")
+        if not (keys & member_slugs):
+            continue
+        _add(
+            film.get("folder_path"),
+            film.get("name") or film.get("title"),
+        )
+        if len(folders) >= 24:
+            break
+
+    return folders
+
+
+def _enriched_module_catalog(
+    db: Session, module: PreviewModule, media_root: Path
+) -> dict[str, Any]:
+    """FS catalog + live DB enrich (country/genre) — skip listing enrich cache.
+
+    Dash vibes/origins need current enrich fields; the NSFW listing cache can
+    lag behind enrich schema changes and omit genre_ids / country_iso.
+    """
+    from app.module_catalog_cache import get_or_build_catalog
+
+    if module == "series":
+        from app.series_index import build_series_catalog
+        from app.series_catalog_meta import enrich_catalog_metadata
+
+        raw = get_or_build_catalog(
+            "series",
+            media_root=media_root,
+            builder=lambda: build_series_catalog(media_root),
+        )
+        return enrich_catalog_metadata(db, raw)
+
+    if module == "movies":
+        from app.movies_index import build_movies_catalog
+        from app.movies_catalog_meta import enrich_movies_catalog
+
+        raw = get_or_build_catalog(
+            "movies",
+            media_root=media_root,
+            builder=lambda: build_movies_catalog(media_root),
+        )
+        return enrich_movies_catalog(db, raw)
+
+    if module == "books":
+        from app.books_index import build_books_catalog
+        from app.books_catalog_meta import enrich_books_catalog
+
+        raw = get_or_build_catalog(
+            "books",
+            media_root=media_root,
+            builder=lambda: build_books_catalog(media_root),
+        )
+        return enrich_books_catalog(db, raw)
+
+    from app.games_index import build_games_catalog
+    from app.games_catalog_meta import enrich_games_catalog
+
+    raw = get_or_build_catalog(
+        "games",
+        media_root=media_root,
+        builder=lambda: build_games_catalog(media_root),
+    )
+    return enrich_games_catalog(db, raw)
+
+
+def _folder_video_or_audio_preview(
+    db: Session,
+    media_root: Path,
+    folders: list[tuple[Path, str | None]],
+    *,
+    prefer_opening: bool = False,
+) -> dict[str, Any] | None:
+    if not folders:
+        return None
+    sample = list(folders)
+    random.shuffle(sample)
+    for folder, title in sample[:16]:
+        hit = _extras_preview(
+            folder, media_root, prefer_opening=prefer_opening, series_title=title
+        )
+        if hit:
+            return hit
+    for folder, title in sample[:16]:
+        vids = _list_videos(folder)
+        if vids:
+            return _video_preview(
+                random.choice(vids), media_root, series_title=title
+            )
+    for folder, title in sample[:8]:
+        hit = _audio_from_folder(db, folder, media_root, series_title=title)
+        if hit:
+            return hit
+    return None
 
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _CACHE_TTL_SEC = 120.0
@@ -63,8 +336,25 @@ def _file_url(rel: str, *, video: bool) -> str:
     return f"/api/music/stream?path={q}"
 
 
+_DATE_FOLDER_PREFIX_RE = re.compile(r"^\d{4}(?:\.\d{1,2}){0,2}\.\s*")
+
+
 def _strip_brackets(title: str) -> str:
     return re.sub(r"\s*\[[^\]]*\]", "", title or "").strip()
+
+
+def _display_media_title(path: Path, title: str | None = None) -> str:
+    """Human title for dash previews — strip full ``YYYY.MM.DD.`` before track #.
+
+    ``display_track_title_from_path`` treats ``2002.`` as a track index and leaves
+    ``02.14. Live at Hell``; strip the dated-folder prefix first.
+    """
+    raw = (title or path.stem or "").strip()
+    raw = _DATE_FOLDER_PREFIX_RE.sub("", raw).strip() or (path.stem or "")
+    # Only apply track-number strip when it still looks like ``NN. Title``
+    if re.match(r"^\d{1,3}\.\s+\S", raw):
+        raw = re.sub(r"^\d{1,3}\.\s+", "", raw).strip() or raw
+    return _strip_brackets(raw)
 
 
 def _video_preview(
@@ -78,7 +368,7 @@ def _video_preview(
     if not rel:
         return None
     rel = rel.replace("\\", "/")
-    display = _strip_brackets(title or display_track_title_from_path(path) or path.stem)
+    display = _display_media_title(path, title)
     out: dict[str, Any] = {
         "media_kind": "video",
         "media_url": _file_url(rel, video=True),
@@ -107,7 +397,7 @@ def _audio_preview(
     out: dict[str, Any] = {
         "media_kind": "audio",
         "media_url": _file_url(rel, video=False),
-        "title": _strip_brackets(title or display_track_title_from_path(path)),
+        "title": _display_media_title(path, title),
         "path": rel,
         "artwork_url": roles.get("banner_url")
         or roles.get("landscape_url")
@@ -429,10 +719,13 @@ def resolve_catalog_dash_preview(
     genre_id: int | None = None,
     country_id: int | None = None,
     country_name: str | None = None,
+    country_iso: str | None = None,
     universe_id: str | None = None,
 ) -> dict[str, Any] | None:
+    # v2: enriched catalog (country_iso / genre_ids) — bust empty negatives from v1
     cache_key = "|".join(
         [
+            "v2",
             module,
             kind,
             franchise_id or "",
@@ -442,6 +735,7 @@ def resolve_catalog_dash_preview(
             str(genre_id or ""),
             str(country_id or ""),
             country_name or "",
+            country_iso or "",
             universe_id or "",
         ]
     )
@@ -455,6 +749,9 @@ def resolve_catalog_dash_preview(
 
     result: dict[str, Any] | None = None
     kind_n = (kind or "").casefold()
+    genre_name_by_id: dict[int, str] | None = None
+    if kind_n == "genre" and genre_id is not None:
+        genre_name_by_id = _subgenre_name_map(db)
 
     if module == "series":
         if kind_n in {"show", "series"}:
@@ -486,57 +783,53 @@ def resolve_catalog_dash_preview(
                         folders.append((sp, s.get("title") or sp.name))
             result = _resolve_series_scope(db, media_root, folders)
         elif kind_n in {"genre", "country", "universe"}:
-            # Sample from catalog leaves matching filter — keep light
-            from app.series_index import build_series_catalog
-            from app.module_catalog_cache import get_or_build_catalog
-
-            catalog = get_or_build_catalog(
-                "series",
-                media_root=media_root,
-                builder=lambda: build_series_catalog(media_root),
-            )
+            # Enriched catalog carries country_iso / genre_ids from Series rows.
+            catalog = _enriched_module_catalog(db, "series", media_root)
             folders: list[tuple[Path, str | None]] = []
-            for fr in (catalog.get("franchises") or [])[:80]:
+            if kind_n == "universe":
+                folders = _universe_member_folders(
+                    db,
+                    module="series",
+                    media_root=media_root,
+                    universe_id=universe_id,
+                    catalog=catalog,
+                )
+                result = _resolve_series_scope(db, media_root, folders)
+            for fr in catalog.get("franchises") or []:
                 if kind_n == "universe":
-                    uids = fr.get("universe_ids") or fr.get("universes") or []
-                    if universe_id and universe_id not in {
-                        str(u) for u in (uids if isinstance(uids, list) else [])
-                    }:
-                        # Also check single universe_id field
-                        if str(fr.get("universe_id") or "") != str(universe_id):
-                            continue
+                    break
+                if not isinstance(fr, dict):
+                    continue
                 if kind_n == "genre" and genre_id is not None:
-                    gids = fr.get("genre_ids") or []
-                    if genre_id not in gids and str(genre_id) not in {
-                        str(g) for g in gids
-                    }:
-                        # Fall through: still allow subseries genre match later if needed
+                    if not _genre_matches(
+                        fr, genre_id=genre_id, genre_name_by_id=genre_name_by_id
+                    ):
                         subs = fr.get("subseries") or []
                         if not any(
-                            genre_id in (s.get("genre_ids") or [])
-                            or str(genre_id)
-                            in {str(g) for g in (s.get("genre_ids") or [])}
+                            _genre_matches(
+                                s,
+                                genre_id=genre_id,
+                                genre_name_by_id=genre_name_by_id,
+                            )
                             for s in subs
+                            if isinstance(s, dict)
                         ):
                             continue
-                if kind_n == "country":
-                    iso = (fr.get("country_iso") or fr.get("iso") or "").casefold()
-                    cname = (fr.get("country") or "").casefold()
-                    want = (country_name or "").casefold()
-                    if country_id is not None and fr.get("country_id") not in {
-                        country_id,
-                        str(country_id),
-                    }:
-                        if want and want not in {cname, iso}:
-                            continue
-                    elif want and want not in {cname, iso}:
-                        continue
+                if kind_n == "country" and not _country_matches(
+                    fr,
+                    country_id=country_id,
+                    country_name=country_name,
+                    country_iso=country_iso,
+                ):
+                    continue
                 fp = (fr.get("folder_path") or "").replace("\\", "/")
                 if fp:
                     p = media_root / Path(fp.replace("/", "\\"))
                     if p.is_dir():
                         folders.append((p, fr.get("name") or p.name))
                 for s in fr.get("subseries") or []:
+                    if not isinstance(s, dict):
+                        continue
                     sp = (s.get("folder_path") or "").replace("\\", "/")
                     if not sp:
                         continue
@@ -545,7 +838,8 @@ def resolve_catalog_dash_preview(
                         folders.append((p, s.get("title") or p.name))
                 if len(folders) >= 24:
                     break
-            result = _resolve_series_scope(db, media_root, folders)
+            if kind_n != "universe":
+                result = _resolve_series_scope(db, media_root, folders)
 
     elif module == "movies":
         if kind_n in {"film", "movie"}:
@@ -593,41 +887,33 @@ def resolve_catalog_dash_preview(
                         result = hit
                         break
         elif kind_n in {"genre", "country", "universe"}:
-            from app.movies_index import build_movies_catalog
-            from app.module_catalog_cache import get_or_build_catalog
-
-            catalog = get_or_build_catalog(
-                "movies",
-                media_root=media_root,
-                builder=lambda: build_movies_catalog(media_root),
-            )
+            catalog = _enriched_module_catalog(db, "movies", media_root)
             folders = []
-            for film in (catalog.get("films") or [])[:100]:
+            if kind_n == "universe":
+                folders = _universe_member_folders(
+                    db,
+                    module="movies",
+                    media_root=media_root,
+                    universe_id=universe_id,
+                    catalog=catalog,
+                )
+                result = _folder_video_or_audio_preview(db, media_root, folders)
+            for film in catalog.get("films") or []:
                 if kind_n == "universe":
-                    if universe_id and str(film.get("universe_id") or "") != str(
-                        universe_id
-                    ):
-                        uids = film.get("universe_ids") or []
-                        if str(universe_id) not in {str(u) for u in uids}:
-                            continue
-                if kind_n == "genre" and genre_id is not None:
-                    gids = film.get("genre_ids") or []
-                    if genre_id not in gids and str(genre_id) not in {
-                        str(g) for g in gids
-                    }:
-                        continue
-                if kind_n == "country":
-                    iso = (film.get("country_iso") or film.get("iso") or "").casefold()
-                    cname = (film.get("country") or "").casefold()
-                    want = (country_name or "").casefold()
-                    if want and want not in {cname, iso}:
-                        if country_id is not None and film.get("country_id") not in {
-                            country_id,
-                            str(country_id),
-                        }:
-                            continue
-                        if country_id is None:
-                            continue
+                    break
+                if not isinstance(film, dict):
+                    continue
+                if kind_n == "genre" and not _genre_matches(
+                    film, genre_id=genre_id, genre_name_by_id=genre_name_by_id
+                ):
+                    continue
+                if kind_n == "country" and not _country_matches(
+                    film,
+                    country_id=country_id,
+                    country_name=country_name,
+                    country_iso=country_iso,
+                ):
+                    continue
                 fp = (film.get("folder_path") or "").replace("\\", "/")
                 if not fp:
                     continue
@@ -636,33 +922,159 @@ def resolve_catalog_dash_preview(
                     folders.append((p, film.get("name") or film.get("title") or p.name))
                 if len(folders) >= 24:
                     break
-            random.shuffle(folders)
-            for folder, title in folders[:12]:
-                hit = _extras_preview(
-                    folder, media_root, prefer_opening=False, series_title=title
-                )
-                if hit:
-                    result = hit
-                    break
-            if result is None:
-                for folder, title in folders[:12]:
-                    vids = _list_videos(folder)
-                    if vids:
-                        result = _video_preview(
-                            random.choice(vids), media_root, series_title=title
-                        )
-                        break
-            if result is None:
-                for folder, title in folders[:8]:
-                    hit = _audio_from_folder(
-                        db, folder, media_root, series_title=title
-                    )
-                    if hit:
-                        result = hit
-                        break
+            if kind_n != "universe":
+                result = _folder_video_or_audio_preview(db, media_root, folders)
 
+    elif module in {"books", "games"}:
+        catalog = _enriched_module_catalog(db, module, media_root)
+        folders: list[tuple[Path, str | None]] = []
+
+        def _append_path(rel: str | None, title: str | None) -> None:
+            if not rel:
+                return
+            fp = rel.replace("\\", "/")
+            p = media_root / Path(fp.replace("/", "\\"))
+            if p.is_dir():
+                folders.append((p, title or p.name))
+
+        if kind_n in {"franchise", "show", "book", "game", "film"}:
+            if folder_path:
+                _append_path(folder_path, None)
+            if franchise_id:
+                for fr in catalog.get("franchises") or []:
+                    if str(fr.get("id") or "") != str(franchise_id):
+                        continue
+                    _append_path(fr.get("folder_path"), fr.get("name"))
+                    for leaf in fr.get("games") or fr.get("books") or fr.get("films") or []:
+                        _append_path(
+                            leaf.get("folder_path"),
+                            leaf.get("title") or leaf.get("name"),
+                        )
+                    break
+            if film_id:
+                for leaf in (
+                    catalog.get("games")
+                    or catalog.get("books")
+                    or catalog.get("films")
+                    or []
+                ):
+                    if str(leaf.get("id") or "") != str(film_id):
+                        continue
+                    _append_path(
+                        leaf.get("folder_path"),
+                        leaf.get("title") or leaf.get("name"),
+                    )
+                    break
+            result = _folder_video_or_audio_preview(
+                db, media_root, folders, prefer_opening=module == "games"
+            )
+        elif kind_n in {"genre", "country", "universe"}:
+            if kind_n == "universe":
+                folders = _universe_member_folders(
+                    db,
+                    module=module,
+                    media_root=media_root,
+                    universe_id=universe_id,
+                    catalog=catalog,
+                )
+                result = _folder_video_or_audio_preview(
+                    db, media_root, folders, prefer_opening=module == "games"
+                )
+            for fr in catalog.get("franchises") or []:
+                if kind_n == "universe":
+                    break
+                if not isinstance(fr, dict):
+                    continue
+                if kind_n == "genre" and genre_id is not None:
+                    if not _genre_matches(
+                        fr, genre_id=genre_id, genre_name_by_id=genre_name_by_id
+                    ):
+                        leaves = (
+                            fr.get("games")
+                            or fr.get("books")
+                            or fr.get("films")
+                            or []
+                        )
+                        if not any(
+                            _genre_matches(
+                                leaf,
+                                genre_id=genre_id,
+                                genre_name_by_id=genre_name_by_id,
+                            )
+                            for leaf in leaves
+                            if isinstance(leaf, dict)
+                        ):
+                            continue
+                if kind_n == "country" and not _country_matches(
+                    fr,
+                    country_id=country_id,
+                    country_name=country_name,
+                    country_iso=country_iso,
+                ):
+                    # Also try leaf cards
+                    leaves = (
+                        fr.get("games")
+                        or fr.get("books")
+                        or fr.get("films")
+                        or []
+                    )
+                    if not any(
+                        _country_matches(
+                            leaf,
+                            country_id=country_id,
+                            country_name=country_name,
+                            country_iso=country_iso,
+                        )
+                        for leaf in leaves
+                        if isinstance(leaf, dict)
+                    ):
+                        continue
+                _append_path(fr.get("folder_path"), fr.get("name"))
+                for leaf in (
+                    fr.get("games") or fr.get("books") or fr.get("films") or []
+                ):
+                    if not isinstance(leaf, dict):
+                        continue
+                    _append_path(
+                        leaf.get("folder_path"),
+                        leaf.get("title") or leaf.get("name"),
+                    )
+                if len(folders) >= 24:
+                    break
+            # Also scan flat leaf lists (games/books catalogs)
+            if kind_n != "universe":
+                for leaf in (
+                    catalog.get("games")
+                    or catalog.get("books")
+                    or catalog.get("films")
+                    or []
+                ):
+                    if not isinstance(leaf, dict):
+                        continue
+                    if kind_n == "country" and not _country_matches(
+                        leaf,
+                        country_id=country_id,
+                        country_name=country_name,
+                        country_iso=country_iso,
+                    ):
+                        continue
+                    if kind_n == "genre" and not _genre_matches(
+                        leaf,
+                        genre_id=genre_id,
+                        genre_name_by_id=genre_name_by_id,
+                    ):
+                        continue
+                    _append_path(
+                        leaf.get("folder_path"),
+                        leaf.get("title") or leaf.get("name"),
+                    )
+                    if len(folders) >= 24:
+                        break
+                result = _folder_video_or_audio_preview(
+                    db, media_root, folders, prefer_opening=module == "games"
+                )
+
+    # Cache hits only — empty misses must not stick after enrich/media fixes.
     if result:
         _cache_set(cache_key, result)
-    else:
-        _cache_set(cache_key, {})
     return result

@@ -183,7 +183,7 @@ export default function SeriesHome({
     ? baseLimit + UNIVERSES_PANE_BONUS
     : baseLimit;
   const { playLocally } = usePlayVideosPreference();
-  const { coarse, revealedId, onCardActivate } = useDashCardReveal();
+  const { coarse, revealedId, pendingId, onCardActivate } = useDashCardReveal();
   /** Touch / phone / tablet-portrait: square idle → landscape on tap. */
   const useSquareTiles =
     coarse ||
@@ -212,6 +212,35 @@ export default function SeriesHome({
         s.landscape_url ||
         s.banner_url ||
         null;
+
+  const pickSquare = (s: {
+    cover_url?: string | null;
+    photo_url?: string | null;
+    portrait_url?: string | null;
+    landscape_url?: string | null;
+    banner_url?: string | null;
+  }) =>
+    s.cover_url ||
+    s.photo_url ||
+    s.portrait_url ||
+    s.landscape_url ||
+    s.banner_url ||
+    null;
+
+  const sagaTile = (s: {
+    badge_url?: string | null;
+    cover_url?: string | null;
+    photo_url?: string | null;
+    portrait_url?: string | null;
+    landscape_url?: string | null;
+    banner_url?: string | null;
+  }) => {
+    const badge = s.badge_url || null;
+    return {
+      shape: (badge ? "square" : "circle") as "square" | "circle",
+      coverUrl: badge || pickSquare(s),
+    };
+  };
 
   const topFranchises = slicePane(dash.top_franchises || [], contentLimit);
   const topSeries = slicePane(dash.top_series, contentLimit);
@@ -328,6 +357,7 @@ export default function SeriesHome({
                 }}
                 onEnter={seriesExpand.onEnter}
                 onLeave={seriesExpand.onLeave}
+                active={pendingId === cid}
                 onActivate={onCardActivate(cid, () =>
                   onOpenShow(franchiseId, s.subseries_id)
                 )}
@@ -350,13 +380,14 @@ export default function SeriesHome({
         <div className="dash-scroll dash-scroll--icons">
           {topFranchises.map((s) => {
             const cid = `franchise-${s.id}`;
+            const tile = sagaTile(s as { badge_url?: string | null });
             return (
               <DashMorphCard
                 key={s.id}
                 id={cid}
                 title={s.name}
-                shape={contentShape}
-                coverUrl={pickCover(s)}
+                shape={tile.shape}
+                coverUrl={tile.coverUrl}
                 bannerUrl={s.banner_url}
                 landscapeUrl={s.landscape_url}
                 logoUrl={s.logo_url}
@@ -366,6 +397,7 @@ export default function SeriesHome({
                 iconUrl={s.icon_url}
                 expanded={franchisesExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                active={pendingId === cid}
                 preview={{
                   requestKey: `series-franchise:${s.id}`,
                   load: () =>
@@ -387,7 +419,7 @@ export default function SeriesHome({
           })}
           <PlaceholderTiles
             count={topFranchises.length ? franchisePlaceholders : contentLimit}
-            variant={contentShape}
+            variant="circle"
           />
         </div>
       </section>
@@ -515,6 +547,7 @@ export default function SeriesHome({
                       kind: "country",
                       country_id: c.id,
                       country_name: c.name,
+                      country_iso: c.iso,
                     }),
                   showMediaCaption: true,
                   showPreviewArtist: true,

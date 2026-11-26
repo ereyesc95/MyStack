@@ -353,6 +353,8 @@ def build_dashboard(db: Session, user_id: int) -> dict:
                 "portrait_url": card.portrait_url or photo,
                 "landscape_url": card.landscape_url,
                 "banner_url": card.banner_url,
+                "square_url": card.square_url or photo,
+                "badge_url": card.badge_url,
                 "logo_url": card.logo_url,
                 "logo_collapsed_url": card.logo_collapsed_url,
                 "icon_url": card.icon_url,

@@ -2101,16 +2101,10 @@ export default function ReleasePage({
   const onPanelRevealLeave = () => {
     if (panelRevealLingerTimer.current != null) {
       window.clearTimeout(panelRevealLingerTimer.current);
-    }
-    if (!panelBgRevealed) {
-      setPanelRevealLinger(false);
-      return;
-    }
-    // Keep the eye visible briefly after leaving while reveal is active.
-    panelRevealLingerTimer.current = window.setTimeout(() => {
-      setPanelRevealLinger(false);
       panelRevealLingerTimer.current = null;
-    }, 1100);
+    }
+    // Hide as soon as the pointer leaves the panel (no linger).
+    setPanelRevealLinger(false);
   };
 
   const trackPanelReleaseDate =

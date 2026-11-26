@@ -9,9 +9,10 @@ import {
   registerDashPreviewHardStop,
   setDashPreviewMediaActive,
 } from "../dashPreviewController";
-import { getBeatAnalyser, resumeBeatAudioContext } from "../beatAudioGraph";
+import { resumeBeatAudioContext } from "../beatAudioGraph";
 import { musicStreamUrl } from "../musicStreamUrl";
 import { withMediaAccess } from "../mediaFileUrl";
+import { useBeatPulse } from "../useBeatPulse";
 
 const DWELL_MS = 850;
 const EXCERPT_SEC = 10;
@@ -54,9 +55,11 @@ type Props = {
 type FadeSignal = { cancelled: boolean };
 
 function stripBrackets(title: string | null | undefined): string {
-  let t = (title || "").replace(/\s*\[[^\]]*]/g, "").trim();
-  // Ignore YYYY. / YYYY.MM. / YYYY.MM.DD. prefixes from file/folder names.
+  let t = (title || "").replace(/\s*\[[^\]]*\]/g, "").trim();
+  // Full dated-folder prefix (must run before leftover MM.DD. cleanup).
   t = t.replace(/^\d{4}(?:\.\d{1,2}){0,2}\.\s*/, "").trim();
+  // Backend track-# strip can leave ``02.14. Title`` when year was eaten first.
+  t = t.replace(/^\d{1,2}\.\d{1,2}\.\s*/, "").trim();
   return t;
 }
 
@@ -426,93 +429,51 @@ export default function DashCardPreview({
     };
   }, [candidate, mediaPlaying]);
 
-  // Card-local + page-wide beat vars (analyser preferred; synthetic fallback).
+  const previewBeatHosts = beatHostRef ? [beatHostRef] : undefined;
+  useBeatPulse(
+    mediaElRef,
+    Boolean(candidate && mediaPlaying),
+    Boolean(candidate && mediaPlaying),
+    previewBeatHosts
+  );
+
+  // Publish beating flag for card CSS from the shared --beat-strength vars.
   useEffect(() => {
     if (!candidate || !mediaPlaying) return;
-    const isVideo = candidate.media_kind === "video";
-    const el = (isVideo ? videoRef.current : audioRef.current) as
-      | HTMLMediaElement
-      | null;
-    const host = beatHostRef?.current;
-    if (!el || !host) return;
-
     setDashPreviewMediaActive(true);
-    let analyser: AnalyserNode | null = null;
-    try {
-      analyser = getBeatAnalyser(el);
-    } catch {
-      analyser = null;
-    }
-    const data = analyser
-      ? new Uint8Array(analyser.frequencyBinCount)
-      : null;
     let raf = 0;
-    let prev = 0;
     let beating = false;
-    const writeVars = (pulse: number, strength: number) => {
-      host.style.setProperty("--beat-pulse", String(pulse));
-      host.style.setProperty("--beat-bass", String(pulse * 0.9));
-      host.style.setProperty("--beat-strength", String(strength));
-      document.documentElement.style.setProperty("--beat-pulse", String(pulse));
-      document.documentElement.style.setProperty(
-        "--beat-bass",
-        String(pulse * 0.9)
-      );
-      document.documentElement.style.setProperty(
-        "--beat-strength",
-        String(strength)
-      );
-    };
-    const publishBeating = (next: boolean) => {
-      if (next === beating) return;
-      beating = next;
-      onOverlayRef.current({
-        active: true,
-        mediaKind: candidate.media_kind === "video" ? "video" : "audio",
-        mediaTitle: stripBrackets(candidate.title),
-        artworkUrl: candidate.artwork_url || null,
-        artistName:
-          candidate.artist_name ||
-          candidate.series_title ||
-          candidate.parent_title ||
-          null,
-        artistLogoUrl: candidate.artist_logo_url || null,
-        artistLogoCollapsedUrl: candidate.artist_logo_collapsed_url || null,
-        artistIconUrl: candidate.artist_icon_url || null,
-        beating,
-      });
-    };
     const tick = () => {
-      let pulse = 0;
-      if (analyser && data) {
-        analyser.getByteFrequencyData(data);
-        let sum = 0;
-        const n = Math.min(40, data.length);
-        for (let i = 0; i < n; i++) sum += data[i];
-        const instant = Math.min(1, (sum / (n * 255)) * 1.35);
-        pulse = prev * 0.65 + instant * 0.35;
-      } else if (!el.paused && !el.ended) {
-        // Synthetic pulse when Web Audio graph isn't available.
-        const t = el.currentTime || performance.now() / 1000;
-        const wave =
-          0.42 +
-          0.28 * Math.sin(t * 8.2) +
-          0.18 * Math.sin(t * 13.7 + 0.6) +
-          0.12 * Math.sin(t * 3.1);
-        pulse = prev * 0.55 + Math.min(1, Math.max(0, wave)) * 0.45;
+      const raw = getComputedStyle(document.documentElement)
+        .getPropertyValue("--beat-strength")
+        .trim();
+      const strength = Number.parseFloat(raw) || 0;
+      const next = strength > 0.08;
+      if (next !== beating) {
+        beating = next;
+        onOverlayRef.current({
+          active: true,
+          mediaKind: candidate.media_kind === "video" ? "video" : "audio",
+          mediaTitle: stripBrackets(candidate.title),
+          artworkUrl: candidate.artwork_url || null,
+          artistName:
+            candidate.artist_name ||
+            candidate.series_title ||
+            candidate.parent_title ||
+            null,
+          artistLogoUrl: candidate.artist_logo_url || null,
+          artistLogoCollapsedUrl: candidate.artist_logo_collapsed_url || null,
+          artistIconUrl: candidate.artist_icon_url || null,
+          beating,
+        });
       }
-      prev = pulse;
-      const strength = Math.min(0.85, pulse * 1.2);
-      writeVars(pulse, strength);
-      publishBeating(strength > 0.08);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(raf);
-      writeVars(0, 0);
     };
-  }, [candidate, mediaPlaying, beatHostRef]);
+  }, [candidate, mediaPlaying]);
 
   if (!candidate) return null;
 

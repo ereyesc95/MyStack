@@ -1144,7 +1144,8 @@ export default function SystemPlaylistPage({
         sourceArtCacheRef.current.set(path, fallbackArt);
       }
 
-      const queueSource = tracks.filter((t) => Boolean(t.play_path));
+      // Follow the currently displayed (column-sorted) order, not the raw list.
+      const queueSource = displayTracks.filter((t) => Boolean(t.play_path));
       const globalTracks: GlobalMusicTrack[] = queueSource.map((t) => ({
         id: t.play_path!,
         path: t.play_path!,
@@ -1228,7 +1229,7 @@ export default function SystemPlaylistPage({
       slug,
       stacked,
       trackFallbackArt,
-      tracks,
+      displayTracks,
     ]
   );
 
@@ -1721,33 +1722,9 @@ export default function SystemPlaylistPage({
     [bandId, handlePanelActionsChange]
   );
 
-  if (loading && !detail) {
-    return <PlaylistBoot label="Loading playlist…" />;
-  }
-
-  if (error && !detail) {
-    return (
-      <PlaylistBoot
-        error={error}
-        onBack={onBack}
-        backLabel="← Playlists"
-      />
-    );
-  }
-
-  if (!detail) {
-    return (
-      <div className="release-page">
-        <p className="muted artist-section-empty">Playlist not found.</p>
-        <button type="button" className="btn" onClick={onBack}>
-          ← Playlists
-        </button>
-      </div>
-    );
-  }
-
   const panelFadedCover = displayCover ?? coverUrl;
   const canRevealPanelBg =
+    Boolean(detail) &&
     !bannerLayout &&
     Boolean(showPanelCanvas || (showTrackPanel && panelFadedCover));
 
@@ -1778,15 +1755,34 @@ export default function SystemPlaylistPage({
     if (panelRevealLingerTimer.current != null) {
       window.clearTimeout(panelRevealLingerTimer.current);
     }
-    if (!panelBgRevealed) {
-      setPanelRevealLinger(false);
-      return;
-    }
-    panelRevealLingerTimer.current = window.setTimeout(() => {
-      setPanelRevealLinger(false);
-      panelRevealLingerTimer.current = null;
-    }, 1100);
+    // Hide as soon as the pointer leaves the panel (no linger).
+    setPanelRevealLinger(false);
   };
+
+  if (loading && !detail) {
+    return <PlaylistBoot label="Loading playlist…" />;
+  }
+
+  if (error && !detail) {
+    return (
+      <PlaylistBoot
+        error={error}
+        onBack={onBack}
+        backLabel="← Playlists"
+      />
+    );
+  }
+
+  if (!detail) {
+    return (
+      <div className="release-page">
+        <p className="muted artist-section-empty">Playlist not found.</p>
+        <button type="button" className="btn" onClick={onBack}>
+          ← Playlists
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className={pageClass}>

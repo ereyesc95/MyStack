@@ -270,10 +270,31 @@ export default function GlobalMusicBar({
   const dragFrom = useRef<number | null>(null);
   const [dropAt, setDropAt] = useState<number | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  const edgeLeaveTimer = useRef<number | null>(null);
   const trackIdRef = useRef<string | null>(null);
   const swipeRef = useRef<{ x: number; y: number; active: boolean } | null>(
     null
   );
+
+  const clearEdgeLeaveTimer = () => {
+    if (edgeLeaveTimer.current != null) {
+      window.clearTimeout(edgeLeaveTimer.current);
+      edgeLeaveTimer.current = null;
+    }
+  };
+
+  const keepEdgeHover = () => {
+    clearEdgeLeaveTimer();
+    setEdgeHover(true);
+  };
+
+  const scheduleEdgeHoverOff = () => {
+    clearEdgeLeaveTimer();
+    edgeLeaveTimer.current = window.setTimeout(() => {
+      edgeLeaveTimer.current = null;
+      setEdgeHover(false);
+    }, 280);
+  };
 
   const goPrev = () => {
     setSlideDir("prev");
@@ -293,15 +314,24 @@ export default function GlobalMusicBar({
 
   useEffect(() => {
     if (!snap.barHidden) {
+      clearEdgeLeaveTimer();
       setEdgeHover(false);
       return;
     }
     const onMove = (e: PointerEvent) => {
       const fromBottom = window.innerHeight - e.clientY;
-      setEdgeHover(fromBottom < 28);
+      // Tall enough to cover the seek strip at the top of the unpinned bar.
+      if (fromBottom < 96) {
+        keepEdgeHover();
+      } else if (!barRef.current?.contains(e.target as Node)) {
+        scheduleEdgeHoverOff();
+      }
     };
     window.addEventListener("pointermove", onMove, { passive: true });
-    return () => window.removeEventListener("pointermove", onMove);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      clearEdgeLeaveTimer();
+    };
   }, [snap.barHidden]);
 
   useEffect(() => {
@@ -309,8 +339,8 @@ export default function GlobalMusicBar({
     const onTap = (e: PointerEvent) => {
       if (e.pointerType === "mouse") return;
       const fromBottom = window.innerHeight - e.clientY;
-      if (fromBottom < 36) {
-        setEdgeHover(true);
+      if (fromBottom < 96) {
+        keepEdgeHover();
       }
     };
     window.addEventListener("pointerdown", onTap, { passive: true });
@@ -474,11 +504,11 @@ export default function GlobalMusicBar({
           pinned ? " is-pinned" : " is-overlay"
         }${snap.queueOpen ? " is-queue-open" : ""}`}
         onMouseEnter={() => {
-          if (snap.barHidden) setEdgeHover(true);
+          if (snap.barHidden) keepEdgeHover();
         }}
         onMouseLeave={() => {
           if (snap.barHidden && !snap.queueOpen && !snap.barPeeking) {
-            setEdgeHover(false);
+            scheduleEdgeHoverOff();
           }
         }}
       >
@@ -708,7 +738,9 @@ export default function GlobalMusicBar({
                 </div>
               ) : null}
             </div>
+          </div>
 
+          <div className="global-music-bar__right">
             {!phone ? (
               <div
                 className="global-music-bar__controls artist-mini-player"
@@ -743,9 +775,6 @@ export default function GlobalMusicBar({
                 />
               </div>
             ) : null}
-          </div>
-
-          <div className="global-music-bar__right">
             {!phone ? (
               <span className="global-music-bar__time" aria-hidden>
                 {formatTime(snap.progress)}

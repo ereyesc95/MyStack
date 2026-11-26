@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
+import { fetchCatalogDashPreview } from "../../api";
 import type {
   MoviesFilmCard,
   SeriesDashboard,
@@ -188,7 +189,7 @@ export default function GamesHome({
   const contentLimit = hasUniverses
     ? baseLimit + UNIVERSES_PANE_BONUS
     : baseLimit;
-  const { coarse, revealedId, onCardActivate } = useDashCardReveal();
+  const { coarse, revealedId, pendingId, onCardActivate } = useDashCardReveal();
   /** Touch / phone / tablet-portrait: square idle → landscape on tap. */
   const useSquareTiles =
     coarse ||
@@ -196,6 +197,28 @@ export default function GamesHome({
     layout === "mobile-landscape" ||
     layout === "tablet-portrait";
   const contentShape = (useSquareTiles ? "square" : "portrait") as const;
+
+  const sagaTile = (s: {
+    badge_url?: string | null;
+    cover_url?: string | null;
+    photo_url?: string | null;
+    portrait_url?: string | null;
+    landscape_url?: string | null;
+    banner_url?: string | null;
+  }) => {
+    const badge = s.badge_url || null;
+    const square =
+      s.cover_url ||
+      s.photo_url ||
+      s.portrait_url ||
+      s.landscape_url ||
+      s.banner_url ||
+      null;
+    return {
+      shape: (badge ? "square" : "circle") as "square" | "circle",
+      coverUrl: badge || square,
+    };
+  };
   const franchisesExpand = useDashPaneExpand(revealedId, coarse);
   const gamesExpand = useDashPaneExpand(revealedId, coarse);
   const universesExpand = useDashPaneExpand(revealedId, coarse);
@@ -223,8 +246,9 @@ export default function GamesHome({
         s.banner_url ||
         null;
 
-  const platformRow =
+  const platformRowAll =
     platforms.length > 0 ? platforms : data?.platforms || [];
+  const platformRow = slicePane(platformRowAll, contentLimit);
   const topFranchises = slicePane(dash.top_franchises || [], contentLimit);
   const topGames = slicePane(
     (data?.top_games ||
@@ -233,7 +257,7 @@ export default function GamesHome({
     contentLimit
   );
   const topUniverses = slicePane(universes, contentLimit);
-  const topGenres = slicePane(dash.top_genres || [], baseLimit);
+  const topGenres = slicePane(dash.top_genres || [], contentLimit);
 
   const franchisePlaceholders = placeholderCount(
     topFranchises.length,
@@ -244,7 +268,11 @@ export default function GamesHome({
     topUniverses.length,
     contentLimit
   );
-  const genrePlaceholders = placeholderCount(topGenres.length, baseLimit);
+  const genrePlaceholders = placeholderCount(topGenres.length, contentLimit);
+  const platformPlaceholders = placeholderCount(
+    platformRow.length,
+    contentLimit
+  );
 
   const dashClass = DASH_LAYOUT_CLASS[layout];
 
@@ -338,6 +366,19 @@ export default function GamesHome({
                 }
                 expanded={gamesExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                preview={{
+                  requestKey: `games-game:${g.id}`,
+                  load: () =>
+                    fetchCatalogDashPreview({
+                      module: "games",
+                      kind: "game",
+                      film_id: g.id,
+                      franchise_id: g.work_id,
+                      folder_path: (g as { folder_path?: string | null })
+                        .folder_path,
+                    }),
+                  showMediaCaption: true,
+                }}
                 onEnter={gamesExpand.onEnter}
                 onLeave={gamesExpand.onLeave}
                 onActivate={onCardActivate(cid, () =>
@@ -362,13 +403,14 @@ export default function GamesHome({
         <div className="dash-scroll dash-scroll--icons">
           {topFranchises.map((s) => {
             const cid = `franchise-${s.id}`;
+            const tile = sagaTile(s as { badge_url?: string | null });
             return (
               <DashMorphCard
                 key={s.id}
                 id={cid}
                 title={s.name}
-                shape={contentShape}
-                coverUrl={pickCover(s)}
+                shape={tile.shape}
+                coverUrl={tile.coverUrl}
                 bannerUrl={s.banner_url}
                 landscapeUrl={s.landscape_url}
                 logoUrl={s.logo_url}
@@ -378,6 +420,20 @@ export default function GamesHome({
                 iconUrl={s.icon_url}
                 expanded={franchisesExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                active={pendingId === cid}
+                preview={{
+                  requestKey: `games-franchise:${s.id}`,
+                  load: () =>
+                    fetchCatalogDashPreview({
+                      module: "games",
+                      kind: "franchise",
+                      franchise_id: s.id,
+                      folder_path: (s as { folder_path?: string | null })
+                        .folder_path,
+                    }),
+                  showMediaCaption: true,
+                  showPreviewArtist: true,
+                }}
                 onEnter={franchisesExpand.onEnter}
                 onLeave={franchisesExpand.onLeave}
                 onActivate={onCardActivate(cid, () => onFranchise(s.id))}
@@ -386,7 +442,7 @@ export default function GamesHome({
           })}
           <PlaceholderTiles
             count={topFranchises.length ? franchisePlaceholders : contentLimit}
-            variant={contentShape}
+            variant="circle"
           />
         </div>
       </section>
@@ -417,6 +473,17 @@ export default function GamesHome({
                   }
                   expanded={universesExpand.expandedId === cid}
                   revealed={revealedId === cid}
+                  preview={{
+                    requestKey: `games-universe:${u.id}`,
+                    load: () =>
+                      fetchCatalogDashPreview({
+                        module: "games",
+                        kind: "universe",
+                        universe_id: String(u.id),
+                      }),
+                    showMediaCaption: true,
+                    showPreviewArtist: true,
+                  }}
                   onEnter={universesExpand.onEnter}
                   onLeave={universesExpand.onLeave}
                   onActivate={onCardActivate(cid, () => onOpenUniverse(u.id))}
@@ -451,6 +518,17 @@ export default function GamesHome({
                 landscapeUrl={g.image_url}
                 expanded={genresExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                preview={{
+                  requestKey: `games-genre:${g.id ?? g.name}`,
+                  load: () =>
+                    fetchCatalogDashPreview({
+                      module: "games",
+                      kind: "genre",
+                      genre_id: Number(g.id),
+                    }),
+                  showMediaCaption: true,
+                  showPreviewArtist: true,
+                }}
                 onEnter={genresExpand.onEnter}
                 onLeave={genresExpand.onLeave}
                 onActivate={onCardActivate(cid, () => onGenre?.(g.id))}
@@ -458,7 +536,7 @@ export default function GamesHome({
             );
           })}
           <PlaceholderTiles
-            count={topGenres.length ? genrePlaceholders : baseLimit}
+            count={topGenres.length ? genrePlaceholders : contentLimit}
             variant="circle"
           />
         </div>
@@ -497,9 +575,10 @@ export default function GamesHome({
               />
             );
           })}
-          {!platformRow.length ? (
-            <PlaceholderTiles count={baseLimit} variant="square" />
-          ) : null}
+          <PlaceholderTiles
+            count={platformRow.length ? platformPlaceholders : contentLimit}
+            variant="square"
+          />
         </div>
       </section>
 

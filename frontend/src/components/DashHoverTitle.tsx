@@ -89,6 +89,7 @@ function scrollDashCardToCenterIfMiddle(card: HTMLElement): void {
 export function useDashCardReveal() {
   const coarse = useCoarsePointer();
   const [revealedId, setRevealedId] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!coarse || revealedId == null) return;
@@ -126,11 +127,12 @@ export function useDashCardReveal() {
         setRevealedId(id);
         return;
       }
+      setPendingId(id);
       action();
     };
   }
 
-  return { coarse, revealedId, onCardActivate };
+  return { coarse, revealedId, pendingId, onCardActivate };
 }
 
 export function DashHoverTitle({

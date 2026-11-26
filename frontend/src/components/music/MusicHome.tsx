@@ -204,7 +204,7 @@ export default function MusicHome({
     playerBarVisible ? " music-dashboard--player-active" : ""
   }`;
   const tracksScrollRef = useRef<HTMLDivElement>(null);
-  const { coarse, revealedId, onCardActivate } = useDashCardReveal();
+  const { coarse, revealedId, pendingId, onCardActivate } = useDashCardReveal();
   const tracksExpand = useDashPaneExpand(revealedId, coarse);
   const artistsExpand = useDashPaneExpand(revealedId, coarse);
   const releasesExpand = useDashPaneExpand(revealedId, coarse);
@@ -274,7 +274,11 @@ export default function MusicHome({
   }, [layout, playingPath, topTracks]);
 
   return (
-    <div className={`music-dashboard${dashClass}`}>
+    <div
+      className={`music-dashboard${dashClass}${
+        loading ? "" : " dash-appear-ready"
+      }`}
+    >
       <section className="dash-row dash-row--tracks">
         <DashPaneLabel
           icon="repeat"
@@ -344,17 +348,23 @@ export default function MusicHome({
           {topArtists.map((a) => {
             const cid = `artist-${a.id}`;
             const preferPortrait = layout === "mobile-portrait";
+            const square =
+              a.square_url ||
+              a.photo_url ||
+              a.portrait_url ||
+              null;
             const cover =
               (preferPortrait
                 ? a.portrait_url || a.photo_url
                 : a.photo_url || a.portrait_url) || null;
+            const badge = a.badge_url || null;
             return (
               <DashMorphCard
                 key={a.id}
                 id={cid}
                 title={(a.name ?? "Untitled").replace(/■/g, ",").replace(/█/g, "'")}
-                shape="circle"
-                coverUrl={cover}
+                shape={badge ? "square" : "circle"}
+                coverUrl={badge || square || cover}
                 bannerUrl={a.banner_url}
                 landscapeUrl={a.landscape_url}
                 logoUrl={a.logo_url}
@@ -362,6 +372,7 @@ export default function MusicHome({
                 iconUrl={a.icon_url}
                 expanded={artistsExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                active={pendingId === cid}
                 preview={{
                   requestKey: `artist:${a.id}`,
                   load: () =>

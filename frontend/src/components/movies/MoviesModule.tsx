@@ -223,7 +223,8 @@ export default function MoviesModule({
 
   const [tab, setTab] = useState<MoviesTab>("home");
   useModuleHomeBeatPulse({
-    enabled: tab === "home" || homeAudioHasSrc || homeAudioPlaying,
+    enabled:
+      !franchiseId && (homeAudioHasSrc || homeAudioPlaying || tab === "home"),
     playing: homeAudioPlaying,
   });
   const showHomeWrapped = tab === "home" && wrappedYear != null;
@@ -1261,15 +1262,20 @@ export default function MoviesModule({
     <div
       className={`series-module${moduleHomePlaybackClassNames({
         backdrop: moduleBackdrop && !showHomePlaybackBg,
-        showPlaybackBg: showHomePlaybackBg || tab === "home",
-        hasSrc: homeAudioHasSrc || tab === "home" || homeAudioPlaying,
+        showPlaybackBg: showHomePlaybackBg,
+        hasSrc:
+          !franchiseId &&
+          (homeAudioHasSrc || homeAudioPlaying || tab === "home" || tab === "catalog"),
         playing: homeAudioPlaying,
       })}`}
     >
-      {showHomePlaybackBg || homeAudioPlaying || homeAudioHasSrc || tab === "home" ? (
+      {showHomePlaybackBg ||
+      homeAudioPlaying ||
+      homeAudioHasSrc ||
+      (!franchiseId && (tab === "home" || tab === "catalog")) ? (
         <PlaybackCoverAtmosphere
           playing={homeAudioPlaying}
-          hasSrc={homeAudioHasSrc || tab === "home"}
+          hasSrc={homeAudioHasSrc || !franchiseId}
           coverUrl={homeAudioCover}
         />
       ) : moduleBackdrop ? (

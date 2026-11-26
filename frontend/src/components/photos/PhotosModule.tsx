@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   deleteExclusiveLink,
   fetchExclusiveHub,
@@ -20,6 +27,10 @@ import {
   defaultSectionForSource,
   saveArtistEntryReferrer,
 } from "../../artistEntry";
+import {
+  getGlobalMusicSnapshot,
+  subscribeGlobalMusic,
+} from "../../globalMusicPlayer";
 import { withMediaAccess } from "../../mediaFileUrl";
 import { trackModuleActivity } from "../../moduleActivity";
 import { wrappedSeasonYear } from "../../moduleWrappedCache";
@@ -28,6 +39,11 @@ import {
   consumePhotosExclusiveReturn,
   savePhotosExclusiveReturn,
 } from "../../photosExclusiveReturn";
+import {
+  moduleHomePlaybackClassNames,
+  PlaybackCoverAtmosphere,
+  useModuleHomeBeatPulse,
+} from "../../usePlaybackCoverBg";
 import { usePhoneLayout } from "../../usePhoneLayout";
 import type { MediaOption } from "../ModuleTopBar";
 import ModuleTopBar from "../ModuleTopBar";
@@ -347,6 +363,17 @@ export default function PhotosModule({
   const [hubModules, setHubModules] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [viewTab, setViewTab] = useState<ViewTab>(initialTab);
+  const globalMusic = useSyncExternalStore(
+    subscribeGlobalMusic,
+    getGlobalMusicSnapshot,
+    getGlobalMusicSnapshot
+  );
+  const beatPlaying = globalMusic.playing && globalMusic.hasTrack;
+  const beatHasSrc = globalMusic.hasTrack;
+  useModuleHomeBeatPulse({
+    enabled: true,
+    playing: beatPlaying,
+  });
   const [galleryFolder, setGalleryFolder] = useState<string | null>(null);
   const [viewerIndex, setViewerIndex] = useState(0);
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -988,7 +1015,18 @@ export default function PhotosModule({
   };
 
   return (
-    <div className="music-module photos-module">
+    <div
+      className={`music-module photos-module${moduleHomePlaybackClassNames({
+        hasSrc: beatHasSrc,
+        playing: beatPlaying,
+        showPlaybackBg: Boolean(beatPlaying && globalMusic.current?.coverUrl),
+      })}`}
+    >
+      <PlaybackCoverAtmosphere
+        playing={beatPlaying}
+        hasSrc={beatHasSrc}
+        coverUrl={globalMusic.current?.coverUrl ?? null}
+      />
       <ModuleTopBar
         media={
           mediaOptions.find((m) => m.kind === "photos") ?? {

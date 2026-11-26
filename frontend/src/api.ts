@@ -285,7 +285,7 @@ export async function fetchMusicDashPreview(
 }
 
 export type CatalogDashPreviewQuery = {
-  module: "series" | "movies";
+  module: "series" | "movies" | "books" | "games";
   kind: string;
   franchise_id?: string | null;
   subseries_id?: string | null;
@@ -294,6 +294,7 @@ export type CatalogDashPreviewQuery = {
   genre_id?: number | null;
   country_id?: number | null;
   country_name?: string | null;
+  country_iso?: string | null;
   universe_id?: string | null;
 };
 
@@ -309,6 +310,7 @@ export async function fetchCatalogDashPreview(
   if (q.genre_id != null) params.set("genre_id", String(q.genre_id));
   if (q.country_id != null) params.set("country_id", String(q.country_id));
   if (q.country_name) params.set("country_name", q.country_name);
+  if (q.country_iso) params.set("country_iso", q.country_iso);
   if (q.universe_id) params.set("universe_id", q.universe_id);
   const key = `${q.module}|${params.toString()}`;
   const hit = _musicDashPreviewCache.get(key);
@@ -319,8 +321,12 @@ export async function fetchCatalogDashPreview(
     const data = await request<import("./types").MusicDashPreview>(
       `${API}/${q.module}/dash-preview?${params.toString()}`
     );
-    _musicDashPreviewCache.set(key, { at: Date.now(), data });
-    return data.media_url || data.path ? data : null;
+    // Only cache hits — empty misses used to stick for 90s after enrich fixes.
+    if (data.media_url || data.path) {
+      _musicDashPreviewCache.set(key, { at: Date.now(), data });
+      return data;
+    }
+    return null;
   } catch {
     return null;
   }

@@ -104,7 +104,7 @@ import {
   saveArtistEntryReferrer,
 } from "../../artistEntry";
 import { getMediaEntrySource } from "../../mediaEntry";
-import { slugMatch } from "../../routeSlug";
+import { slugMatch, stripDatedFolderTitle } from "../../routeSlug";
 import { rememberLeafSlug } from "../../routeEntityCache";
 import {
   deleteCachedLeafPage,
@@ -1429,7 +1429,11 @@ export default function SeriesSubseriesPage({
         }));
       const foundEarly = fromShows.find(
         (s) =>
-          s.id === subseriesId || slugMatch(s.title || "", subseriesId)
+          s.id === subseriesId ||
+          slugMatch(s.title || "", subseriesId) ||
+          slugMatch(s.id || "", subseriesId) ||
+          slugMatch(stripDatedFolderTitle(s.title || ""), subseriesId) ||
+          slugMatch(stripDatedFolderTitle(s.id || ""), subseriesId)
       );
       let ov: Awaited<ReturnType<typeof fetchSeriesOverview>> = null;
       let folder: SeriesFolderDetail | null = null;
@@ -1456,10 +1460,24 @@ export default function SeriesSubseriesPage({
         foundEarly ||
         list.find(
           (s) =>
-            s.id === subseriesId || slugMatch(s.title || "", subseriesId)
+            s.id === subseriesId ||
+            slugMatch(s.title || "", subseriesId) ||
+            slugMatch(s.id || "", subseriesId) ||
+            slugMatch(stripDatedFolderTitle(s.title || ""), subseriesId) ||
+            slugMatch(stripDatedFolderTitle(s.id || ""), subseriesId)
         );
       if (!found?.folder_path) {
-        setError("Subseries not found.");
+        // Soft recover: open the franchise hub instead of an alarming dead-end.
+        if (onNavigate) {
+          onNavigate({
+            subseriesId: undefined,
+            seasonId: undefined,
+            section: "overview",
+            overviewTab: "about",
+          });
+          return;
+        }
+        setError("This entry could not be opened. Try the franchise page.");
         setCard(null);
         setDetail(null);
         return;
@@ -1489,7 +1507,7 @@ export default function SeriesSubseriesPage({
     } finally {
       setLoading(false);
     }
-  }, [franchiseId, subseriesId, rescanTick, isFilm, isGame, franchiseName]);
+  }, [franchiseId, subseriesId, rescanTick, isFilm, isGame, franchiseName, onNavigate]);
 
   useEffect(() => {
     void loadCard();
@@ -4932,8 +4950,22 @@ export default function SeriesSubseriesPage({
                 ) : undefined
               }
               onEditAbout={
-                isAdmin && overview
-                  ? () => setAboutEditOpen(true)
+                isAdmin
+                  ? () => {
+                      if (overview) {
+                        setAboutEditOpen(true);
+                        return;
+                      }
+                      void fetchSeriesOverview(franchiseId)
+                        .then((ov) => {
+                          if (!ov) return;
+                          setOverview(ov);
+                          setAboutEditOpen(true);
+                        })
+                        .catch(() => {
+                          /* keep menu usable; overview required for editor */
+                        });
+                    }
                   : undefined
               }
               onAddAudio={
@@ -7298,6 +7330,7 @@ export default function SeriesSubseriesPage({
         <SeriesAboutEditModal
           franchiseId={franchiseId}
           data={overview}
+
           subseriesId={subseriesId}
           filmId={isFilm || isBook || isGame ? subseriesId : undefined}
           variant={

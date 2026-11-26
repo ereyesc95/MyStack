@@ -47,6 +47,7 @@ export type ArtistCard = {
   landscape_url?: string | null;
   banner_url?: string | null;
   square_url?: string | null;
+  badge_url?: string | null;
   logo_url: string | null;
   logo_collapsed_url?: string | null;
   icon_url: string | null;

@@ -2711,11 +2711,26 @@ export default function App() {
             // Don't overwrite a real entry referrer when jumping tabs on the
             // same release (lyrics/versions from the global bar).
             if (!alreadyOnRelease) {
+              const moduleSource =
+                view.kind === "series" ||
+                view.kind === "movies" ||
+                view.kind === "books" ||
+                view.kind === "games" ||
+                view.kind === "hobbies"
+                  ? view.kind
+                  : "home";
               saveReleaseReferrer({
                 bandId,
                 section: "audio",
-                source: "home",
+                source: moduleSource,
+                fromTab: "home",
                 artistName: meta?.artistName ?? undefined,
+                hobbyCollectionId:
+                  view.kind === "hobbies" &&
+                  typeof (view as { collectionId?: number }).collectionId ===
+                    "number"
+                    ? (view as { collectionId?: number }).collectionId
+                    : undefined,
               });
             }
             pushArtistRoute({

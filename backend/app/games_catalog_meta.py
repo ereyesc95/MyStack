@@ -1,9 +1,12 @@
 """Enrich Games catalog cards with DB metadata for filters + about fields."""
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.games_store import iter_game_leaf_meta, iter_game_work_meta
+from app.models import Subgenre
+from app.seed_games import GAMES_MEDIA_TYPE
 
 
 def _names(raw: object) -> list[str]:
@@ -48,10 +51,26 @@ def enrich_games_catalog(db: Session, catalog: dict) -> dict:
         if row.gwk_slug:
             work_by_slug[row.gwk_slug.casefold()] = about
 
+    # Name → subgenre id so dash vibes can filter by genre_id
+    subs_by_name = {
+        (s.sgn_name or "").casefold(): s.sgn_id
+        for s in db.scalars(
+            select(Subgenre).where(Subgenre.sgn_media_type_id == GAMES_MEDIA_TYPE)
+        ).all()
+        if s.sgn_name
+    }
+
     def apply_about(card: dict, about: dict) -> None:
         gnames = _genre_names(about)
         if gnames:
             card["genre_names"] = gnames
+            gids = [
+                subs_by_name[n.casefold()]
+                for n in gnames
+                if n and n.casefold() in subs_by_name
+            ]
+            if gids:
+                card["genre_ids"] = gids
         developers = _names(about.get("developers") or about.get("studio"))
         publishers = _names(about.get("publishers") or about.get("publisher"))
         directors = _names(
@@ -102,6 +121,31 @@ def enrich_games_catalog(db: Session, catalog: dict) -> dict:
             leaf_about = leaf_by_id.get(leaf.get("id") or "")
             if leaf_about:
                 apply_about(leaf, leaf_about)
+
+    def stamp_ids_from_names(card: dict) -> None:
+        if card.get("genre_ids"):
+            return
+        names = card.get("genre_names") or []
+        if not isinstance(names, list) or not names:
+            return
+        gids = [
+            subs_by_name[str(n).casefold()]
+            for n in names
+            if n and str(n).casefold() in subs_by_name
+        ]
+        if gids:
+            card["genre_ids"] = gids
+
+    for card in catalog.get("games") or catalog.get("films") or []:
+        if isinstance(card, dict):
+            stamp_ids_from_names(card)
+    for card in catalog.get("franchises") or []:
+        if not isinstance(card, dict):
+            continue
+        stamp_ids_from_names(card)
+        for leaf in card.get("games") or card.get("films") or []:
+            if isinstance(leaf, dict):
+                stamp_ids_from_names(leaf)
 
     if "films" not in catalog and catalog.get("games"):
         catalog["films"] = catalog["games"]

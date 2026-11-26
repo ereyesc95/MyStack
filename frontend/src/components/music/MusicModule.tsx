@@ -743,9 +743,9 @@ export default function MusicModule({
     return () => window.clearTimeout(t);
   }, [tab]);
 
-  const homeBeatActive = Boolean(
-    !bandId && globalMusic.hasTrack && tab === "home"
-  );
+  // Drive pulses on every MusicStack top tab (home/artists/playlists/…),
+  // not only Home — deep artist/release pages mount their own beat FX.
+  const homeBeatActive = Boolean(!bandId && globalMusic.hasTrack);
   const homeBeatPlaying = homeBeatActive && globalMusic.playing;
   useBeatPulse(globalAudioRef, homeBeatActive, globalMusic.playing);
 
@@ -1508,7 +1508,7 @@ export default function MusicModule({
       className={`music-module${
         moduleBackdrop || showHomePlaybackBg ? " music-module--backdrop" : ""
       }${
-        homeBeatActive || tab === "home" || homePreviewBeating
+        homeBeatActive || homePreviewBeating
           ? " music-module--beat-ready"
           : ""
       }${
@@ -1539,7 +1539,7 @@ export default function MusicModule({
         </div>
       ) : (
         <>
-          {tab === "home" || homeBeatPlaying ? <MediaBeatFx /> : null}
+          {homeBeatActive || homePreviewBeating ? <MediaBeatFx /> : null}
           {moduleBackdrop ? (
             <div className="music-module__backdrop" aria-hidden>
               {backgroundIso ? (

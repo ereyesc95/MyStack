@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
+import { fetchCatalogDashPreview } from "../../api";
 import type { SeriesDashboard, Universe } from "../../types";
 import { EMPTY_SERIES_DASHBOARD } from "../../types";
 import { openCatalogVideo } from "../../openCatalogVideo";
@@ -186,7 +187,7 @@ export default function BooksHome({
     ? baseLimit + UNIVERSES_PANE_BONUS
     : baseLimit;
   const { playLocally } = usePlayVideosPreference();
-  const { coarse, revealedId, onCardActivate } = useDashCardReveal();
+  const { coarse, revealedId, pendingId, onCardActivate } = useDashCardReveal();
   /** Touch / phone / tablet-portrait: square idle → landscape on tap. */
   const useSquareTiles =
     coarse ||
@@ -215,6 +216,28 @@ export default function BooksHome({
         s.landscape_url ||
         s.banner_url ||
         null;
+
+  const sagaTile = (s: {
+    badge_url?: string | null;
+    cover_url?: string | null;
+    photo_url?: string | null;
+    portrait_url?: string | null;
+    landscape_url?: string | null;
+    banner_url?: string | null;
+  }) => {
+    const badge = s.badge_url || null;
+    const square =
+      s.cover_url ||
+      s.photo_url ||
+      s.portrait_url ||
+      s.landscape_url ||
+      s.banner_url ||
+      null;
+    return {
+      shape: (badge ? "square" : "circle") as "square" | "circle",
+      coverUrl: badge || square,
+    };
+  };
 
   const topFranchises = slicePane(dash.top_franchises || [], contentLimit);
   const topBooks = slicePane(
@@ -318,6 +341,19 @@ export default function BooksHome({
                 }
                 expanded={booksExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                preview={{
+                  requestKey: `books-book:${s.id}`,
+                  load: () =>
+                    fetchCatalogDashPreview({
+                      module: "books",
+                      kind: "book",
+                      film_id: s.id,
+                      franchise_id: s.work_id,
+                      folder_path: (s as { folder_path?: string | null })
+                        .folder_path,
+                    }),
+                  showMediaCaption: true,
+                }}
                 onEnter={booksExpand.onEnter}
                 onLeave={booksExpand.onLeave}
                 onActivate={onCardActivate(cid, () =>
@@ -342,13 +378,14 @@ export default function BooksHome({
         <div className="dash-scroll dash-scroll--icons">
           {topFranchises.map((s) => {
             const cid = `franchise-${s.id}`;
+            const tile = sagaTile(s as { badge_url?: string | null });
             return (
               <DashMorphCard
                 key={s.id}
                 id={cid}
                 title={s.name}
-                shape={contentShape}
-                coverUrl={pickCover(s)}
+                shape={tile.shape}
+                coverUrl={tile.coverUrl}
                 bannerUrl={s.banner_url}
                 landscapeUrl={s.landscape_url}
                 logoUrl={s.logo_url}
@@ -358,6 +395,20 @@ export default function BooksHome({
                 iconUrl={s.icon_url}
                 expanded={franchisesExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                active={pendingId === cid}
+                preview={{
+                  requestKey: `books-franchise:${s.id}`,
+                  load: () =>
+                    fetchCatalogDashPreview({
+                      module: "books",
+                      kind: "franchise",
+                      franchise_id: s.id,
+                      folder_path: (s as { folder_path?: string | null })
+                        .folder_path,
+                    }),
+                  showMediaCaption: true,
+                  showPreviewArtist: true,
+                }}
                 onEnter={franchisesExpand.onEnter}
                 onLeave={franchisesExpand.onLeave}
                 onActivate={onCardActivate(cid, () => onFranchise(s.id))}
@@ -366,7 +417,7 @@ export default function BooksHome({
           })}
           <PlaceholderTiles
             count={topFranchises.length ? franchisePlaceholders : contentLimit}
-            variant={contentShape}
+            variant="circle"
           />
         </div>
       </section>
@@ -397,6 +448,17 @@ export default function BooksHome({
                   }
                   expanded={universesExpand.expandedId === cid}
                   revealed={revealedId === cid}
+                  preview={{
+                    requestKey: `books-universe:${u.id}`,
+                    load: () =>
+                      fetchCatalogDashPreview({
+                        module: "books",
+                        kind: "universe",
+                        universe_id: String(u.id),
+                      }),
+                    showMediaCaption: true,
+                    showPreviewArtist: true,
+                  }}
                   onEnter={universesExpand.onEnter}
                   onLeave={universesExpand.onLeave}
                   onActivate={onCardActivate(cid, () =>
@@ -433,6 +495,17 @@ export default function BooksHome({
                 landscapeUrl={g.image_url}
                 expanded={genresExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                preview={{
+                  requestKey: `books-genre:${g.id ?? g.name}`,
+                  load: () =>
+                    fetchCatalogDashPreview({
+                      module: "books",
+                      kind: "genre",
+                      genre_id: Number(g.id),
+                    }),
+                  showMediaCaption: true,
+                  showPreviewArtist: true,
+                }}
                 onEnter={genresExpand.onEnter}
                 onLeave={genresExpand.onLeave}
                 onActivate={onCardActivate(cid, () => onGenre?.(g.id))}
@@ -464,6 +537,19 @@ export default function BooksHome({
                 flagIso={c.iso}
                 expanded={countriesExpand.expandedId === cid}
                 revealed={revealedId === cid}
+                preview={{
+                  requestKey: `books-country:${c.id ?? c.name}`,
+                  load: () =>
+                    fetchCatalogDashPreview({
+                      module: "books",
+                      kind: "country",
+                      country_id: c.id,
+                      country_name: c.name,
+                      country_iso: c.iso,
+                    }),
+                  showMediaCaption: true,
+                  showPreviewArtist: true,
+                }}
                 onEnter={countriesExpand.onEnter}
                 onLeave={countriesExpand.onLeave}
                 onActivate={onCardActivate(cid, () =>

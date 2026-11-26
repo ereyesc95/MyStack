@@ -259,6 +259,7 @@ def movies_dash_preview(
     genre_id: int | None = Query(None),
     country_id: int | None = Query(None),
     country_name: str | None = Query(None),
+    country_iso: str | None = Query(None),
     universe_id: str | None = Query(None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -275,6 +276,7 @@ def movies_dash_preview(
         genre_id=genre_id,
         country_id=country_id,
         country_name=country_name,
+        country_iso=country_iso,
         universe_id=universe_id,
     )
     if not result:

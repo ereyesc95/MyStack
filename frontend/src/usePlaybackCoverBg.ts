@@ -3,4 +3,5 @@ export {
   usePlaybackCoverBg,
   PlaybackCoverAtmosphere,
   moduleHomePlaybackClassNames,
+  useModuleHomeBeatPulse,
 } from "./usePlaybackCoverBg.tsx";

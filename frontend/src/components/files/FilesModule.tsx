@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import {
   copyFilesFiles,
@@ -22,9 +23,18 @@ import {
   pushFilesRootRoute,
   pushFilesTabRoute,
 } from "../../filesRoute";
+import {
+  getGlobalMusicSnapshot,
+  subscribeGlobalMusic,
+} from "../../globalMusicPlayer";
 import { withMediaAccess } from "../../mediaFileUrl";
 import { trackModuleActivity } from "../../moduleActivity";
 import { wrappedSeasonYear } from "../../moduleWrappedCache";
+import {
+  moduleHomePlaybackClassNames,
+  PlaybackCoverAtmosphere,
+  useModuleHomeBeatPulse,
+} from "../../usePlaybackCoverBg";
 import { usePhoneLayout } from "../../usePhoneLayout";
 import ModuleWrapped, {
   type ModuleWrappedBrowseTarget,
@@ -122,6 +132,17 @@ export default function FilesModule({
   const wrappedYear = wrappedSeasonYear();
   const isPhone = usePhoneLayout();
   const showHomeWrapped = wrappedYear != null;
+  const globalMusic = useSyncExternalStore(
+    subscribeGlobalMusic,
+    getGlobalMusicSnapshot,
+    getGlobalMusicSnapshot
+  );
+  const beatPlaying = globalMusic.playing && globalMusic.hasTrack;
+  const beatHasSrc = globalMusic.hasTrack;
+  useModuleHomeBeatPulse({
+    enabled: true,
+    playing: beatPlaying,
+  });
   const searchRef = useRef<HTMLInputElement>(null);
   const searchRootRef = useRef<HTMLDivElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -390,7 +411,18 @@ export default function FilesModule({
     nextSort === "title" ? "Title" : nextSort === "format" ? "Format" : "Size";
 
   return (
-    <div className="files-module">
+    <div
+      className={`files-module music-module${moduleHomePlaybackClassNames({
+        hasSrc: beatHasSrc,
+        playing: beatPlaying,
+        showPlaybackBg: Boolean(beatPlaying && globalMusic.current?.coverUrl),
+      })}`}
+    >
+      <PlaybackCoverAtmosphere
+        playing={beatPlaying}
+        hasSrc={beatHasSrc}
+        coverUrl={globalMusic.current?.coverUrl ?? null}
+      />
       <ModuleTopBar
         media={
           mediaOptions.find((m) => m.kind === "files") ?? {

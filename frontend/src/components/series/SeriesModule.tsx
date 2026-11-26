@@ -351,7 +351,8 @@ export default function SeriesModule({
   const [homeAudioPlaying, setHomeAudioPlaying] = useState(false);
   const [homeAudioHasSrc, setHomeAudioHasSrc] = useState(false);
   useModuleHomeBeatPulse({
-    enabled: tab === "home" || homeAudioHasSrc || homeAudioPlaying,
+    enabled:
+      !franchiseId && (homeAudioHasSrc || homeAudioPlaying || tab === "home"),
     playing: homeAudioPlaying,
   });
   const [wrappedOpen, setWrappedOpen] = useState(false);
@@ -1247,15 +1248,20 @@ export default function SeriesModule({
     <div
       className={`series-module${moduleHomePlaybackClassNames({
         backdrop: moduleBackdrop && !showHomePlaybackBg,
-        showPlaybackBg: showHomePlaybackBg || tab === "home",
-        hasSrc: homeAudioHasSrc || tab === "home" || homeAudioPlaying,
+        showPlaybackBg: showHomePlaybackBg,
+        hasSrc:
+          !franchiseId &&
+          (homeAudioHasSrc || homeAudioPlaying || tab === "home" || tab === "catalog"),
         playing: homeAudioPlaying,
       })}`}
     >
-      {showHomePlaybackBg || homeAudioPlaying || homeAudioHasSrc || tab === "home" ? (
+      {showHomePlaybackBg ||
+      homeAudioPlaying ||
+      homeAudioHasSrc ||
+      (!franchiseId && (tab === "home" || tab === "catalog")) ? (
         <PlaybackCoverAtmosphere
           playing={homeAudioPlaying}
-          hasSrc={homeAudioHasSrc || tab === "home"}
+          hasSrc={homeAudioHasSrc || !franchiseId}
           coverUrl={homeAudioCover}
         />
       ) : moduleBackdrop ? (

@@ -1350,10 +1350,15 @@ html[data-phone] .app-menu-player-toggle {
   font-size: 0.85rem;
 }
 
-.module-top-bar__media-menu button:hover,
+.module-top-bar__media-menu button:hover {
+  background: color-mix(in srgb, var(--bg-hover) 70%, var(--bg-elevated) 30%);
+  color: var(--text);
+}
+
 .module-top-bar__media-menu button.active {
-  background: var(--bg-hover);
-  color: var(--accent);
+  /* Mid selected surface: above elevated, below a loud accent fill */
+  background: color-mix(in srgb, var(--bg-hover) 78%, var(--text) 10%);
+  color: var(--text);
 }
 
 .module-top-bar__tabs,
@@ -1686,7 +1691,8 @@ html[data-phone] .app-menu-player-toggle {
 .music-module > .detail {
   flex: 1;
   overflow: auto;
-  padding: 0.75rem 1rem 1.5rem;
+  /* Edge-to-edge like Artists / Merch grids */
+  padding: 0;
 }
 
 /* Dashboard */
@@ -2246,7 +2252,7 @@ html[data-phone] .app-menu-player-toggle {
 }
 .wrapped-playlist-module .module-top-bar__media-menu button.active {
   color: var(--text);
-  background: var(--accent);
+  background: color-mix(in srgb, var(--bg-hover) 78%, var(--text) 10%);
 }
 .music-wrapped__feature-meta {
   display: flex;
@@ -2477,9 +2483,9 @@ html[data-phone] .app-menu-player-toggle {
 .music-dashboard:has(.dash-morph:hover) .dash-track:not(:hover),
 .music-dashboard:has(.dash-morph.is-expanded) .dash-track:not(.is-expanded):not(:hover),
 .music-dashboard:has(.dash-platform:hover) .dash-platform:not(:hover),
-.music-dashboard:has(.dash-platform:hover) .dash-morph:not(:hover),
-.music-dashboard:has(.dash-morph:hover) .dash-platform,
-.music-dashboard:has(.dash-morph.is-expanded) .dash-platform {
+.music-dashboard:has(.dash-platform:hover) .dash-morph:not(:hover):not(.dash-platform),
+.music-dashboard:has(.dash-morph:hover) .dash-platform:not(:hover),
+.music-dashboard:has(.dash-morph.is-expanded) .dash-platform:not(.is-expanded):not(:hover) {
   filter: brightness(0.52);
   opacity: 0.72;
 }
@@ -2886,6 +2892,23 @@ html[data-phone] .app-menu-player-toggle {
     max-width: none;
     border-radius: 0;
   }
+  /* Icons panes (Best Sagas / Artists): keep badge squares + circles 1:1 */
+  .dash-scroll--icons .dash-morph--square:not(.is-expanded),
+  .dash-scroll--icons .dash-morph--circle:not(.is-expanded) {
+    height: auto;
+    max-height: 100%;
+    max-width: min(100%, 100cqh);
+    aspect-ratio: 1;
+    align-self: center;
+  }
+  .dash-scroll--icons .dash-morph--square:not(.is-expanded) .dash-morph__frame,
+  .dash-scroll--icons .dash-morph--circle:not(.is-expanded) .dash-morph__frame {
+    aspect-ratio: 1;
+    width: 100%;
+    height: auto;
+    max-height: 100%;
+    max-width: 100%;
+  }
   .dash-morph.is-expanded {
     height: 100%;
     align-self: stretch;
@@ -3284,12 +3307,96 @@ html[data-phone] .app-menu-player-toggle {
   .dash-scroll--icons {
   gap: 0.45rem !important;
   align-items: center;
+  container-type: size;
 }
 .music-dashboard:not(.series-dashboard):not(.movies-dashboard):not(.books-dashboard):not(.games-dashboard)
   .dash-scroll--icons
-  .dash-morph--circle:not(.is-expanded) {
-  max-width: min(100%, 7.5rem);
+  .dash-morph--circle:not(.is-expanded),
+.music-dashboard:not(.series-dashboard):not(.movies-dashboard):not(.books-dashboard):not(.games-dashboard)
+  .dash-scroll--icons
+  .dash-morph--square:not(.is-expanded) {
+  max-width: min(100%, 7.5rem, 100cqh);
   margin-inline: auto;
+  aspect-ratio: 1;
+  height: auto;
+  max-height: 100%;
+  align-self: center;
+}
+.music-dashboard:not(.series-dashboard):not(.movies-dashboard):not(.books-dashboard):not(.games-dashboard)
+  .dash-scroll--icons
+  .dash-morph--square:not(.is-expanded)
+  .dash-morph__frame {
+  aspect-ratio: 1;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  border-radius: 0;
+}
+
+/* Best Sagas badges: 1:1 square (or circle fallback) — never stretched ovals */
+.dash-scroll--icons {
+  container-type: size;
+}
+.dash-scroll--icons .dash-morph--square:not(.is-expanded),
+.dash-scroll--icons .dash-morph--circle:not(.is-expanded),
+.dash-scroll--icons .dash-placeholder-item.dash-morph--circle,
+.dash-scroll--icons .dash-placeholder-item.dash-morph--square {
+  aspect-ratio: 1;
+  height: auto;
+  max-height: 100%;
+  max-width: min(100%, 100cqh);
+  align-self: center;
+}
+.dash-scroll--icons .dash-morph--square:not(.is-expanded) .dash-morph__frame,
+.dash-scroll--icons .dash-morph--circle:not(.is-expanded) .dash-morph__frame {
+  aspect-ratio: 1;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+}
+
+/* Pinned / home player: keep Best Artists circles round (not ovals) */
+.music-dashboard--player-active .dash-scroll--icons .dash-morph--circle:not(.is-expanded),
+.music-dashboard--player-active .dash-scroll--icons .dash-morph--square:not(.is-expanded),
+.music-dashboard--player-active .dash-scroll--icons .dash-placeholder-item.dash-morph--circle,
+html.mystack-player-pinned .dash-scroll--icons .dash-morph--circle:not(.is-expanded),
+html.mystack-player-pinned .dash-scroll--icons .dash-morph--square:not(.is-expanded) {
+  max-width: min(100%, 100cqh);
+  aspect-ratio: 1;
+  height: auto;
+  max-height: 100%;
+  align-self: center;
+}
+.music-dashboard--player-active .dash-scroll--icons .dash-morph--circle:not(.is-expanded) .dash-morph__frame,
+.music-dashboard--player-active .dash-scroll--icons .dash-morph--square:not(.is-expanded) .dash-morph__frame,
+html.mystack-player-pinned .dash-scroll--icons .dash-morph--circle:not(.is-expanded) .dash-morph__frame,
+html.mystack-player-pinned .dash-scroll--icons .dash-morph--square:not(.is-expanded) .dash-morph__frame {
+  aspect-ratio: 1;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+}
+
+.dash-morph.active .dash-morph__frame {
+  filter: brightness(1.08);
+}
+.dash-morph.active::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  animation: dash-pending-pulse 0.9s ease-in-out infinite;
+}
+@keyframes dash-pending-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.75;
+  }
 }
 .dash-morph__flag-badge {
   flex: 0 0 auto;
@@ -3600,6 +3707,8 @@ html[data-phone] .app-menu-player-toggle {
   .series-dashboard .dash-scroll--flags .dash-morph.dash-placeholder-item,
   .movies-dashboard .dash-scroll--flags .dash-morph.dash-placeholder-item,
   .books-dashboard .dash-scroll--flags .dash-morph.dash-placeholder-item,
+  .games-dashboard .dash-scroll--flags .dash-morph.dash-placeholder-item,
+  .music-dashboard .dash-scroll--flags .dash-morph.dash-placeholder-item,
   .dash-scroll--tracks .dash-morph.dash-placeholder-item {
     height: 100%;
     align-self: stretch;
@@ -4370,7 +4479,11 @@ html[data-phone] .app-menu-player-toggle {
 .dash-icon-item-cover--empty {
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--bg-elevated, #1a1a1a) 88%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--bg-elevated, #12151c) 58%,
+    rgba(0, 0, 0, 0.55)
+  );
   color: color-mix(in srgb, var(--text-muted, #888) 70%, transparent);
 }
 
@@ -5622,22 +5735,31 @@ html[data-phone] .app-menu-player-toggle {
   box-sizing: border-box;
 }
 
-/* Neutral dark — avoid theme --bg-hover blue wash on On Repeat / Top Records */
+/* Dimmed translucent — match unpinned player strip, not solid gray */
 .dash-placeholder--square {
   width: 100%;
   max-width: none;
   aspect-ratio: 1;
   height: auto;
   margin: 0;
-  background: #1a1a1a;
+  background: color-mix(
+    in srgb,
+    var(--bg-elevated, #12151c) 58%,
+    rgba(0, 0, 0, 0.55)
+  );
 }
 /* Morph-shaped placeholders match live card sizing (no undersized tiles) */
 .dash-morph.dash-placeholder-item {
   pointer-events: none;
   cursor: default;
+  opacity: 0.55;
 }
 .dash-morph.dash-placeholder-item .dash-morph__frame {
-  background: #1a1a1a;
+  background: color-mix(
+    in srgb,
+    var(--bg-elevated, #12151c) 58%,
+    rgba(0, 0, 0, 0.55)
+  );
 }
 .dash-scroll--genres .dash-morph.dash-placeholder-item .dash-morph__frame,
 .dash-scroll--icons .dash-morph--circle.dash-placeholder-item .dash-morph__frame,
@@ -5645,13 +5767,52 @@ html[data-phone] .app-menu-player-toggle {
 .dash-scroll--flags .dash-morph.dash-placeholder-item .dash-morph__frame,
 .dash-scroll--icons .dash-morph--portrait.dash-placeholder-item .dash-morph__frame,
 .dash-scroll--icons .dash-morph--landscape.dash-placeholder-item .dash-morph__frame {
-  background: #1a1a1a;
+  background: color-mix(
+    in srgb,
+    var(--bg-elevated, #12151c) 58%,
+    rgba(0, 0, 0, 0.55)
+  );
 }
 
 .dash-placeholder--landscape,
 .dash-placeholder--circle,
 .dash-placeholder--flag {
-  background: #1a1a1a;
+  background: color-mix(
+    in srgb,
+    var(--bg-elevated, #12151c) 58%,
+    rgba(0, 0, 0, 0.55)
+  );
+}
+
+.dash-placeholder-item:not(.dash-morph),
+.dash-placeholder-slot .dash-placeholder {
+  opacity: 0.55;
+}
+
+/* Breathe only while the dashboard is still loading (before dash-appear-ready). */
+.music-dashboard:not(.dash-appear-ready) .dash-morph.dash-placeholder-item,
+.music-dashboard:not(.dash-appear-ready) .dash-placeholder-item:not(.dash-morph),
+.music-dashboard:not(.dash-appear-ready) .dash-placeholder-slot .dash-placeholder {
+  animation: dash-placeholder-breathe 1.8s ease-in-out infinite;
+}
+
+@keyframes dash-placeholder-breathe {
+  0%,
+  100% {
+    opacity: 0.42;
+  }
+  50% {
+    opacity: 0.78;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .music-dashboard:not(.dash-appear-ready) .dash-morph.dash-placeholder-item,
+  .music-dashboard:not(.dash-appear-ready) .dash-placeholder-item:not(.dash-morph),
+  .music-dashboard:not(.dash-appear-ready) .dash-placeholder-slot .dash-placeholder {
+    animation: none;
+    opacity: 0.55;
+  }
 }
 
 .dash-placeholder--landscape {
@@ -10418,7 +10579,11 @@ html[data-phone] .app-menu-player-toggle {
   overflow: hidden;
   flex-shrink: 0;
   display: block;
-  background: var(--bg-hover);
+  background: color-mix(
+    in srgb,
+    var(--bg-elevated, #12151c) 58%,
+    rgba(0, 0, 0, 0.55)
+  );
 }
 
 .artist-lineup-card img,
@@ -10427,7 +10592,11 @@ html[data-phone] .app-menu-player-toggle {
   height: 100%;
   border-radius: 50%;
   object-fit: cover;
-  background: var(--bg-hover);
+  background: color-mix(
+    in srgb,
+    var(--bg-elevated, #12151c) 58%,
+    rgba(0, 0, 0, 0.55)
+  );
   display: flex;
   align-items: center;
   justify-content: center;
@@ -15114,12 +15283,11 @@ button.media-release-card--banner {
     background 0.25s ease;
 }
 .release-page__panel:hover .release-page__panel-reveal,
-.release-page__panel:focus-within .release-page__panel-reveal,
-.release-page__panel-reveal.is-lingering,
 .release-page__panel-reveal:focus-visible {
   opacity: 1;
   pointer-events: auto;
 }
+/* Do not keep eye visible via focus-within / linger — hover only. */
 .release-page__panel-reveal:hover,
 .release-page__panel-reveal.is-active {
   color: rgba(255, 255, 255, 0.88);
@@ -22308,7 +22476,8 @@ button.lyrics-status-badge--icon-only {
 
 .series-subseries-page .series-subseries-overview.release-page__overview {
   overflow: visible;
-  padding: 0.75rem 1rem 1rem;
+  /* Flush bottom so Characters/Staff glass lines up with left panel bottom */
+  padding: 0.75rem 1rem 0;
   min-height: 0;
   height: 100%;
   box-sizing: border-box;
@@ -22354,16 +22523,20 @@ button.lyrics-status-badge--icon-only {
   flex: 1 1 auto;
   min-height: 0;
   overflow: visible;
+  position: relative;
+  z-index: 1;
 }
 
 .series-subseries-page.release-page:not(.release-page--stacked).release-page--overview
   .release-page__overview-bottom.series-subseries-overview__cast {
+  /* Natural height, pushed to column bottom — never overlap synopsis/photocards */
   flex: 0 0 auto;
   margin-top: auto;
+  margin-bottom: 0;
   padding-top: clamp(0.65rem, 1.8vh, 1.1rem);
   padding-bottom: 0;
   position: relative;
-  z-index: 1;
+  z-index: 0;
   align-self: stretch;
 }
 
@@ -22389,6 +22562,8 @@ button.lyrics-status-badge--icon-only {
   min-height: 100%;
   height: 100%;
   box-sizing: border-box;
+  /* Match overview flush bottom (no short panel under-hang). */
+  padding-bottom: 0;
 }
 
 .series-subseries-page.release-page--stacked .series-subseries-overview.release-page__overview,
@@ -24273,7 +24448,7 @@ button.lyrics-status-badge--icon-only {
 }
 
 .series-subseries-overview {
-  padding: 0.75rem 1rem 1rem;
+  padding: 0.75rem 1rem 0;
 }
 
 .series-subseries-overview__grid {
@@ -33479,7 +33654,7 @@ button.series-audio-player__source-link:focus-visible {
   object-fit: cover;
   border-radius: 50%;
 }
-.events-browse__live-shows { padding: 0 0.85rem 0.65rem; }
+.events-browse__live-shows { padding: 0; }
 .events-browse__live-shows-card { max-width: 11rem; }
 .tour-show-page__body {
   /* Left = top = right = gap hero↔event (0.75rem) */
@@ -34671,10 +34846,10 @@ button.series-audio-player__source-link:focus-visible {
 .tour-show-media-card__flip-icon { width: 1.15rem; height: 1.15rem; }
 .live-shows-scope-toggle.catalog-scope-toggle { border-radius: 4px; gap: 0.28rem; }
 
-.events-browse { padding: 0 0 2rem; }
-.events-browse__sticky { margin-bottom: 0.75rem; }
+.events-browse { padding: 0; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.events-browse__sticky { margin-bottom: 0; }
 .events-browse__error { padding: 0 1rem; }
-.events-browse__grid { padding: 0 0.75rem 1rem; }
+.events-browse__grid { padding: 0; flex: 1; min-height: 0; }
 .events-act-toggle.catalog-scope-toggle {
   border-radius: 4px;
 }
@@ -37026,6 +37201,18 @@ button.series-audio-player__source-link:focus-visible {
   pointer-events: auto;
   cursor: pointer;
   z-index: 2;
+  /* Hairline so the track stays visible on busy art; fill is played-only. */
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.22);
+}
+/* Invisible hover pad above the seek so unpinned bar stays open while aiming. */
+.global-music-bar.is-overlay.is-visible .global-music-bar__seek-top::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 18px;
+  pointer-events: auto;
 }
 .global-music-bar__seek-top-input {
   position: absolute;
@@ -37033,16 +37220,16 @@ button.series-audio-player__source-link:focus-visible {
   right: 0;
   top: 0;
   width: 100%;
-  height: 12px;
+  height: 16px;
   margin: 0;
-  margin-top: -5px;
+  margin-top: -7px;
   padding: 0;
   appearance: none;
   background: transparent;
   cursor: pointer;
   z-index: 1;
 }
-/* Played = accent; remaining = empty (no fill). Invisible thumb. */
+/* Played = accent only; remaining stays unfilled. */
 .global-music-bar__seek-top-input::-webkit-slider-runnable-track {
   height: 2px;
   border-radius: 0;
@@ -37105,9 +37292,9 @@ button.series-audio-player__source-link:focus-visible {
   align-items: center;
   gap: 0.55rem;
   min-width: 0;
-  /* Cap width so transport stays beside text, not at the bar's far right. */
-  flex: 0 1 auto;
-  max-width: min(calc(100% - 10.5rem), 34rem);
+  /* Fill leftover width so title/artist/album can use the full left span. */
+  flex: 1 1 auto;
+  max-width: none;
   overflow: hidden;
   touch-action: pan-y;
 }
@@ -37156,10 +37343,18 @@ button.series-audio-player__source-link:focus-visible {
   height: 2.15rem;
   object-fit: cover;
   border-radius: 2px;
-  background: #1a1a1a;
+  background: color-mix(
+    in srgb,
+    var(--bg-elevated, #12151c) 58%,
+    rgba(0, 0, 0, 0.55)
+  );
 }
 .global-music-bar__cover--empty {
-  background: #1a1a1a;
+  background: color-mix(
+    in srgb,
+    var(--bg-elevated, #12151c) 58%,
+    rgba(0, 0, 0, 0.55)
+  );
 }
 .global-music-bar__cover-tip {
   position: absolute;
@@ -37316,16 +37511,14 @@ button.series-audio-player__source-link:focus-visible {
   width: auto !important;
   max-width: none;
   min-width: 0;
-  margin-left: 0.2rem;
+  margin-left: 0;
+  margin-right: 0.15rem;
   display: flex;
   align-items: center;
   gap: 0.15rem;
 }
 .global-music-bar__controls.artist-mini-player {
   width: auto !important;
-}
-.global-music-bar__meta .global-music-bar__controls {
-  margin-left: 0.35rem;
 }
 .global-music-bar__controls--phone {
   margin-left: 0;
@@ -37708,19 +37901,63 @@ body:has(.global-music-bar.is-pinned.is-visible) .main--hub {
   padding-bottom: var(--mystack-player-pad, 3.1rem);
 }
 
-/* Full-viewport module pages ignore main padding — shrink height instead. */
+/*
+ * Full-viewport module pages: fill the already-padded main (do not subtract
+ * player pad again from 100dvh — that double-counted and cropped + scrolled).
+ */
+html.mystack-player-pinned .main--module,
+body:has(.global-music-bar.is-pinned.is-visible) .main--module {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
 html.mystack-player-pinned .release-page:not(.release-page--embedded),
 body:has(.global-music-bar.is-pinned.is-visible)
-  .release-page:not(.release-page--embedded) {
-  height: calc(100vh - var(--mystack-player-pad, 3.1rem));
-  min-height: calc(100vh - var(--mystack-player-pad, 3.1rem));
-  max-height: calc(100dvh - var(--mystack-player-pad, 3.1rem));
-}
+  .release-page:not(.release-page--embedded),
 html.mystack-player-pinned .artist-page,
-body:has(.global-music-bar.is-pinned.is-visible) .artist-page {
-  height: calc(100dvh - var(--mystack-player-pad, 3.1rem));
-  min-height: calc(100vh - var(--mystack-player-pad, 3.1rem));
-  max-height: calc(100dvh - var(--mystack-player-pad, 3.1rem));
+body:has(.global-music-bar.is-pinned.is-visible) .artist-page,
+html.mystack-player-pinned .universe-page,
+body:has(.global-music-bar.is-pinned.is-visible) .universe-page,
+html.mystack-player-pinned .series-subseries-page.release-page,
+body:has(.global-music-bar.is-pinned.is-visible)
+  .series-subseries-page.release-page {
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  flex: 1 1 auto;
+}
+
+/* Pinned player: shrink left-panel brand art so it doesn't collide with producer. */
+html.mystack-player-pinned .release-page:not(.release-page--stacked),
+body:has(.global-music-bar.is-pinned.is-visible)
+  .release-page:not(.release-page--stacked) {
+  --panel-spotify-min-h: 3.05rem;
+  --panel-spotify-max-h: clamp(3.05rem, 8.5vh, 4.15rem);
+  --panel-spotify-max-w: min(100%, clamp(9.5rem, 88%, 12.5rem));
+  --panel-qr-max: clamp(2.45rem, 6.5vh, 3.35rem);
+  --panel-label-logo-max-h: 1.25rem;
+  --panel-label-logo-max-w: 5.5rem;
+}
+html.mystack-player-pinned
+  .release-page:not(.release-page--stacked)
+  .release-page__panel-bottom
+  .release-page__panel-footer,
+body:has(.global-music-bar.is-pinned.is-visible)
+  .release-page:not(.release-page--stacked)
+  .release-page__panel-bottom
+  .release-page__panel-footer {
+  gap: 0.2rem;
+}
+html.mystack-player-pinned
+  .release-page:not(.release-page--stacked)
+  .release-page__producer,
+body:has(.global-music-bar.is-pinned.is-visible)
+  .release-page:not(.release-page--stacked)
+  .release-page__producer {
+  margin-top: 0.1rem;
+  font-size: 0.72rem;
+  line-height: 1.2;
 }
 
 .release-tracklist__duration-wrap {

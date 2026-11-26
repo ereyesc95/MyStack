@@ -371,9 +371,14 @@ def apply_music_artist_card_images(
     assets = resolve_artist_card(artist_name, orientation=orientation)
     if assets.photo_url:
         card["cover_url"] = assets.photo_url
-        card["portrait_url"] = assets.photo_url
-        card["landscape_url"] = assets.photo_url
-        card["banner_url"] = assets.photo_url
+        card["portrait_url"] = assets.portrait_url or assets.photo_url
+        card["landscape_url"] = assets.landscape_url or assets.photo_url
+        card["banner_url"] = assets.banner_url or assets.photo_url
+        card["photo_url"] = assets.square_url or assets.photo_url
+    if assets.square_url:
+        card["square_url"] = assets.square_url
+    if assets.badge_url:
+        card["badge_url"] = assets.badge_url
     if assets.logo_url:
         card["logo_url"] = assets.logo_url
     if assets.icon_url:
@@ -597,7 +602,10 @@ def fill_missing_art_from_franchise_home(
         or card.get("logo_collapsed_url")
         or card.get("icon_url")
     )
-    if not (need_cover or need_landscape or need_banner or need_logo):
+    need_badge = not card.get("badge_url")
+    if not (
+        need_cover or need_landscape or need_banner or need_logo or need_badge
+    ):
         return card
 
     name = (franchise_name or "").strip()
@@ -689,16 +697,24 @@ def fill_missing_art_from_franchise_home(
                     if collapsed:
                         card["logo_collapsed_url"] = _g_media_url(collapsed, root)
                         break
-            if not card.get("badge_url"):
+            if need_badge and not card.get("badge_url"):
                 badge = find_badge_file(folder, root)
                 if badge:
                     card["badge_url"] = badge
+                    need_badge = False
             need_logo = not (
                 card.get("logo_url")
                 or card.get("logo_collapsed_url")
                 or card.get("icon_url")
             )
-        if not (need_cover or need_landscape or need_banner or need_logo):
+        elif need_badge and not card.get("badge_url"):
+            badge = find_badge_file(folder, root)
+            if badge:
+                card["badge_url"] = badge
+                need_badge = False
+        if not (
+            need_cover or need_landscape or need_banner or need_logo or need_badge
+        ):
             break
     return card
 

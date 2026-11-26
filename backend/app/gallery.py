@@ -67,6 +67,7 @@ class ArtistCardAssets:
     landscape_url: str | None = None
     banner_url: str | None = None
     square_url: str | None = None
+    badge_url: str | None = None
 
 
 def _brand_url(brand: EraBrand | None, root: Path) -> str | None:
@@ -478,6 +479,7 @@ def resolve_artist_card(
         landscape_url: str | None = None,
         banner_url: str | None = None,
         square_url: str | None = None,
+        badge_url: str | None = None,
     ) -> ArtistCardAssets:
         collapsed = (
             _collapsed_twin(brands, logo) if want_collapsed_twin and logo else None
@@ -493,6 +495,7 @@ def resolve_artist_card(
             landscape_url=landscape_url,
             banner_url=banner_url,
             square_url=square_url,
+            badge_url=badge_url,
         )
 
     # Icons mode: branding only (no photo background)
@@ -575,6 +578,10 @@ def resolve_artist_card(
         eras = sorted({b.start for b in brands} | {b.end for b in brands})
         year = _stable_choice(eras, f"{seed}:era") if eras else 2000
 
+    from app.series_paths import find_badge_file
+
+    badge_url = find_badge_file(artist_dir, root)
+
     return _pack(
         photo_url=photo_url,
         year=year,
@@ -588,6 +595,7 @@ def resolve_artist_card(
         landscape_url=landscape_url,
         banner_url=banner_url,
         square_url=square_url,
+        badge_url=badge_url,
     )
 
 

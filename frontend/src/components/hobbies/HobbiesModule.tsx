@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
@@ -61,8 +62,13 @@ import {
   saveHobbiesOrientation,
 } from "../../themes";
 import {
+  getGlobalMusicSnapshot,
+  subscribeGlobalMusic,
+} from "../../globalMusicPlayer";
+import {
   moduleHomePlaybackClassNames,
   PlaybackCoverAtmosphere,
+  useModuleHomeBeatPulse,
 } from "../../usePlaybackCoverBg";
 import { usePhoneLayout } from "../../usePhoneLayout";
 import type { MediaOption } from "../ModuleTopBar";
@@ -455,6 +461,18 @@ export default function HobbiesModule({
   const [homeAudioPlaying, setHomeAudioPlaying] = useState(false);
   const [homeAudioHasSrc, setHomeAudioHasSrc] = useState(false);
   const [homeAudioCover, setHomeAudioCover] = useState<string | null>(null);
+  const globalMusic = useSyncExternalStore(
+    subscribeGlobalMusic,
+    getGlobalMusicSnapshot,
+    getGlobalMusicSnapshot
+  );
+  const beatPlaying =
+    homeAudioPlaying || (globalMusic.playing && globalMusic.hasTrack);
+  const beatHasSrc = homeAudioHasSrc || globalMusic.hasTrack;
+  useModuleHomeBeatPulse({
+    enabled: beatHasSrc || activeId == null,
+    playing: beatPlaying,
+  });
   const [cardOrientation, setCardOrientation] = useState<CardOrientation>(() =>
     profile?.user_id != null
       ? getStoredHobbiesOrientation(profile.user_id)
@@ -699,36 +717,50 @@ export default function HobbiesModule({
       franchiseTheme &&
       activeId != null
   );
-  const showHomePlaybackBg = Boolean(homeAudioPlaying && homeAudioCover);
+  const showHomePlaybackBg = Boolean(
+    (homeAudioPlaying || beatPlaying) &&
+      (homeAudioCover || globalMusic.current?.coverUrl)
+  );
+  const atmosphereCover =
+    homeAudioCover || globalMusic.current?.coverUrl || null;
 
   return (
     <div
       className={`hobbies-module${
-        activeBgUrl || showHomePlaybackBg || homeAudioHasSrc
+        activeBgUrl || showHomePlaybackBg || beatHasSrc
           ? " hobbies-module--has-bg"
           : ""
       }${moduleHomePlaybackClassNames({
         showPlaybackBg: showHomePlaybackBg,
-        hasSrc: homeAudioHasSrc,
-        playing: homeAudioPlaying,
+        hasSrc: beatHasSrc,
+        playing: beatPlaying,
       })}`}
     >
-      {showHomePlaybackBg || homeAudioPlaying || homeAudioHasSrc ? (
+      {showHomePlaybackBg ? (
         <PlaybackCoverAtmosphere
-          playing={homeAudioPlaying}
-          hasSrc={homeAudioHasSrc}
-          coverUrl={homeAudioCover}
+          playing={beatPlaying}
+          hasSrc={beatHasSrc}
+          coverUrl={atmosphereCover}
         />
-      ) : activeBgUrl ? (
-        <div className="hobbies-module__bg-stack" aria-hidden>
-          <div
-            className="hobbies-module__bg"
-            style={{
-              backgroundImage: `url("${withMediaAccess(activeBgUrl)}")`,
-            }}
+      ) : (
+        <>
+          {activeBgUrl ? (
+            <div className="hobbies-module__bg-stack" aria-hidden>
+              <div
+                className="hobbies-module__bg"
+                style={{
+                  backgroundImage: `url("${withMediaAccess(activeBgUrl)}")`,
+                }}
+              />
+            </div>
+          ) : null}
+          <PlaybackCoverAtmosphere
+            playing={beatPlaying}
+            hasSrc={beatHasSrc}
+            coverUrl={null}
           />
-        </div>
-      ) : null}
+        </>
+      )}
       <div className="hobbies-module__chrome">
       <ModuleTopBar
         media={

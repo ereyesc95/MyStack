@@ -192,7 +192,10 @@ export default function GamesModule({
     franchiseId || gameId ? "catalog" : "home"
   );
   useModuleHomeBeatPulse({
-    enabled: tab === "home" || homeAudioHasSrc || homeAudioPlaying,
+    enabled:
+      !franchiseId &&
+      !gameId &&
+      (homeAudioHasSrc || homeAudioPlaying || tab === "home"),
     playing: homeAudioPlaying,
   });
   const showHomeWrapped = tab === "home" && wrappedYear != null;
@@ -1114,15 +1117,24 @@ export default function GamesModule({
   return (
     <div
       className={`music-module${moduleHomePlaybackClassNames({
-        showPlaybackBg: showHomePlaybackBg || tab === "home",
-        hasSrc: homeAudioHasSrc || tab === "home" || homeAudioPlaying,
+        showPlaybackBg: showHomePlaybackBg,
+        hasSrc:
+          !franchiseId &&
+          !gameId &&
+          (homeAudioHasSrc ||
+            homeAudioPlaying ||
+            tab === "home" ||
+            tab === "catalog"),
         playing: homeAudioPlaying,
       })}`}
     >
-      {showHomePlaybackBg || homeAudioPlaying || homeAudioHasSrc || tab === "home" ? (
+      {showHomePlaybackBg ||
+      homeAudioPlaying ||
+      homeAudioHasSrc ||
+      (!franchiseId && !gameId && (tab === "home" || tab === "catalog")) ? (
         <PlaybackCoverAtmosphere
           playing={homeAudioPlaying}
-          hasSrc={homeAudioHasSrc || tab === "home"}
+          hasSrc={homeAudioHasSrc || (!franchiseId && !gameId)}
           coverUrl={homeAudioCover}
         />
       ) : null}
