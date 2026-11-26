@@ -18,6 +18,7 @@ from app.artwork_stems import (
     resolve_cover_front_file,
     resolve_cover_landscape_file,
     resolve_cover_portrait_file,
+    resolve_visualizer_album_file,
 )
 from app.band_library import (
     AUDIO_CATEGORIES,
@@ -42,6 +43,7 @@ MANDATORY_ARTWORK = (
     "Cover - Banner",
     "Cover - Animation",
     "Cover - Canvas",
+    "Cover - Visualizer",
     "Photo - Square",
     "Photo - Landscape",
     "Photo - Portrait",
@@ -287,13 +289,22 @@ def _media_root() -> Path | None:
     return Path(root) if root else None
 
 
+_DATE_PREFIX_STEM_RE = re.compile(r"^\d{4}(?:\.\d{1,2}){0,2}\.\s*")
+
+
 def _stem_base(path: Path) -> tuple[str, str | None]:
     """Return (display stem without bracket source, source or None)."""
     stem = path.stem
     m = _FILENAME_BRACKET_RE.match(stem)
-    if not m:
-        return stem.strip(), None
-    return m.group("stem").strip(), canonicalize_source(m.group("source"))
+    if m:
+        stem = m.group("stem").strip()
+        source = canonicalize_source(m.group("source"))
+    else:
+        stem = stem.strip()
+        source = None
+    # Ignore folder-style date prefixes on artwork filenames.
+    stem = _DATE_PREFIX_STEM_RE.sub("", stem).strip() or stem
+    return stem, source
 
 
 def _find_artwork_file(artwork: Path, want_stem: str, *, allow_video: bool = False) -> Path | None:
@@ -376,6 +387,7 @@ def scan_artwork_checklist(artwork: Path | None) -> dict:
     present: set[str] = set()
     animation_sources: list[str] = []
     canvas_sources: list[str] = []
+    visualizer_sources: list[str] = []
     autograph_labels: list[str] = []
     urls: dict[str, str | None] = {
         "logo_url": None,
@@ -386,30 +398,25 @@ def scan_artwork_checklist(artwork: Path | None) -> dict:
         "photo_square_url": None,
         "animation_url": None,
         "canvas_url": None,
+        "visualizer_url": None,
         "disc_url": None,
         "disc_b_url": None,
     }
     root = _media_root()
-    if not artwork or not artwork.is_dir() or not root:
-        return {
-            "groups": groups,
-            "present": sorted(present),
-            "missing_mandatory": list(MANDATORY_ARTWORK),
-            "animation_sources": animation_sources,
-            "canvas_sources": canvas_sources,
-            "autographs": autograph_labels,
-            "urls": urls,
-        }
 
     def add_url(key: str, path: Path | None) -> None:
-        if path and not urls.get(key):
+        if path and root and not urls.get(key):
             urls[key] = _media_url(path, root)
 
     def push(group: str, canonical: str, *, source: str | None, url: str | None, missing: bool) -> None:
         short = _short_artwork_label(canonical)
-        # Animation / Canvas always expose a source for the modal suffix
+        # Animation / Canvas / Visualizer always expose a source for the modal suffix
         src = source
-        if not missing and group == "Cover" and short.casefold() in ("animation", "canvas"):
+        if not missing and group == "Cover" and short.casefold() in (
+            "animation",
+            "canvas",
+            "visualizer",
+        ):
             src = source or "Official"
         groups[group].append(
             {
@@ -420,6 +427,32 @@ def scan_artwork_checklist(artwork: Path | None) -> dict:
                 "missing": missing,
             }
         )
+
+    if not artwork or not artwork.is_dir() or not root:
+        missing_all = list(MANDATORY_ARTWORK)
+        for name in missing_all:
+            if name.startswith("Cover - "):
+                push("Cover", name, source=None, url=None, missing=True)
+            elif name.startswith("Photo - "):
+                push("Photo", name, source=None, url=None, missing=True)
+            elif name.startswith("Code - "):
+                push("Codes", name, source=None, url=None, missing=True)
+            elif name.startswith("Photocard"):
+                push("Photocards", name, source=None, url=None, missing=True)
+            elif name == "Logo":
+                push("Branding", name, source=None, url=None, missing=True)
+        for gname in groups:
+            groups[gname] = _sort_group_entries(groups[gname])
+        return {
+            "groups": groups,
+            "present": sorted(present),
+            "missing_mandatory": missing_all,
+            "animation_sources": animation_sources,
+            "canvas_sources": canvas_sources,
+            "visualizer_sources": visualizer_sources,
+            "autographs": autograph_labels,
+            "urls": urls,
+        }
 
     try:
         files = sorted(artwork.iterdir(), key=lambda p: p.name.casefold())
@@ -452,9 +485,12 @@ def scan_artwork_checklist(artwork: Path | None) -> dict:
             elif low == "cover - canvas":
                 add_url("canvas_url", path)
                 canvas_sources.append(source or "Official")
+            elif low == "cover - visualizer":
+                add_url("visualizer_url", path)
+                visualizer_sources.append(source or "Official")
             elif suffix.casefold() in {
                 "front", "landscape", "portrait", "banner", "animation", "canvas",
-                "back", "inner", "inlay", "alternate", "spine",
+                "visualizer", "back", "inner", "inlay", "alternate", "spine",
             }:
                 pass
         elif low.startswith("animation"):
@@ -468,6 +504,11 @@ def scan_artwork_checklist(artwork: Path | None) -> dict:
             push("Cover", "Cover - Canvas", source=source or "Official", url=url, missing=False)
             add_url("canvas_url", path)
             canvas_sources.append(source or "Official")
+        elif low.startswith("visualizer"):
+            present.add("Cover - Visualizer")
+            push("Cover", "Cover - Visualizer", source=source or "Official", url=url, missing=False)
+            add_url("visualizer_url", path)
+            visualizer_sources.append(source or "Official")
         elif low.startswith("booklet - ") or low.startswith("booklet "):
             push("Booklet", base, source=source, url=url, missing=False)
         elif low.startswith("photo - "):
@@ -529,6 +570,13 @@ def scan_artwork_checklist(artwork: Path | None) -> dict:
         if not canvas_sources:
             _b, src = _stem_base(canv)
             canvas_sources.append(src or "Official")
+    viz = resolve_visualizer_album_file(artwork)
+    if viz:
+        present.add("Cover - Visualizer")
+        add_url("visualizer_url", viz)
+        if not visualizer_sources:
+            _b, src = _stem_base(viz)
+            visualizer_sources.append(src or "Official")
 
     code_lookup_stems = (
         (
@@ -598,10 +646,24 @@ def scan_artwork_checklist(artwork: Path | None) -> dict:
         groups[gname] = deduped
 
     missing = [name for name in MANDATORY_ARTWORK if name not in present]
+    # Ensure every mandatory Cover stem has a checklist row (incl. Visualizer).
+    cover_labels = {
+        (e.get("canonical") or e.get("label") or "").casefold()
+        for e in groups["Cover"]
+    }
+    for name in MANDATORY_ARTWORK:
+        if not name.startswith("Cover - "):
+            continue
+        if name.casefold() in cover_labels:
+            continue
+        if name in present:
+            continue
+        push("Cover", name, source=None, url=None, missing=True)
+        cover_labels.add(name.casefold())
     for name in missing:
         if name.startswith("Cover - "):
-            push("Cover", name, source=None, url=None, missing=True)
-        elif name.startswith("Photo - "):
+            continue  # already ensured above
+        if name.startswith("Photo - "):
             push("Photo", name, source=None, url=None, missing=True)
         elif name.startswith("Code - "):
             push("Codes", name, source=None, url=None, missing=True)
@@ -619,6 +681,7 @@ def scan_artwork_checklist(artwork: Path | None) -> dict:
         "missing_mandatory": missing,
         "animation_sources": animation_sources,
         "canvas_sources": canvas_sources,
+        "visualizer_sources": visualizer_sources,
         "autographs": autograph_labels,
         "urls": urls,
     }
@@ -942,10 +1005,13 @@ def build_preview_from_folder(
 
     anim = checklist["animation_sources"] or []
     canv = checklist["canvas_sources"] or []
+    viz_src = checklist.get("visualizer_sources") or []
     if not anim:
         anim = ["None"]
     if not canv:
         canv = ["None"]
+    if not viz_src:
+        viz_src = ["None"]
 
     return {
         "title": title,
@@ -964,6 +1030,7 @@ def build_preview_from_folder(
         "version": version,
         "animation": anim,
         "canvas": canv,
+        "visualizer": viz_src,
         "autographs": checklist["autographs"],
         "artwork": checklist["groups"],
         "missing_mandatory": checklist["missing_mandatory"],
@@ -988,6 +1055,18 @@ def compute_pending(row: CollectionItem, checklist: dict | None) -> list[str]:
             missing = list(MANDATORY_ARTWORK)
         else:
             missing = list(MANDATORY_ARTWORK)
+    # Cover - Visualizer is newly mandatory — never treat a prior clear as
+    # satisfied unless the file is actually on disk.
+    if checklist:
+        urls = checklist.get("urls") or {}
+        present_cf = {str(p).casefold() for p in (checklist.get("present") or [])}
+        has_viz = bool(urls.get("visualizer_url")) or (
+            "cover - visualizer" in present_cf
+        )
+        if not has_viz:
+            cleared.discard("cover - visualizer")
+            if "Cover - Visualizer" not in missing:
+                missing.append("Cover - Visualizer")
     pending = [m for m in missing if m.casefold() not in cleared]
     for item in extra:
         low = item.casefold()
@@ -1068,6 +1147,9 @@ def serialize_item(db: Session, row: CollectionItem, *, include_previews: bool =
     canvas = _json_list(row.col_canvas_json)
     autographs = _json_list(row.col_autographs_json)
     urls = (checklist or {}).get("urls") or {}
+    visualizer = list((checklist or {}).get("visualizer_sources") or [])
+    if include_previews and not visualizer:
+        visualizer = ["Official"] if urls.get("visualizer_url") else ["None"]
     local = bool(folder)
     band = db.get(Band, row.col_band_id) if row.col_band_id else None
     if not band and row.col_artist:
@@ -1105,6 +1187,7 @@ def serialize_item(db: Session, row: CollectionItem, *, include_previews: bool =
         "country_iso": row.col_country_iso,
         "animation": animation,
         "canvas": canvas,
+        "visualizer": visualizer,
         "autographs": autographs,
         "pending": pending,
         "has_pending": bool(pending),
@@ -1123,6 +1206,7 @@ def serialize_item(db: Session, row: CollectionItem, *, include_previews: bool =
         "photo_square_url": urls.get("photo_square_url"),
         "animation_url": urls.get("animation_url"),
         "canvas_url": urls.get("canvas_url"),
+        "visualizer_url": urls.get("visualizer_url"),
         "disc_url": urls.get("disc_url"),
         "disc_b_url": urls.get("disc_b_url"),
         "spotify_icon_active": bool(

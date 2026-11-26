@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
 } from "react";
 import {
@@ -157,12 +158,17 @@ import {
   IconCardCover,
   IconCheck,
   IconMediaGames,
-  IconMediaMusic,
   IconVideo,
   IconZoom,
 } from "../MenuIcons";
 import MediaBeatFx from "../music/MediaBeatFx";
 import MediaBeatFrame from "../music/MediaBeatFrame";
+import {
+  getGlobalMusicAudioElement,
+  subscribeGlobalMusic,
+  getGlobalMusicSnapshot,
+} from "../../globalMusicPlayer";
+import { useBeatPulse } from "../../useBeatPulse";
 import MediaInlineSearch from "../music/MediaInlineSearch";
 import GalleryViewerModal, {
   type GalleryViewerItem,
@@ -190,7 +196,9 @@ import RemoteSeriesEpisodesModal from "./RemoteSeriesEpisodesModal";
 import type { EmbeddedReleaseChrome } from "../music/release/ReleasePage";
 import SeriesAboutEditModal from "./SeriesAboutEditModal";
 import { saveReleaseReferrer } from "../../musicRoute";
-import SeriesAudioPlayer from "./SeriesAudioPlayer";
+import ModuleHomeAudioPlayer, {
+  type ModuleHomeAudioKind,
+} from "../ModuleHomeAudioPlayer";
 import SeriesCast, { languageHasCharacterCast } from "./SeriesCast";
 import SeriesEpisodeList from "./SeriesEpisodeList";
 import SeriesGalleryPanel from "./SeriesGalleryPanel";
@@ -898,7 +906,17 @@ export default function SeriesSubseriesPage({
   const [openingVideos, setOpeningVideos] = useState<SeriesEpisodeItem[]>([]);
   const [endingVideos, setEndingVideos] = useState<SeriesEpisodeItem[]>([]);
   const [seriesPlaying, setSeriesPlaying] = useState(false);
-  const [playerOpen, setPlayerOpen] = useState(false);
+  const globalMusic = useSyncExternalStore(
+    subscribeGlobalMusic,
+    getGlobalMusicSnapshot,
+    getGlobalMusicSnapshot
+  );
+  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
+  globalAudioRef.current = getGlobalMusicAudioElement();
+  const pageBeatPlaying = Boolean(
+    seriesPlaying || (globalMusic.playing && globalMusic.hasTrack)
+  );
+  useBeatPulse(globalAudioRef, pageBeatPlaying, pageBeatPlaying);
   const [moreInfoOpen, setMoreInfoOpen] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
   const [iconFailed, setIconFailed] = useState(false);
@@ -3892,7 +3910,6 @@ export default function SeriesSubseriesPage({
   // (never flash empty Audio/ scaffolding via has_audio).
   const hasAudio = mediaReady && audioCards.length > 0;
   /** Top-bar player: only when we have real release cards (not empty Audio/ stubs). */
-  const showAudioPlayer = audioCards.length > 0;
   const hasLibrary = isFilm
     ? libraryCards.length > 0
     : isBook
@@ -4691,7 +4708,7 @@ export default function SeriesSubseriesPage({
       ? "release-page--related-open release-page--scroll"
       : "",
     bgLayers.current ? "release-page--has-bg" : "",
-    seriesPlaying ? "release-page--beat-ready release-page--playing" : "",
+    pageBeatPlaying ? "release-page--beat-ready release-page--playing" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -4841,36 +4858,22 @@ export default function SeriesSubseriesPage({
                 onChange={onSetOrientation}
               />
             ) : null}
-            {showAudioPlayer ? (
-              !stacked ? (
-                <SeriesAudioPlayer
-                  franchiseId={franchiseId}
-                  filmId={isFilm && !isBook ? subseriesId : undefined}
-                  bookId={isBook ? subseriesId : undefined}
-                  gameId={isGame ? subseriesId : undefined}
-                  enabled={showAudioPlayer}
-                  onPlayingChange={setSeriesPlaying}
-                  open={playerOpen}
-                  onOpenChange={setPlayerOpen}
-                  onOpenMusicRelease={goToEmbeddedReleasePage}
-                  onOpenMusicArtist={onOpenArtist}
-                />
-              ) : (
-                <SeriesAudioPlayer
-                  franchiseId={franchiseId}
-                  filmId={isFilm && !isBook ? subseriesId : undefined}
-                  bookId={isBook ? subseriesId : undefined}
-                  gameId={isGame ? subseriesId : undefined}
-                  enabled={showAudioPlayer}
-                  onPlayingChange={setSeriesPlaying}
-                  open={playerOpen}
-                  onOpenChange={setPlayerOpen}
-                  hideToggle
-                  onOpenMusicRelease={goToEmbeddedReleasePage}
-                  onOpenMusicArtist={onOpenArtist}
-                />
-              )
-            ) : null}
+            <ModuleHomeAudioPlayer
+              module={
+                (isGame
+                  ? "games"
+                  : isBook
+                    ? "books"
+                    : variant === "film"
+                      ? "movies"
+                      : "series") as ModuleHomeAudioKind
+              }
+              franchiseId={franchiseId}
+              franchiseName={franchiseName || overview?.name || null}
+              leafId={subseriesId}
+              enabled
+              onPlayingChange={setSeriesPlaying}
+            />
             {siblings.length > 1 ? (
               <MediaInlineSearch
                 mode="series-subseries"
@@ -4910,42 +4913,22 @@ export default function SeriesSubseriesPage({
                   : "Add to universe"
               }
               menuChrome={
-                stacked && (showMediaLayoutPicker || showAudioPlayer) ? (
-                  <>
-                    {showMediaLayoutPicker ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setCardLayoutPersisted(
-                            cardLayout === "cover" ? "banner" : "cover"
-                          )
-                        }
-                      >
-                        {cardLayout === "cover" ? (
-                          <IconCardCover className="menu-item-icon" />
-                        ) : (
-                          <IconCardBanner className="menu-item-icon" />
-                        )}
-                        {cardLayout === "cover"
-                          ? "Cover view"
-                          : "Banner view"}
-                      </button>
-                    ) : null}
-                    {showAudioPlayer ? (
-                      <button
-                        type="button"
-                        className={
-                          seriesPlaying && !playerOpen
-                            ? "app-menu-chrome__live"
-                            : undefined
-                        }
-                        onClick={() => setPlayerOpen((v) => !v)}
-                      >
-                        <IconMediaMusic className="menu-item-icon" />
-                        {playerOpen ? "Hide music" : "Play music"}
-                      </button>
-                    ) : null}
-                  </>
+                stacked && showMediaLayoutPicker ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCardLayoutPersisted(
+                        cardLayout === "cover" ? "banner" : "cover"
+                      )
+                    }
+                  >
+                    {cardLayout === "cover" ? (
+                      <IconCardCover className="menu-item-icon" />
+                    ) : (
+                      <IconCardBanner className="menu-item-icon" />
+                    )}
+                    {cardLayout === "cover" ? "Cover view" : "Banner view"}
+                  </button>
                 ) : undefined
               }
               onEditAbout={
@@ -5909,8 +5892,12 @@ export default function SeriesSubseriesPage({
                   <div className="release-page__panel-credits">
                     <p className="release-page__subgenres">
                       {genres.map((g, i) => (
-                        <span key={String(g.id)}>
-                          {i > 0 ? " · " : null}
+                        <span
+                          key={String(g.id)}
+                          className="release-page__subgenre-item"
+                        >
+                          {i > 0 && i % 2 === 0 ? <br /> : null}
+                          {i > 0 && i % 2 !== 0 ? " · " : null}
                           <button
                             type="button"
                             className="release-page__genre-link"
@@ -6338,7 +6325,16 @@ export default function SeriesSubseriesPage({
                           publisher,
                         })
                       }
-                      aria-label={`Browse ${publisher}`}
+                      aria-label={
+                        isGame
+                          ? `Published by ${publisher}`
+                          : `Distributed by ${publisher}`
+                      }
+                      title={
+                        isGame
+                          ? `Published by ${publisher}`
+                          : `Distributed by ${publisher}`
+                      }
                     >
                       <img
                         src={distributor?.logo || DEFAULT_LABEL_URL}
@@ -6352,21 +6348,6 @@ export default function SeriesSubseriesPage({
                         }}
                       />
                     </button>
-                    <p className="release-page__label-name">
-                      {isGame ? "Published by " : "Distributed by "}
-                      <button
-                        type="button"
-                        className="release-page__person-link"
-                        onClick={() =>
-                          onBrowseCatalog?.({
-                            mode: "publisher",
-                            publisher,
-                          })
-                        }
-                      >
-                        {publisher}
-                      </button>
-                    </p>
                   </div>
                 ) : null}
                 {!stacked ? (

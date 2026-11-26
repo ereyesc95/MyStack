@@ -410,10 +410,33 @@ export default function App() {
       }
     }
 
+    function onRestoreRoute(e: Event) {
+      const href = (e as CustomEvent<{ href?: string }>).detail?.href;
+      if (!href || typeof href !== "string") return;
+      const cur =
+        window.location.pathname +
+        window.location.search +
+        window.location.hash;
+      if (cur === href) {
+        void onPopState();
+        return;
+      }
+      window.history.pushState(null, "", href);
+      void onPopState();
+    }
+
     window.addEventListener("popstate", onPopState);
+    window.addEventListener(
+      "mystack-restore-route",
+      onRestoreRoute as EventListener
+    );
     return () => {
       cancelled = true;
       window.removeEventListener("popstate", onPopState);
+      window.removeEventListener(
+        "mystack-restore-route",
+        onRestoreRoute as EventListener
+      );
     };
   }, []);
 
@@ -2680,12 +2703,21 @@ export default function App() {
             });
           }}
           onOpenRelease={(bandId, releaseId, meta) => {
-            saveReleaseReferrer({
-              bandId,
-              section: "audio",
-              source: "home",
-              artistName: meta?.artistName ?? undefined,
-            });
+            const releaseTab = meta?.tab === "tracklist" ? "tracklist" : "overview";
+            const alreadyOnRelease =
+              view.kind === "music" &&
+              view.bandId === bandId &&
+              view.releaseId === releaseId;
+            // Don't overwrite a real entry referrer when jumping tabs on the
+            // same release (lyrics/versions from the global bar).
+            if (!alreadyOnRelease) {
+              saveReleaseReferrer({
+                bandId,
+                section: "audio",
+                source: "home",
+                artistName: meta?.artistName ?? undefined,
+              });
+            }
             pushArtistRoute({
               bandId,
               artistName: meta?.artistName || undefined,
@@ -2693,7 +2725,7 @@ export default function App() {
               overviewTab: "about",
               releaseId,
               releaseTitle: meta?.title || undefined,
-              releaseTab: "overview",
+              releaseTab,
             });
             setView({
               kind: "music",
@@ -2702,7 +2734,7 @@ export default function App() {
               artistSection: "audio",
               artistOverviewTab: "about",
               releaseId,
-              releaseTab: "overview",
+              releaseTab,
             });
           }}
         />

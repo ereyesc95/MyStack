@@ -33,6 +33,20 @@ type BrowseView = "list" | "cover" | "banner" | "shelf";
 
 const PAGE_SIZE_PRESETS = [10, 20, 25, 50, 100] as const;
 
+function ensureVisualizerPending(
+  pending: string[],
+  artwork?: CollectionLeaf["artwork"] | null
+): string[] {
+  if (pending.some((p) => /visualizer/i.test(p))) return pending;
+  const covers = artwork?.Cover || [];
+  const hasViz = covers.some(
+    (g) =>
+      !g.missing && /visualizer/i.test(String(g.canonical || g.label || ""))
+  );
+  if (hasViz) return pending;
+  return [...pending, "Cover - Visualizer"];
+}
+
 export type CollectionBrowseApi = {
   openManual: () => void;
   importExcel: () => void;
@@ -77,6 +91,7 @@ const COLUMNS = [
   { key: "media", label: "Media" },
   { key: "animation", label: "Animation" },
   { key: "canvas", label: "Canvas" },
+  { key: "visualizer", label: "Visualizer" },
   { key: "autographs", label: "Autographs" },
   { key: "pending", label: "Pending" },
 ] as const;
@@ -1046,8 +1061,13 @@ export default function CollectionBrowse({
     const coverUrl = leaf.cover_url || card.cover_url || DEFAULT_DISC_URL;
     const bannerUrl = leaf.cover_banner_url || card.cover_banner_url;
     const logoUrl = leaf.logo_url || card.logo_url;
-    const pendingList = leaf.pending || card.pending || [];
-    const showPending = Boolean(leaf.has_pending || card.has_pending || pendingList.length);
+    const pendingList = ensureVisualizerPending(
+      leaf.pending || card.pending || [],
+      leaf.artwork || card.artwork
+    );
+    const showPending = Boolean(
+      leaf.has_pending || card.has_pending || pendingList.length
+    );
     const dateLabel = leafDisplayDate(leaf) || leafDisplayDate(card);
 
     const pendingBtn = showPending ? (
@@ -1851,7 +1871,7 @@ export default function CollectionBrowse({
             <tbody>
               {virtualize ? (
                 <tr aria-hidden style={{ height: virt.offsetY }}>
-                  <td colSpan={12} />
+                  <td colSpan={13} />
                 </tr>
               ) : null}
               {renderRows.map((row) => {
@@ -2093,6 +2113,30 @@ export default function CollectionBrowse({
                     </td>
                     <td>
                       <HoverBubble
+                        bare
+                        disabled={!row.visualizer_url}
+                        content={
+                          row.visualizer_url ? (
+                            <video
+                              src={row.visualizer_url}
+                              muted
+                              autoPlay
+                              loop
+                              playsInline
+                              className="collection-hover__media"
+                            />
+                          ) : null
+                        }
+                      >
+                        <span
+                          className={!row.visualizer_url ? "is-muted" : undefined}
+                        >
+                          {(row.visualizer || []).join(" / ") || "—"}
+                        </span>
+                      </HoverBubble>
+                    </td>
+                    <td>
+                      <HoverBubble
                         disabled={
                           !(row.autograph_images && row.autograph_images.length > 0)
                         }
@@ -2110,23 +2154,28 @@ export default function CollectionBrowse({
                       </HoverBubble>
                     </td>
                     <td className="collection-table__pending">
-                      {(row.pending || []).length ? (
-                        <button
-                          type="button"
-                          className="collection-table__pending-btn"
-                          onClick={() => {
-                            if (row.id) setModal({ mode: "edit", id: row.id });
-                          }}
-                          title={`${(row.pending || []).length} item${
-                            (row.pending || []).length === 1 ? "" : "s"
-                          } pending`}
-                        >
-                          {(row.pending || []).length} item
-                          {(row.pending || []).length === 1 ? "" : "s"}
-                        </button>
-                      ) : (
-                        "—"
-                      )}
+                      {(() => {
+                        const pending = ensureVisualizerPending(
+                          row.pending || [],
+                          row.artwork
+                        );
+                        if (!pending.length) return "—";
+                        return (
+                          <button
+                            type="button"
+                            className="collection-table__pending-btn"
+                            onClick={() => {
+                              if (row.id) setModal({ mode: "edit", id: row.id });
+                            }}
+                            title={`${pending.length} item${
+                              pending.length === 1 ? "" : "s"
+                            } pending`}
+                          >
+                            {pending.length} item
+                            {pending.length === 1 ? "" : "s"}
+                          </button>
+                        );
+                      })()}
                     </td>
                     <td className="collection-table__edit">
                       {row.id ? (
@@ -2153,7 +2202,7 @@ export default function CollectionBrowse({
                     ),
                   }}
                 >
-                  <td colSpan={12} />
+                  <td colSpan={13} />
                 </tr>
               ) : null}
             </tbody>

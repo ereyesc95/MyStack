@@ -4,7 +4,10 @@
  */
 import { playTrack } from "./api";
 import { resumeBeatAudioContext } from "./beatAudioGraph";
-import { setDashPreviewMainPlayer } from "./dashPreviewController";
+import {
+  killDashPreviewsForMainPlay,
+  setDashPreviewMainPlayer,
+} from "./dashPreviewController";
 import {
   clearNowPlaying,
   mediaSessionOwnsElement,
@@ -26,6 +29,8 @@ export type GlobalMusicTrack = {
   id: string;
   path: string;
   title: string;
+  /** Optional muted suffix (e.g. version / source album) shown smaller in the queue. */
+  titleSuffix?: string | null;
   artist?: string | null;
   artistId?: number | null;
   releaseId?: string | null;
@@ -298,6 +303,8 @@ async function loadIndex(
     clearPlayback(true);
     return;
   }
+  // Never let a dash-card preview keep sounding under the main player.
+  killDashPreviewsForMainPlay();
   // Callers may already have rewritten `queue`/`index` (playFrom) — allow an
   // explicit previous id so peek/compare stays correct.
   const prevId =
@@ -595,6 +602,20 @@ export function globalMusicNext() {
   void handleEnded();
 }
 
+/** Jump to a queue index and play (used by the queue list). */
+export function globalMusicPlayAt(i: number) {
+  if (i < 0 || i >= queue.length) return;
+  if (i === index) {
+    const el = ensureAudio();
+    if (el?.paused) {
+      resumeBeatAudioContext();
+      void el.play().catch(() => {});
+    }
+    return;
+  }
+  void loadIndex(i, true);
+}
+
 export function globalMusicPrev() {
   const el = ensureAudio();
   if (!el || !currentTrack()) return;
@@ -741,6 +762,135 @@ export function globalMusicToggleQueueOpen() {
 export function globalMusicSetQueueOpen(open: boolean) {
   queueOpen = open;
   notify();
+}
+
+type ContextBlob = {
+  queue: GlobalMusicTrack[];
+  originalQueue: GlobalMusicTrack[];
+  index: number;
+  progress: number;
+};
+
+const contextStore = new Map<string, ContextBlob>();
+let activeContextKey = "music";
+
+function saveActiveContext() {
+  if (!queue.length) {
+    contextStore.delete(activeContextKey);
+    return;
+  }
+  contextStore.set(activeContextKey, {
+    queue: queue.slice(),
+    originalQueue: originalQueue.slice(),
+    index,
+    progress: audioEl?.currentTime ?? progress,
+  });
+}
+
+/**
+ * Adopt a module / franchise / universe soundtrack pool into the global bar.
+ * - If a track is currently playing, keep it playing and refresh the queue.
+ * - Otherwise load the first context track paused (no autoplay) and peek the bar.
+ */
+export function globalMusicAdoptContext(
+  tracks: GlobalMusicTrack[],
+  opts?: { contextKey?: string; peek?: boolean }
+) {
+  const key = (opts?.contextKey || "module").trim() || "module";
+  const list = normalizeTracks(tracks);
+  if (!list.length) return;
+
+  if (key !== activeContextKey) {
+    saveActiveContext();
+    activeContextKey = key;
+  }
+
+  const cur = currentTrack();
+  // While a track is already loaded (playing or paused mid-listen), only
+  // refresh the upcoming queue — never stop/replace the current track.
+  if (cur) {
+    const rest = list.filter(
+      (t) => t.id !== cur.id && t.path !== cur.path
+    );
+    queue = [{ ...cur, queuedBy: null }, ...rest];
+    originalQueue = queue.map((t) => ({ ...t, queuedBy: null }));
+    index = 0;
+    if (opts?.peek !== false) scheduleBarPeek(2800);
+    notify();
+    persist();
+    return;
+  }
+
+  originalQueue = list.map((t) => ({ ...t, queuedBy: null }));
+  queue = originalQueue.slice();
+  index = 0;
+  void loadIndex(0, false, { previousId: null });
+  if (opts?.peek !== false) scheduleBarPeek(2800);
+}
+
+/** Restore a previously saved context (e.g. Music stack queue). */
+export function globalMusicRestoreContext(
+  contextKey: string,
+  opts?: { peek?: boolean }
+) {
+  const key = contextKey.trim() || "music";
+  if (key === activeContextKey && queue.length) {
+    if (opts?.peek !== false) scheduleBarPeek(2800);
+    return;
+  }
+  saveActiveContext();
+  const blob = contextStore.get(key);
+  activeContextKey = key;
+  if (!blob?.queue?.length) return;
+
+  const cur = currentTrack();
+  const el = ensureAudio();
+  const wasPlaying = Boolean(el && !el.paused && cur);
+
+  // Never interrupt an in-progress listen when swapping contexts.
+  if (cur && (wasPlaying || playing)) {
+    const rest = blob.queue.filter(
+      (t) => t.id !== cur.id && t.path !== cur.path
+    );
+    queue = [{ ...cur, queuedBy: null }, ...rest];
+    originalQueue = (
+      blob.originalQueue.length ? blob.originalQueue : blob.queue
+    ).map((t) => ({ ...t, queuedBy: null }));
+    index = 0;
+    if (opts?.peek !== false) scheduleBarPeek(2800);
+    notify();
+    persist();
+    return;
+  }
+
+  const previousId = cur?.id ?? null;
+  queue = blob.queue.slice();
+  originalQueue = (
+    blob.originalQueue.length ? blob.originalQueue : blob.queue
+  ).slice();
+  const nextIndex = Math.max(
+    0,
+    Math.min(blob.index ?? 0, queue.length - 1)
+  );
+  void loadIndex(nextIndex, false, { previousId }).then(() => {
+    const audio = ensureAudio();
+    if (!audio) return;
+    const seekTo = typeof blob.progress === "number" ? blob.progress : 0;
+    if (seekTo > 0 && Number.isFinite(seekTo)) {
+      try {
+        audio.currentTime = seekTo;
+        progress = seekTo;
+        notify();
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+  if (opts?.peek !== false) scheduleBarPeek(2800);
+}
+
+export function globalMusicGetContextKey() {
+  return activeContextKey;
 }
 
 export function getGlobalMusicAudioElement(): HTMLAudioElement | null {

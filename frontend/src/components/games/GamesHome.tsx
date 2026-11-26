@@ -8,6 +8,7 @@ import type {
 import { EMPTY_SERIES_DASHBOARD } from "../../types";
 import { playGameClient } from "../../gamesMobile";
 import DashMorphCard from "../DashMorphCard";
+import DashPaneLabel from "../DashPaneLabel";
 import { useDashCardReveal } from "../DashHoverTitle";
 import {
   prefetchDashArt,
@@ -152,25 +153,6 @@ function PlaceholderTiles({
   );
 }
 
-function DashPaneLabel({
-  logo,
-  title,
-  subtitle,
-}: {
-  logo: string;
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <div className="dash-row-label">
-      <img src={logo} alt="" className="dash-pane-logo" />
-      <div className="dash-row-label-text">
-        <strong>{title}</strong>
-        <span>{subtitle}</span>
-      </div>
-    </div>
-  );
-}
 
 type Props = {
   data: (SeriesDashboard & {
@@ -313,7 +295,7 @@ export default function GamesHome({
     >
       <section className="dash-row dash-row--icons">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-best"
+          icon="star"
           title="BEST GAMES"
           subtitle="Your top video games"
         />
@@ -373,7 +355,7 @@ export default function GamesHome({
 
       <section className="dash-row dash-row--icons">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-sagas"
+          icon="saga"
           title="BEST SAGAS"
           subtitle="Your top franchises"
         />
@@ -412,7 +394,7 @@ export default function GamesHome({
       {topUniverses.length > 0 && onOpenUniverse ? (
         <section className="dash-row dash-row--icons">
           <DashPaneLabel
-            logo="/api/assets/icons/pane-universes"
+            icon="planet"
             title="UNIVERSES"
             subtitle="Shared story worlds"
           />
@@ -451,7 +433,7 @@ export default function GamesHome({
 
       <section className="dash-row dash-row--genres">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-vibes"
+          icon="heart"
           title="GAME VIBES"
           subtitle="Genres on rotation"
         />
@@ -484,7 +466,7 @@ export default function GamesHome({
 
       <section className="dash-row dash-row--tracks dash-row--platforms">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-consoles"
+          icon="controller"
           title="CONSOLES"
           subtitle="Your games per platform"
         />

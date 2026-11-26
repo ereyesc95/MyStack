@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { getBeatAnalyser, resumeBeatAudioContext } from "./beatAudioGraph";
+import { isDashPreviewMediaActive } from "./dashPreviewController";
 
 const DECAY_PER_FRAME = 0.88;
 const BASELINE_LERP = 0.017;
@@ -231,6 +232,12 @@ export function useBeatPulse(
 
       syncAudioListeners();
       resumeBeatAudioContext();
+
+      // Dash-card preview owns --beat-* while its media is live; don't overwrite.
+      if (isDashPreviewMediaActive()) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
 
       const isActive = activeRef.current && !reduced;
 

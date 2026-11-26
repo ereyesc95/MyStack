@@ -4177,12 +4177,20 @@ export async function fetchHobbyFranchiseAudioPool(franchise: string) {
   );
 }
 
-export async function fetchSeriesPlayerTracks(franchiseId: string) {
+export async function fetchSeriesPlayerTracks(
+  franchiseId: string,
+  subseriesId?: string | null
+) {
+  const q =
+    subseriesId && subseriesId.trim()
+      ? `?subseries_id=${encodeURIComponent(subseriesId.trim())}`
+      : "";
   return request<{
     tracks: {
       id: string;
       title: string;
       play_url: string;
+      play_path?: string | null;
       cover_url?: string | null;
       artist?: string | null;
       release_title?: string | null;
@@ -4191,7 +4199,7 @@ export async function fetchSeriesPlayerTracks(franchiseId: string) {
     }[];
     count: number;
   }>(
-    `${API}/series/franchises/${encodeURIComponent(franchiseId)}/player-tracks`
+    `${API}/series/franchises/${encodeURIComponent(franchiseId)}/player-tracks${q}`
   );
 }
 

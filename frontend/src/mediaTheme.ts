@@ -393,6 +393,15 @@ export function notifyUserThemePickWhilePaused(
 export function onPlaybackPaused(userId?: number) {
   if (!playbackSessionActive) return;
   playbackIsPlaying = false;
+  // Keep Adaptive / cover sampling while on a media leaf page (e.g. release
+  // opened from home via Lyrics). Pausing on module home restores the menu theme.
+  if (
+    (artistPageActive || albumPageActive) &&
+    !playbackThemeSuppressed &&
+    !artistPageThemePin
+  ) {
+    return;
+  }
   restoreThemeAfterPlayback(userId);
 }
 
@@ -421,7 +430,14 @@ export function endPlaybackThemeSession(userId?: number) {
 }
 
 export function applyMediaTheme(colors: CustomThemeColors, userId?: number) {
-  if (playbackSessionActive && playbackIsPlaying) {
+  // Media leaf pages (release / artist) own Adaptive while open — don't let
+  // an active playback session block their cover sampling.
+  if (
+    playbackSessionActive &&
+    playbackIsPlaying &&
+    !artistPageActive &&
+    !albumPageActive
+  ) {
     window.dispatchEvent(new CustomEvent("artist-theme-updated"));
     return;
   }

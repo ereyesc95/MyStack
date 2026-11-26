@@ -51,6 +51,7 @@ import {
 import {
   moduleHomePlaybackClassNames,
   PlaybackCoverAtmosphere,
+  useModuleHomeBeatPulse,
 } from "../../usePlaybackCoverBg";
 import type {
   CardOrientation,
@@ -73,7 +74,6 @@ import ManageCatalogModal from "../ManageCatalogModal";
 import CardOrientationPicker from "../CardOrientationPicker";
 import {
   IconMediaBooks,
-  IconMediaMusic,
   IconSeriesScope,
   IconUniverse,
 } from "../MenuIcons";
@@ -214,7 +214,6 @@ export default function BooksModule({
   const portraitMenuChrome =
     isMobilePortraitLayout(deviceLayout) ||
     deviceLayout === "tablet-portrait";
-  const [homeAudioOpen, setHomeAudioOpen] = useState(false);
   const [homeAudioPlaying, setHomeAudioPlaying] = useState(false);
   const [homeAudioHasSrc, setHomeAudioHasSrc] = useState(false);
   const [homeAudioCover, setHomeAudioCover] = useState<string | null>(null);
@@ -222,6 +221,10 @@ export default function BooksModule({
   const wrappedYear = wrappedSeasonYear();
 
   const [tab, setTab] = useState<BooksTab>("home");
+  useModuleHomeBeatPulse({
+    enabled: tab === "home" || homeAudioHasSrc || homeAudioPlaying,
+    playing: homeAudioPlaying,
+  });
   const showHomeWrapped = tab === "home" && wrappedYear != null;
   const [franchises, setFranchises] = useState<SeriesFranchiseCard[]>([]);
   const [catalogLetters, setCatalogLetters] = useState<string[]>([]);
@@ -1146,15 +1149,15 @@ export default function BooksModule({
     <div
       className={`series-module${moduleHomePlaybackClassNames({
         backdrop: moduleBackdrop && !showHomePlaybackBg,
-        showPlaybackBg: showHomePlaybackBg,
-        hasSrc: homeAudioHasSrc,
+        showPlaybackBg: showHomePlaybackBg || tab === "home",
+        hasSrc: homeAudioHasSrc || tab === "home" || homeAudioPlaying,
         playing: homeAudioPlaying,
       })}`}
     >
-      {showHomePlaybackBg || homeAudioPlaying || homeAudioHasSrc ? (
+      {showHomePlaybackBg || homeAudioPlaying || homeAudioHasSrc || tab === "home" ? (
         <PlaybackCoverAtmosphere
           playing={homeAudioPlaying}
-          hasSrc={homeAudioHasSrc}
+          hasSrc={homeAudioHasSrc || tab === "home"}
           coverUrl={homeAudioCover}
         />
       ) : moduleBackdrop ? (
@@ -1228,8 +1231,6 @@ export default function BooksModule({
               module="books"
               userId={userId}
               hideToggle={portraitMenuChrome}
-              open={homeAudioOpen}
-              onOpenChange={setHomeAudioOpen}
               onPlayingChange={setHomeAudioPlaying}
               onCoverChange={setHomeAudioCover}
               onHasSrcChange={setHomeAudioHasSrc}
@@ -1307,13 +1308,6 @@ export default function BooksModule({
                         {`${wrappedYear} Wrapped`}
                       </button>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => setHomeAudioOpen((v) => !v)}
-                    >
-                      <IconMediaMusic className="menu-item-icon" />
-                      {homeAudioOpen ? "Hide music" : "Play music"}
-                    </button>
                     {tab === "catalog" ? (
                       <button
                         type="button"

@@ -1,16 +1,26 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import MediaBeatFx from "./components/music/MediaBeatFx";
+import {
+  getDashPreviewBackdrop,
+  subscribeDashPreviewBackdrop,
+} from "./dashPreviewController";
+import { getGlobalMusicAudioElement } from "./globalMusicPlayer";
+import { useBeatPulse } from "./useBeatPulse";
 
 /** Crossfade cover backdrop while audio is playing; clears on pause/stop. */
 export function usePlaybackCoverBg(
   playing: boolean,
-  coverUrl: string | null | undefined
+  coverUrl: string | null | undefined,
+  previewBackdrop?: string | null
 ): {
   showBg: boolean;
   layers: { current: string | undefined; outgoing: string | undefined };
 } {
-  const playbackBgUrl =
-    playing && coverUrl ? coverUrl : undefined;
+  const playbackBgUrl = previewBackdrop
+    ? previewBackdrop
+    : playing && coverUrl
+      ? coverUrl
+      : undefined;
   const [layers, setLayers] = useState<{
     current: string | undefined;
     outgoing: string | undefined;
@@ -39,14 +49,23 @@ export function usePlaybackCoverBg(
 /** Cover stack + beat FX matching Music Home playback atmosphere. */
 export function PlaybackCoverAtmosphere({
   playing,
-  hasSrc,
+  hasSrc: _hasSrc,
   coverUrl,
 }: {
   playing: boolean;
   hasSrc: boolean;
   coverUrl: string | null | undefined;
 }) {
-  const { showBg, layers } = usePlaybackCoverBg(playing, coverUrl);
+  const previewBackdrop = useSyncExternalStore(
+    subscribeDashPreviewBackdrop,
+    getDashPreviewBackdrop,
+    () => null
+  );
+  const { showBg, layers } = usePlaybackCoverBg(
+    playing,
+    coverUrl,
+    previewBackdrop
+  );
   if (showBg) {
     return (
       <div className="artist-page__bg-stack" aria-hidden>
@@ -68,10 +87,10 @@ export function PlaybackCoverAtmosphere({
       </div>
     );
   }
-  if (playing || hasSrc) {
-    return playing ? <MediaBeatFx /> : null;
-  }
-  return null;
+  // Keep FX mounted so dash-card preview pulses can light the page even when
+  // the main player is idle.
+  void _hasSrc;
+  return <MediaBeatFx />;
 }
 
 export function moduleHomePlaybackClassNames(opts: {
@@ -84,4 +103,14 @@ export function moduleHomePlaybackClassNames(opts: {
   return `${opts.backdrop || showBg ? " music-module--backdrop" : ""}${
     opts.hasSrc || opts.playing ? " music-module--beat-ready" : ""
   }${opts.playing ? " music-module--playing" : ""}`;
+}
+
+/** Drive page-wide beat CSS vars from the global player on module homes. */
+export function useModuleHomeBeatPulse(opts: {
+  enabled: boolean;
+  playing: boolean;
+}) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  audioRef.current = getGlobalMusicAudioElement();
+  useBeatPulse(audioRef, opts.enabled, opts.playing);
 }

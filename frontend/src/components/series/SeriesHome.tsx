@@ -5,6 +5,7 @@ import { EMPTY_SERIES_DASHBOARD } from "../../types";
 import { openCatalogVideo } from "../../openCatalogVideo";
 import { usePlayVideosPreference } from "../../playVideosPreference";
 import DashMorphCard from "../DashMorphCard";
+import DashPaneLabel from "../DashPaneLabel";
 import { useDashCardReveal } from "../DashHoverTitle";
 import {
   prefetchDashArt,
@@ -151,25 +152,6 @@ function PlaceholderTiles({
   );
 }
 
-function DashPaneLabel({
-  logo,
-  title,
-  subtitle,
-}: {
-  logo: string;
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <div className="dash-row-label">
-      <img src={logo} alt="" className="dash-pane-logo" />
-      <div className="dash-row-label-text">
-        <strong>{title}</strong>
-        <span>{subtitle}</span>
-      </div>
-    </div>
-  );
-}
 
 type Props = {
   data: SeriesDashboard | null;
@@ -294,7 +276,7 @@ export default function SeriesHome({
       <>
       <section className="dash-row dash-row--icons">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-best"
+          icon="star"
           title="BEST SERIES"
           subtitle="Your top content"
         />
@@ -361,7 +343,7 @@ export default function SeriesHome({
 
       <section className="dash-row dash-row--icons">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-sagas"
+          icon="saga"
           title="BEST SAGAS"
           subtitle="Your top franchises"
         />
@@ -413,7 +395,7 @@ export default function SeriesHome({
       {topUniverses.length > 0 ? (
       <section className="dash-row dash-row--icons">
           <DashPaneLabel
-            logo="/api/assets/icons/pane-universes"
+            icon="planet"
             title="UNIVERSES"
             subtitle="Shared story worlds"
           />
@@ -465,7 +447,7 @@ export default function SeriesHome({
 
       <section className="dash-row dash-row--genres">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-vibes"
+          icon="heart"
           title="SHOW VIBES"
           subtitle="Genres on rotation"
         />
@@ -509,7 +491,7 @@ export default function SeriesHome({
 
       <section className="dash-row dash-row--flags">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-origins"
+          icon="globe"
           title="ORIGINS"
           subtitle="Origins of your content"
         />

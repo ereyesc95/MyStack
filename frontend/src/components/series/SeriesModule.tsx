@@ -52,6 +52,7 @@ import {
 import {
   moduleHomePlaybackClassNames,
   PlaybackCoverAtmosphere,
+  useModuleHomeBeatPulse,
 } from "../../usePlaybackCoverBg";
 import type {
   CardOrientation,
@@ -73,7 +74,7 @@ import AppMenu from "../AppMenu";
 import MyStackIcon from "../MyStackIcon";
 import ManageCatalogModal from "../ManageCatalogModal";
 import CardOrientationPicker from "../CardOrientationPicker";
-import { IconMediaMusic, IconMediaSeries, IconSeriesScope, IconUniverse } from "../MenuIcons";
+import { IconMediaSeries, IconSeriesScope, IconUniverse } from "../MenuIcons";
 import ModuleHomeAudioPlayer from "../ModuleHomeAudioPlayer";
 import ModuleWrapped, {
   type ModuleWrappedBrowseTarget,
@@ -347,9 +348,12 @@ export default function SeriesModule({
   const portraitMenuChrome =
     isMobilePortraitLayout(deviceLayout) ||
     deviceLayout === "tablet-portrait";
-  const [homeAudioOpen, setHomeAudioOpen] = useState(false);
   const [homeAudioPlaying, setHomeAudioPlaying] = useState(false);
   const [homeAudioHasSrc, setHomeAudioHasSrc] = useState(false);
+  useModuleHomeBeatPulse({
+    enabled: tab === "home" || homeAudioHasSrc || homeAudioPlaying,
+    playing: homeAudioPlaying,
+  });
   const [wrappedOpen, setWrappedOpen] = useState(false);
   const wrappedYear = wrappedSeasonYear();
   const showHomeWrapped = tab === "home" && wrappedYear != null;
@@ -1243,15 +1247,15 @@ export default function SeriesModule({
     <div
       className={`series-module${moduleHomePlaybackClassNames({
         backdrop: moduleBackdrop && !showHomePlaybackBg,
-        showPlaybackBg: showHomePlaybackBg,
-        hasSrc: homeAudioHasSrc,
+        showPlaybackBg: showHomePlaybackBg || tab === "home",
+        hasSrc: homeAudioHasSrc || tab === "home" || homeAudioPlaying,
         playing: homeAudioPlaying,
       })}`}
     >
-      {showHomePlaybackBg || homeAudioPlaying || homeAudioHasSrc ? (
+      {showHomePlaybackBg || homeAudioPlaying || homeAudioHasSrc || tab === "home" ? (
         <PlaybackCoverAtmosphere
           playing={homeAudioPlaying}
-          hasSrc={homeAudioHasSrc}
+          hasSrc={homeAudioHasSrc || tab === "home"}
           coverUrl={homeAudioCover}
         />
       ) : moduleBackdrop ? (
@@ -1329,8 +1333,6 @@ export default function SeriesModule({
                 module="series"
                 userId={userId}
                 hideToggle={portraitMenuChrome}
-                open={homeAudioOpen}
-                onOpenChange={setHomeAudioOpen}
                 onPlayingChange={setHomeAudioPlaying}
                 onCoverChange={setHomeAudioCover}
                 onHasSrcChange={setHomeAudioHasSrc}
@@ -1412,15 +1414,6 @@ export default function SeriesModule({
                           size={15}
                         />
                         {`${wrappedYear} Wrapped`}
-                      </button>
-                    ) : null}
-                    {showModuleChrome ? (
-                      <button
-                        type="button"
-                        onClick={() => setHomeAudioOpen((v) => !v)}
-                      >
-                        <IconMediaMusic className="menu-item-icon" />
-                        {homeAudioOpen ? "Hide music" : "Play music"}
                       </button>
                     ) : null}
                     {tab === "catalog" ? (

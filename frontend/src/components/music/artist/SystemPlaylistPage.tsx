@@ -433,6 +433,9 @@ export default function SystemPlaylistPage({
   const [coverRevision, setCoverRevision] = useState(0);
   const [coverUploadBusy, setCoverUploadBusy] = useState(false);
   const [coverFailed, setCoverFailed] = useState(false);
+  const [panelBgRevealed, setPanelBgRevealed] = useState(false);
+  const [panelRevealLinger, setPanelRevealLinger] = useState(false);
+  const panelRevealLingerTimer = useRef<number | null>(null);
 
   const tracklistRef = useRef<SystemPlaylistTracklistHandle>(null);
   const setlistRef = useRef<SetlistsPlaylistHandle>(null);
@@ -1744,6 +1747,46 @@ export default function SystemPlaylistPage({
   }
 
   const panelFadedCover = displayCover ?? coverUrl;
+  const canRevealPanelBg =
+    !bannerLayout &&
+    Boolean(showPanelCanvas || (showTrackPanel && panelFadedCover));
+
+  useEffect(() => {
+    if (!canRevealPanelBg) {
+      setPanelBgRevealed(false);
+      setPanelRevealLinger(false);
+    }
+  }, [canRevealPanelBg]);
+
+  useEffect(() => {
+    return () => {
+      if (panelRevealLingerTimer.current != null) {
+        window.clearTimeout(panelRevealLingerTimer.current);
+      }
+    };
+  }, []);
+
+  const onPanelRevealEnter = () => {
+    if (panelRevealLingerTimer.current != null) {
+      window.clearTimeout(panelRevealLingerTimer.current);
+      panelRevealLingerTimer.current = null;
+    }
+    setPanelRevealLinger(true);
+  };
+
+  const onPanelRevealLeave = () => {
+    if (panelRevealLingerTimer.current != null) {
+      window.clearTimeout(panelRevealLingerTimer.current);
+    }
+    if (!panelBgRevealed) {
+      setPanelRevealLinger(false);
+      return;
+    }
+    panelRevealLingerTimer.current = window.setTimeout(() => {
+      setPanelRevealLinger(false);
+      panelRevealLingerTimer.current = null;
+    }, 1100);
+  };
 
   return (
     <div className={pageClass}>
@@ -1989,12 +2032,16 @@ export default function SystemPlaylistPage({
         <aside
           className={`release-page__panel${showTrackPanel ? " release-page__panel--track" : ""}${
             showPanelCanvas && !pageCanvasActive ? " release-page__panel--canvas" : ""
-          }${bannerLayout ? " release-page__panel--banner" : ""}`}
+          }${bannerLayout ? " release-page__panel--banner" : ""}${
+            panelBgRevealed && canRevealPanelBg ? " is-bg-revealed" : ""
+          }`}
           style={
             showTrackPanel && panelFadedCover
               ? ({ ["--panel-fade" as string]: `url("${panelFadedCover}")` } as CSSProperties)
               : undefined
           }
+          onMouseEnter={onPanelRevealEnter}
+          onMouseLeave={onPanelRevealLeave}
         >
           {showPanelCanvas && !pageCanvasActive && (
             <div className="release-page__panel-canvas-layer" aria-hidden>
@@ -2011,6 +2058,25 @@ export default function SystemPlaylistPage({
               <div className="release-page__panel-canvas-shade" />
             </div>
           )}
+          {canRevealPanelBg ? (
+            <button
+              type="button"
+              className={`release-page__panel-reveal${
+                panelBgRevealed ? " is-active" : ""
+              }${panelRevealLinger ? " is-lingering" : ""}`}
+              aria-label={panelBgRevealed ? "View details" : "View background"}
+              aria-pressed={panelBgRevealed}
+              title={panelBgRevealed ? "View details" : "View background"}
+              onClick={() => setPanelBgRevealed((v) => !v)}
+            >
+              <svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden>
+                <path
+                  fill="currentColor"
+                  d="M12 5c-5 0-9.27 3.11-11 7 1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"
+                />
+              </svg>
+            </button>
+          ) : null}
           <div className="release-page__panel-content">
             <div className="release-page__art">
               <div
@@ -2235,27 +2301,28 @@ export default function SystemPlaylistPage({
                         {isSnapshotPlaylist && activeSnapshot && (
                           <>
                             {splitSnapshotGenres(activeSnapshot.genres).length > 0 ? (
-                              <p className="release-page__subgenres">
-                                {splitSnapshotGenres(activeSnapshot.genres).map((genre, i) => (
-                                  <span key={genre}>
-                                    {i > 0 && " · "}
-                                    {onOpenCatalogSubgenre &&
-                                    subgenreIdByName.has(genre.toLowerCase()) ? (
-                                      <button
-                                        type="button"
-                                        className="release-page__genre-link"
-                                        onClick={() => openSnapshotGenre(genre)}
-                                      >
-                                        {titleCaseWords(genre)}
-                                      </button>
-                                    ) : (
-                                      <span className="release-page__genre-link">
-                                        {titleCaseWords(genre)}
-                                      </span>
-                                    )}
-                                  </span>
-                                ))}
-                              </p>
+                              <div className="release-page__subgenres">
+                                {splitSnapshotGenres(activeSnapshot.genres).map((genre) =>
+                                  onOpenCatalogSubgenre &&
+                                  subgenreIdByName.has(genre.toLowerCase()) ? (
+                                    <button
+                                      key={genre}
+                                      type="button"
+                                      className="release-page__genre-link"
+                                      onClick={() => openSnapshotGenre(genre)}
+                                    >
+                                      {titleCaseWords(genre)}
+                                    </button>
+                                  ) : (
+                                    <span
+                                      key={genre}
+                                      className="release-page__genre-link"
+                                    >
+                                      {titleCaseWords(genre)}
+                                    </span>
+                                  )
+                                )}
+                              </div>
                             ) : null}
                           </>
                         )}
@@ -2380,13 +2447,8 @@ export default function SystemPlaylistPage({
                               src={DEFAULT_LABEL_URL}
                               alt=""
                               className="release-page__label-logo"
+                              title={`Distributed by ${activeSnapshot.record_label}`}
                             />
-                            <p className="release-page__label-name">
-                              Distributed by{" "}
-                              <span className="release-page__person-link">
-                                {activeSnapshot.record_label}
-                              </span>
-                            </p>
                           </div>
                         ) : null}
                         {bannerLayout && panelActionTrack && hasActiveTrack ? (
@@ -2485,13 +2547,8 @@ export default function SystemPlaylistPage({
                       src={DEFAULT_LABEL_URL}
                       alt=""
                       className="release-page__label-logo"
+                      title={`Distributed by ${activeSnapshot.record_label}`}
                     />
-                    <p className="release-page__label-name">
-                      Distributed by{" "}
-                      <span className="release-page__person-link">
-                        {activeSnapshot.record_label}
-                      </span>
-                    </p>
                   </div>
                 ) : null}
                 {panelActionTrack && hasActiveTrack && (

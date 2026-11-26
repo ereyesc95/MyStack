@@ -472,6 +472,7 @@ export type CollectionLeaf = {
   country_iso?: string | null;
   animation?: string[];
   canvas?: string[];
+  visualizer?: string[];
   autographs?: string[];
   pending?: string[];
   has_pending?: boolean;
@@ -490,6 +491,7 @@ export type CollectionLeaf = {
   spotify_code_url?: string | null;
   animation_url?: string | null;
   canvas_url?: string | null;
+  visualizer_url?: string | null;
   disc_url?: string | null;
   disc_b_url?: string | null;
   spotify_icon_active?: boolean;

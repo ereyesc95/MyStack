@@ -206,6 +206,8 @@ export function applyThemeColors(colors: CustomThemeColors) {
   el.style.removeProperty("--beat-accent");
   el.style.setProperty("--scrollbar-thumb", colors.border);
   el.style.setProperty("--scrollbar-track", colors.bgElevated);
+  // Keep MyStack mark / favicon in sync with adaptive accent.
+  updateFavicon();
 }
 
 function clearCustomCss() {

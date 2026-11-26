@@ -6,6 +6,8 @@ import {
   dashPreviewVolume,
   endDashPreview,
   isDashPreviewToken,
+  registerDashPreviewHardStop,
+  setDashPreviewMediaActive,
 } from "../dashPreviewController";
 import { getBeatAnalyser, resumeBeatAudioContext } from "../beatAudioGraph";
 import { musicStreamUrl } from "../musicStreamUrl";
@@ -13,7 +15,8 @@ import { withMediaAccess } from "../mediaFileUrl";
 
 const DWELL_MS = 850;
 const EXCERPT_SEC = 10;
-const FADE_MS = 450;
+/** Short but noticeable fade for preview audio/video. */
+const FADE_MS = 400;
 
 export type DashPreviewOverlay = {
   active: boolean;
@@ -48,8 +51,13 @@ type Props = {
   beatHostRef?: React.RefObject<HTMLElement | null>;
 };
 
+type FadeSignal = { cancelled: boolean };
+
 function stripBrackets(title: string | null | undefined): string {
-  return (title || "").replace(/\s*\[[^\]]*]/g, "").trim();
+  let t = (title || "").replace(/\s*\[[^\]]*]/g, "").trim();
+  // Ignore YYYY. / YYYY.MM. / YYYY.MM.DD. prefixes from file/folder names.
+  t = t.replace(/^\d{4}(?:\.\d{1,2}){0,2}\.\s*/, "").trim();
+  return t;
 }
 
 function pickExcerptStart(duration: number): number {
@@ -72,6 +80,40 @@ function previewSrc(data: MusicDashPreview): string | null {
   return data.media_url || null;
 }
 
+function fadeMediaVolume(
+  el: HTMLMediaElement,
+  to: number,
+  ms: number,
+  signal: FadeSignal
+): Promise<void> {
+  return new Promise((resolve) => {
+    const target = Math.min(1, Math.max(0, to));
+    const from = el.volume;
+    if (ms <= 0 || Math.abs(from - target) < 0.008) {
+      if (!signal.cancelled) el.volume = target;
+      resolve();
+      return;
+    }
+    const t0 = performance.now();
+    const step = (now: number) => {
+      if (signal.cancelled) {
+        resolve();
+        return;
+      }
+      const t = Math.min(1, (now - t0) / ms);
+      const e = t * t * (3 - 2 * t);
+      el.volume = from + (target - from) * e;
+      if (t < 1) {
+        requestAnimationFrame(step);
+      } else {
+        el.volume = target;
+        resolve();
+      }
+    };
+    requestAnimationFrame(step);
+  });
+}
+
 export default function DashCardPreview({
   armed,
   requestKey,
@@ -81,9 +123,16 @@ export default function DashCardPreview({
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const mediaElRef = useRef<HTMLMediaElement | null>(null);
   const tokenRef = useRef(0);
+  const sessionRef = useRef(0);
   const loadRef = useRef(load);
   const onOverlayRef = useRef(onOverlay);
+  const fadeSignalRef = useRef<FadeSignal | null>(null);
+  const fadingRef = useRef(false);
+  const endingRef = useRef(false);
+  const targetVolRef = useRef(1);
+  const excerptTimerRef = useRef(0);
   loadRef.current = load;
   onOverlayRef.current = onOverlay;
   const [candidate, setCandidate] = useState<MusicDashPreview | null>(null);
@@ -91,14 +140,100 @@ export default function DashCardPreview({
   const [mediaPlaying, setMediaPlaying] = useState(false);
 
   useEffect(() => {
-    if (!armed || !requestKey) {
-      const token = tokenRef.current;
-      if (token) endDashPreview(token);
+    return registerDashPreviewHardStop(() => {
+      if (fadeSignalRef.current) fadeSignalRef.current.cancelled = true;
+      fadeSignalRef.current = null;
+      fadingRef.current = false;
+      window.clearTimeout(excerptTimerRef.current);
+      setDashPreviewMediaActive(false);
+      const el = mediaElRef.current;
+      if (el) {
+        try {
+          el.pause();
+          el.volume = 0;
+        } catch {
+          /* ignore */
+        }
+      }
+      mediaElRef.current = null;
       tokenRef.current = 0;
-      setCandidate(null);
+      endingRef.current = false;
       setVisible(false);
       setMediaPlaying(false);
+      setCandidate(null);
       onOverlayRef.current(EMPTY_OVERLAY);
+    });
+  }, []);
+
+  const cancelFade = () => {
+    if (fadeSignalRef.current) fadeSignalRef.current.cancelled = true;
+    fadeSignalRef.current = null;
+    fadingRef.current = false;
+  };
+
+  const runFade = (el: HTMLMediaElement, to: number) => {
+    cancelFade();
+    const signal: FadeSignal = { cancelled: false };
+    fadeSignalRef.current = signal;
+    fadingRef.current = true;
+    return fadeMediaVolume(el, to, FADE_MS, signal).finally(() => {
+      if (fadeSignalRef.current === signal) {
+        fadeSignalRef.current = null;
+        fadingRef.current = false;
+      }
+    });
+  };
+
+  const softEnd = () => {
+    const token = tokenRef.current;
+    if (!token || endingRef.current) {
+      if (!token) {
+        setCandidate(null);
+        setVisible(false);
+        setMediaPlaying(false);
+        onOverlayRef.current(EMPTY_OVERLAY);
+      }
+      return;
+    }
+    endingRef.current = true;
+    const session = sessionRef.current;
+    window.clearTimeout(excerptTimerRef.current);
+    setVisible(false);
+    // Keep mediaPlaying true during fade so volume/unmute sync stays attached;
+    // beat analysis can wind down via setDashPreviewMediaActive(false) at finish.
+    const el = mediaElRef.current;
+
+    const finish = () => {
+      setDashPreviewMediaActive(false);
+      setMediaPlaying(false);
+      endDashPreview(token);
+      if (tokenRef.current === token) tokenRef.current = 0;
+      // Only clear UI if nothing newer took over
+      if (sessionRef.current === session) {
+        mediaElRef.current = null;
+        setCandidate(null);
+        onOverlayRef.current(EMPTY_OVERLAY);
+      }
+      endingRef.current = false;
+    };
+
+    if (el) {
+      void runFade(el, 0).then(() => {
+        try {
+          el.pause();
+        } catch {
+          /* ignore */
+        }
+        finish();
+      });
+    } else {
+      window.setTimeout(finish, FADE_MS);
+    }
+  };
+
+  useEffect(() => {
+    if (!armed || !requestKey) {
+      softEnd();
       return;
     }
 
@@ -115,6 +250,8 @@ export default function DashCardPreview({
         if (!previewSrc(data)) return;
         const token = beginDashPreview();
         tokenRef.current = token;
+        sessionRef.current += 1;
+        endingRef.current = false;
         if (!isDashPreviewToken(token)) return;
         setCandidate(data);
         onOverlayRef.current({
@@ -138,13 +275,7 @@ export default function DashCardPreview({
     return () => {
       cancelled = true;
       window.clearTimeout(dwell);
-      const token = tokenRef.current;
-      if (token) endDashPreview(token);
-      tokenRef.current = 0;
-      setCandidate(null);
-      setVisible(false);
-      setMediaPlaying(false);
-      onOverlayRef.current(EMPTY_OVERLAY);
+      softEnd();
     };
   }, [armed, requestKey]);
 
@@ -152,12 +283,12 @@ export default function DashCardPreview({
   useLayoutEffect(() => {
     if (!candidate) return;
     const token = tokenRef.current;
+    const session = sessionRef.current;
     const src = previewSrc(candidate);
     if (!src) return;
     const isVideo = candidate.media_kind === "video";
 
     let stopped = false;
-    let endAt = 0;
     let raf = 0;
     let el: HTMLMediaElement | null = null;
     let onMeta: (() => void) | null = null;
@@ -166,44 +297,50 @@ export default function DashCardPreview({
     const stopPreview = () => {
       if (stopped) return;
       stopped = true;
-      window.clearTimeout(endAt);
-      setMediaPlaying(false);
-      setVisible(false);
-      window.setTimeout(() => {
-        endDashPreview(token);
-        if (tokenRef.current === token) tokenRef.current = 0;
-        setCandidate(null);
-        onOverlayRef.current(EMPTY_OVERLAY);
-      }, FADE_MS);
+      softEnd();
     };
 
     const startPlay = () => {
       if (stopped || !el || !isDashPreviewToken(token)) return;
+      if (sessionRef.current !== session) return;
       resumeBeatAudioContext();
+      targetVolRef.current = dashPreviewVolume();
+      el.volume = 0;
       const go = () => {
-        if (stopped || !el) return;
+        if (stopped || !el || sessionRef.current !== session) return;
         setMediaPlaying(true);
+        setDashPreviewMediaActive(true);
         if (dashPreviewHasGesture()) {
           el.muted = false;
-          el.volume = dashPreviewVolume();
         }
-        endAt = window.setTimeout(stopPreview, EXCERPT_SEC * 1000);
+        void runFade(el, targetVolRef.current).then(() => {
+          if (stopped || !el || !isDashPreviewToken(token)) return;
+          if (sessionRef.current !== session) return;
+          excerptTimerRef.current = window.setTimeout(
+            stopPreview,
+            EXCERPT_SEC * 1000
+          );
+        });
       };
       void el.play().then(go, () => {
         if (!el || stopped) return;
         el.muted = true;
-        el.volume = dashPreviewVolume();
+        el.volume = 0;
         void el.play().then(go, () => stopPreview());
       });
     };
 
     const attach = (media: HTMLMediaElement) => {
       el = media;
+      mediaElRef.current = media;
       const muted = !dashPreviewHasGesture();
-      // Keep real volume even when muted — volume=0 starves WebAudio beat analysis.
-      media.defaultMuted = true;
+      // Keep mute under JS control — a React `muted` prop re-applies on every
+      // overlay/beat re-render and silences audio after play() succeeds.
+      // Do not set crossOrigin: same-origin streams use cookies/tokens and
+      // anonymous CORS breaks Web Audio analysis (static pulses).
+      media.defaultMuted = muted;
       media.muted = muted;
-      media.volume = dashPreviewVolume();
+      media.volume = 0;
       media.src = src;
       onMeta = () => {
         if (stopped || !isDashPreviewToken(token)) return;
@@ -233,7 +370,7 @@ export default function DashCardPreview({
         attach(found);
         return;
       }
-      if (tries++ < 10) {
+      if (tries++ < 60) {
         raf = requestAnimationFrame(waitForEl);
       } else {
         stopPreview();
@@ -244,8 +381,11 @@ export default function DashCardPreview({
     return () => {
       stopped = true;
       cancelAnimationFrame(raf);
-      window.clearTimeout(endAt);
-      if (el) {
+      window.clearTimeout(excerptTimerRef.current);
+      // Soft-end owns pause/fade when intentional; hard teardown only if
+      // candidate is being replaced before soft-end finishes.
+      if (el && !endingRef.current) {
+        cancelFade();
         if (onMeta) el.removeEventListener("loadedmetadata", onMeta);
         if (onCanPlay) el.removeEventListener("canplay", onCanPlay);
         el.pause();
@@ -255,6 +395,7 @@ export default function DashCardPreview({
         } catch {
           /* ignore */
         }
+        if (mediaElRef.current === el) mediaElRef.current = null;
       }
       setMediaPlaying(false);
     };
@@ -271,7 +412,9 @@ export default function DashCardPreview({
         | null;
       if (!el) return;
       el.muted = false;
-      el.volume = dashPreviewVolume();
+      if (!fadingRef.current) {
+        el.volume = targetVolRef.current;
+      }
       resumeBeatAudioContext();
     };
     window.addEventListener("pointerdown", sync, { passive: true });
@@ -283,7 +426,7 @@ export default function DashCardPreview({
     };
   }, [candidate, mediaPlaying]);
 
-  // Card-local beat vars
+  // Card-local + page-wide beat vars (analyser preferred; synthetic fallback).
   useEffect(() => {
     if (!candidate || !mediaPlaying) return;
     const isVideo = candidate.media_kind === "video";
@@ -293,26 +436,20 @@ export default function DashCardPreview({
     const host = beatHostRef?.current;
     if (!el || !host) return;
 
+    setDashPreviewMediaActive(true);
     let analyser: AnalyserNode | null = null;
     try {
       analyser = getBeatAnalyser(el);
     } catch {
       analyser = null;
     }
-    if (!analyser) return;
-    const data = new Uint8Array(analyser.frequencyBinCount);
+    const data = analyser
+      ? new Uint8Array(analyser.frequencyBinCount)
+      : null;
     let raf = 0;
     let prev = 0;
     let beating = false;
-    const tick = () => {
-      analyser!.getByteFrequencyData(data);
-      let sum = 0;
-      const n = Math.min(40, data.length);
-      for (let i = 0; i < n; i++) sum += data[i];
-      const instant = Math.min(1, (sum / (n * 255)) * 1.35);
-      const pulse = prev * 0.65 + instant * 0.35;
-      prev = pulse;
-      const strength = Math.min(0.85, pulse * 1.2);
+    const writeVars = (pulse: number, strength: number) => {
       host.style.setProperty("--beat-pulse", String(pulse));
       host.style.setProperty("--beat-bass", String(pulse * 0.9));
       host.style.setProperty("--beat-strength", String(strength));
@@ -325,33 +462,55 @@ export default function DashCardPreview({
         "--beat-strength",
         String(strength)
       );
-      const nextBeating = strength > 0.08;
-      if (nextBeating !== beating) {
-        beating = nextBeating;
-        onOverlayRef.current({
-          active: true,
-          mediaKind: candidate.media_kind === "video" ? "video" : "audio",
-          mediaTitle: stripBrackets(candidate.title),
-          artworkUrl: candidate.artwork_url || null,
-          artistName:
-            candidate.artist_name ||
-            candidate.series_title ||
-            candidate.parent_title ||
-            null,
-          artistLogoUrl: candidate.artist_logo_url || null,
-          artistLogoCollapsedUrl: candidate.artist_logo_collapsed_url || null,
-          artistIconUrl: candidate.artist_icon_url || null,
-          beating,
-        });
+    };
+    const publishBeating = (next: boolean) => {
+      if (next === beating) return;
+      beating = next;
+      onOverlayRef.current({
+        active: true,
+        mediaKind: candidate.media_kind === "video" ? "video" : "audio",
+        mediaTitle: stripBrackets(candidate.title),
+        artworkUrl: candidate.artwork_url || null,
+        artistName:
+          candidate.artist_name ||
+          candidate.series_title ||
+          candidate.parent_title ||
+          null,
+        artistLogoUrl: candidate.artist_logo_url || null,
+        artistLogoCollapsedUrl: candidate.artist_logo_collapsed_url || null,
+        artistIconUrl: candidate.artist_icon_url || null,
+        beating,
+      });
+    };
+    const tick = () => {
+      let pulse = 0;
+      if (analyser && data) {
+        analyser.getByteFrequencyData(data);
+        let sum = 0;
+        const n = Math.min(40, data.length);
+        for (let i = 0; i < n; i++) sum += data[i];
+        const instant = Math.min(1, (sum / (n * 255)) * 1.35);
+        pulse = prev * 0.65 + instant * 0.35;
+      } else if (!el.paused && !el.ended) {
+        // Synthetic pulse when Web Audio graph isn't available.
+        const t = el.currentTime || performance.now() / 1000;
+        const wave =
+          0.42 +
+          0.28 * Math.sin(t * 8.2) +
+          0.18 * Math.sin(t * 13.7 + 0.6) +
+          0.12 * Math.sin(t * 3.1);
+        pulse = prev * 0.55 + Math.min(1, Math.max(0, wave)) * 0.45;
       }
+      prev = pulse;
+      const strength = Math.min(0.85, pulse * 1.2);
+      writeVars(pulse, strength);
+      publishBeating(strength > 0.08);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(raf);
-      host.style.setProperty("--beat-pulse", "0");
-      host.style.setProperty("--beat-bass", "0");
-      host.style.setProperty("--beat-strength", "0");
+      writeVars(0, 0);
     };
   }, [candidate, mediaPlaying, beatHostRef]);
 
@@ -370,10 +529,13 @@ export default function DashCardPreview({
           className="dash-morph__preview-media"
           playsInline
           preload="auto"
-          muted
         />
       ) : (
-        <audio ref={audioRef} className="dash-morph__preview-audio" preload="auto" muted />
+        <audio
+          ref={audioRef}
+          className="dash-morph__preview-audio"
+          preload="auto"
+        />
       )}
     </span>
   );

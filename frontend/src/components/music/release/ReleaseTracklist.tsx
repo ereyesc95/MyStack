@@ -22,6 +22,14 @@ import {
   prefetchReleaseTracklist as prefetchTracklist,
 } from "../../../releaseTracklistCache";
 import { formatTrackDate } from "../../../formatDate";
+import {
+  clearReleasePlayerActionActive,
+  consumeReleasePlayerAction,
+  getActiveReleasePlayerAction,
+  matchReleasePlayerAction,
+  subscribeReleasePlayerAction,
+  subscribeReleasePlayerActionActive,
+} from "../../../releasePlayerActions";
 import { invalidateWordCloud } from "../../../wordCloudInvalidation";
 import type {
   ReleaseEdition,
@@ -35,7 +43,10 @@ import BillboardText from "../../BillboardText";
 import MsDisclosure from "../../MsDisclosure";
 import { IconVideo } from "../../MenuIcons";
 import TrackYoutubeButton, { trackYoutubeVideos } from "../TrackYoutubeButton";
-import { ReleaseTrackTitle } from "./releaseTrackTitle";
+import {
+  ReleaseTrackTitle,
+  splitTrackTitleDisplay,
+} from "./releaseTrackTitle";
 import PlaylistBoot from "../../PlaylistBoot";
 import ReleaseAddToPlaylistModal from "./ReleaseAddToPlaylistModal";
 import ReleaseInlineLyrics from "./ReleaseInlineLyrics";
@@ -361,7 +372,8 @@ type Props = {
     path: string,
     title: string,
     art?: ReleasePlaybackArt,
-    editionLabel?: string | null
+    editionLabel?: string | null,
+    queueOverride?: GlobalMusicTrack[] | null
   ) => void;
   onActiveTrackChange?: (track: ReleaseTrackItem | null) => void;
   onPanelActionsChange?: (state: {
@@ -634,13 +646,13 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
       const cached = !force ? getCachedReleaseTracklist(bandId, releaseId) : null;
       if (cached) {
         setData(cached);
-        setView("tracks");
+        // Do not force rightView → tracks: global-bar lyrics/versions open
+        // races this prefetch and was getting wiped on every remount.
         setLoading(false);
         setError(null);
         prefetchTracklist(bandId, releaseId, { force: true })
           .then((fresh) => {
             setData(fresh);
-            setView("tracks");
           })
           .catch(() => {});
         return;
@@ -650,14 +662,13 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
       try {
         const payload = await prefetchTracklist(bandId, releaseId, { force: true });
         setData(payload);
-        setView("tracks");
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         setLoading(false);
       }
     },
-    [bandId, releaseId, setView]
+    [bandId, releaseId]
   );
 
   useEffect(() => {
@@ -1004,9 +1015,12 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
     [artistName, bandId, releaseId, setView]
   );
 
-  const openLyrics = (track: ReleaseTrackItem) => {
-    loadLyricsForTrack(track);
-  };
+  const openLyrics = useCallback(
+    (track: ReleaseTrackItem) => {
+      loadLyricsForTrack(track);
+    },
+    [loadLyricsForTrack]
+  );
 
   useEffect(() => {
     if (rightView !== "lyrics" || !playingPath) return;
@@ -1028,28 +1042,31 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
     [trackContexts, onPlay]
   );
 
-  const openVersions = (track: ReleaseTrackItem) => {
-    setVersionsReturnPath(track.play_path);
-    setPlayingVersionPath(null);
-    setActiveVersionSource(null);
-    setVersionsTrack(track);
-    setVersions([]);
-    setVersionsError(null);
-    setView("versions");
-    setVersionsLoading(true);
-    void fetchTrackVersions(bandId, releaseId, track.title, track.play_path)
-      .then((res) =>
-        setVersions(
-          [...res.versions].sort((a, b) =>
-            (a.date_iso || "9999-12-31").localeCompare(b.date_iso || "9999-12-31")
+  const openVersions = useCallback(
+    (track: ReleaseTrackItem) => {
+      setVersionsReturnPath(track.play_path);
+      setPlayingVersionPath(null);
+      setActiveVersionSource(null);
+      setVersionsTrack(track);
+      setVersions([]);
+      setVersionsError(null);
+      setView("versions");
+      setVersionsLoading(true);
+      void fetchTrackVersions(bandId, releaseId, track.title, track.play_path)
+        .then((res) =>
+          setVersions(
+            [...res.versions].sort((a, b) =>
+              (a.date_iso || "9999-12-31").localeCompare(b.date_iso || "9999-12-31")
+            )
           )
         )
-      )
-      .catch((e) => {
-        setVersionsError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => setVersionsLoading(false));
-  };
+        .catch((e) => {
+          setVersionsError(e instanceof Error ? e.message : String(e));
+        })
+        .finally(() => setVersionsLoading(false));
+    },
+    [bandId, releaseId, setView]
+  );
 
   const handleBack = useCallback(() => {
     if (rightView === "versions") {
@@ -1058,6 +1075,7 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
       setActiveVersionSource(null);
       setVersionsReturnPath(null);
       setView("tracks");
+      clearReleasePlayerActionActive();
       if (returnPath) {
         playMainTrackByPath(returnPath);
       } else {
@@ -1070,8 +1088,107 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
       }
       return;
     }
+    if (rightView === "lyrics") {
+      clearReleasePlayerActionActive();
+    }
     setView("tracks");
   }, [playMainTrackByPath, rightView, setView, versionsReturnPath]);
+
+  // Global bar toggle-off should leave the lyrics/versions panel too.
+  useEffect(() => {
+    return subscribeReleasePlayerActionActive(() => {
+      if (getActiveReleasePlayerAction()) return;
+      if (rightView === "lyrics" || rightView === "versions") {
+        setView("tracks");
+      }
+    });
+  }, [rightView, setView]);
+
+  // Apply pending global-bar lyrics/versions once our tracklist data is ready.
+  // Lives here (not only on ReleasePage) so remount/prefetch cannot miss it.
+  useEffect(() => {
+    if (!data) return;
+    const req = matchReleasePlayerAction(bandId, releaseId);
+    if (!req) return;
+
+    const findTrack = (): ReleaseTrackItem | null => {
+      const ctx = resolveTrackContext(req.trackPath);
+      if (ctx?.track) return ctx.track;
+      const all = allTracksFlat;
+      if (req.trackTitle) {
+        const want = req.trackTitle.toLowerCase();
+        const byTitle = all.find(
+          (t) =>
+            t.play_path === req.trackPath ||
+            (t.title || "").toLowerCase() === want ||
+            (t.title || "").toLowerCase().includes(want)
+        );
+        if (byTitle) return byTitle;
+      }
+      const base = req.trackPath.replace(/\\/g, "/").split("/").pop() || "";
+      if (!base) return null;
+      return (
+        all.find((t) =>
+          (t.play_path || "").replace(/\\/g, "/").endsWith(base)
+        ) ?? null
+      );
+    };
+
+    const track = findTrack();
+    if (!track) return;
+    consumeReleasePlayerAction(bandId, releaseId);
+    if (req.action === "lyrics") openLyrics(track);
+    else openVersions(track);
+  }, [
+    data,
+    bandId,
+    releaseId,
+    allTracksFlat,
+    resolveTrackContext,
+    openLyrics,
+    openVersions,
+  ]);
+
+  useEffect(() => {
+    return subscribeReleasePlayerAction(() => {
+      // Re-run apply when a new pending action arrives while mounted.
+      if (!data) return;
+      const req = matchReleasePlayerAction(bandId, releaseId);
+      if (!req) return;
+      const ctx = resolveTrackContext(req.trackPath);
+      let track = ctx?.track ?? null;
+      if (!track && req.trackTitle) {
+        const want = req.trackTitle.toLowerCase();
+        track =
+          allTracksFlat.find(
+            (t) =>
+              (t.title || "").toLowerCase() === want ||
+              (t.title || "").toLowerCase().includes(want)
+          ) ?? null;
+      }
+      if (!track) {
+        const base = req.trackPath.replace(/\\/g, "/").split("/").pop() || "";
+        if (base) {
+          track =
+            allTracksFlat.find((t) =>
+              (t.play_path || "").replace(/\\/g, "/").endsWith(base)
+            ) ?? null;
+        }
+      }
+      if (!track) return;
+      consumeReleasePlayerAction(bandId, releaseId);
+      if (req.action === "lyrics") openLyrics(track);
+      else openVersions(track);
+    });
+  }, [
+    data,
+    bandId,
+    releaseId,
+    allTracksFlat,
+    resolveTrackContext,
+    openLyrics,
+    openVersions,
+  ]);
 
   const adjacentTracks = useCallback(
     (path: string) => {
@@ -1096,7 +1213,13 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
       allTracks: () => allTracksFlat,
       findTrackContext: (path) => resolveTrackContext(path),
     }),
-    [adjacentTracks, allTracksFlat, resolveTrackContext]
+    [
+      adjacentTracks,
+      allTracksFlat,
+      resolveTrackContext,
+      openLyrics,
+      openVersions,
+    ]
   );
 
   if (loading && !data) {
@@ -1566,7 +1689,41 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
                       );
                       setPlayingVersionPath(v.play_path);
                       setActiveVersionSource(source);
-                      onPlay(v.play_path, v.title, versionPlaybackArt(v));
+                      const versionQueue: GlobalMusicTrack[] = versions.map(
+                        (item) => {
+                          // Match the versions tracklist bracket suffix
+                          // (e.g. Remastered 2025), not edition/format labels.
+                          const split = splitTrackTitleDisplay(item.title);
+                          const suffix = split.suffix;
+                          const main =
+                            split.main ||
+                            trackMainTitle(item.title) ||
+                            item.title ||
+                            "Track";
+                          return {
+                            id: item.play_path,
+                            path: item.play_path,
+                            title: main,
+                            titleSuffix: suffix,
+                            artist: artistName || null,
+                            artistId: item.navigate_band_id ?? bandId,
+                            releaseId:
+                              item.navigate_release_id ??
+                              releaseNavigateId ??
+                              releaseId,
+                            releaseTitle: item.album_title ?? releaseTitle,
+                            releaseDate: item.date_iso ?? null,
+                            coverUrl: item.cover_url ?? null,
+                          };
+                        }
+                      );
+                      onPlay(
+                        v.play_path,
+                        v.title,
+                        versionPlaybackArt(v),
+                        null,
+                        versionQueue
+                      );
                       if (onPanelActionsChange) {
                         onPanelActionsChange({
                           track: versionToTrackItem(v),

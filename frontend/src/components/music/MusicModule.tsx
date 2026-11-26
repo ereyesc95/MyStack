@@ -17,10 +17,15 @@ import {
   getGlobalMusicAudioElement,
   getGlobalMusicSnapshot,
   globalMusicPlayFrom,
+  globalMusicRestoreContext,
   globalMusicToggle,
   subscribeGlobalMusic,
   type GlobalMusicTrack,
 } from "../../globalMusicPlayer";
+import {
+  getDashPreviewBackdrop,
+  subscribeDashPreviewBackdrop,
+} from "../../dashPreviewController";
 import type {
   AlbumCard,
   AlbumFilterMode,
@@ -744,6 +749,11 @@ export default function MusicModule({
   const homeBeatPlaying = homeBeatActive && globalMusic.playing;
   useBeatPulse(globalAudioRef, homeBeatActive, globalMusic.playing);
 
+  // Returning to MusicStack restores the music queue (module stacks adopt their own).
+  useEffect(() => {
+    globalMusicRestoreContext("music", { peek: true });
+  }, []);
+
   const pendingDeepMusicRoute = useMemo(() => {
     if (bandId != null) return false;
     if (typeof window === "undefined") return false;
@@ -1384,16 +1394,40 @@ export default function MusicModule({
       }
       const tracks: GlobalMusicTrack[] = homeTracks
         .filter((t) => Boolean(t.path))
-        .map((t) => ({
-          id: t.path!,
-          path: t.path!,
-          title: t.title || "Track",
-          artist: t.artist_name ?? null,
-          artistId: t.artist_id ?? null,
-          releaseId: t.navigate_release_id ?? null,
-          releaseTitle: t.release ?? null,
-          coverUrl: t.cover_url ?? null,
-        }));
+        .map((t) => {
+          const releaseTitle =
+            (t.release || "").trim() ||
+            (() => {
+              const parts = String(t.path || "")
+                .replace(/\\/g, "/")
+                .split("/")
+                .filter(Boolean);
+              // …/Albums/{release}/… → release folder name
+              const cats = new Set([
+                "albums",
+                "extended plays",
+                "compilations",
+                "demos",
+                "singles",
+                "soundtracks",
+                "live albums",
+              ]);
+              for (let i = 0; i < parts.length - 1; i++) {
+                if (cats.has(parts[i]!.toLowerCase())) return parts[i + 1]!;
+              }
+              return parts.length >= 2 ? parts[parts.length - 2]! : null;
+            })();
+          return {
+            id: t.path!,
+            path: t.path!,
+            title: t.title || "Track",
+            artist: t.artist_name ?? null,
+            artistId: t.artist_id ?? null,
+            releaseId: t.navigate_release_id ?? null,
+            releaseTitle,
+            coverUrl: t.cover_url ?? null,
+          };
+        });
       const start = tracks.findIndex((t) => t.path === path);
       if (start < 0) {
         // Path not in On Repeat list — play as a one-track queue.
@@ -1424,12 +1458,20 @@ export default function MusicModule({
     return homeTracks.find((t) => t.path === homePlayingPath) ?? null;
   }, [homeTracks, homePlayingPath]);
 
+  const previewBackdrop = useSyncExternalStore(
+    subscribeDashPreviewBackdrop,
+    getDashPreviewBackdrop,
+    () => null
+  );
+
   const homePlaybackBgUrl = useMemo(() => {
+    // Preview landscape wins while a dash card preview is live.
+    if (previewBackdrop) return previewBackdrop;
     // Only while audio is actually playing — pause/end clears cover backdrop
     // (theme already reverts via onPlaybackPaused / endPlaybackThemeSession).
     if (!homeBeatPlaying) return undefined;
     return homeNowTrack?.cover_url || undefined;
-  }, [homeBeatPlaying, homeNowTrack?.cover_url]);
+  }, [previewBackdrop, homeBeatPlaying, homeNowTrack?.cover_url]);
 
   const [homeBgLayers, setHomeBgLayers] = useState<{
     current: string | undefined;
@@ -1459,13 +1501,18 @@ export default function MusicModule({
     !bandId &&
     !showHomePlaybackBg &&
     Boolean(backgroundUrl || backgroundIso);
+  const homePreviewBeating = Boolean(previewBackdrop);
 
   return (
     <div
       className={`music-module${
         moduleBackdrop || showHomePlaybackBg ? " music-module--backdrop" : ""
-      }${homeBeatActive ? " music-module--beat-ready" : ""}${
-        homeBeatPlaying ? " music-module--playing" : ""
+      }${
+        homeBeatActive || tab === "home" || homePreviewBeating
+          ? " music-module--beat-ready"
+          : ""
+      }${
+        homeBeatPlaying || homePreviewBeating ? " music-module--playing" : ""
       }`}
     >
       {showHomePlaybackBg ? (
@@ -1492,7 +1539,7 @@ export default function MusicModule({
         </div>
       ) : (
         <>
-          {homeBeatPlaying ? <MediaBeatFx /> : null}
+          {tab === "home" || homeBeatPlaying ? <MediaBeatFx /> : null}
           {moduleBackdrop ? (
             <div className="music-module__backdrop" aria-hidden>
               {backgroundIso ? (

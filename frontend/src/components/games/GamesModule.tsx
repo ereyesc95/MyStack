@@ -36,6 +36,7 @@ import {
 import {
   moduleHomePlaybackClassNames,
   PlaybackCoverAtmosphere,
+  useModuleHomeBeatPulse,
 } from "../../usePlaybackCoverBg";
 import {
   pushGamesCatalogRoute,
@@ -190,6 +191,10 @@ export default function GamesModule({
   const [tab, setTab] = useState<GamesTab>(
     franchiseId || gameId ? "catalog" : "home"
   );
+  useModuleHomeBeatPulse({
+    enabled: tab === "home" || homeAudioHasSrc || homeAudioPlaying,
+    playing: homeAudioPlaying,
+  });
   const showHomeWrapped = tab === "home" && wrappedYear != null;
   const [manageCatalogOpen, setManageCatalogOpen] = useState(false);
   const [organizeRomsOpen, setOrganizeRomsOpen] = useState(false);
@@ -1109,15 +1114,15 @@ export default function GamesModule({
   return (
     <div
       className={`music-module${moduleHomePlaybackClassNames({
-        showPlaybackBg: showHomePlaybackBg,
-        hasSrc: homeAudioHasSrc,
+        showPlaybackBg: showHomePlaybackBg || tab === "home",
+        hasSrc: homeAudioHasSrc || tab === "home" || homeAudioPlaying,
         playing: homeAudioPlaying,
       })}`}
     >
-      {showHomePlaybackBg || homeAudioPlaying || homeAudioHasSrc ? (
+      {showHomePlaybackBg || homeAudioPlaying || homeAudioHasSrc || tab === "home" ? (
         <PlaybackCoverAtmosphere
           playing={homeAudioPlaying}
-          hasSrc={homeAudioHasSrc}
+          hasSrc={homeAudioHasSrc || tab === "home"}
           coverUrl={homeAudioCover}
         />
       ) : null}

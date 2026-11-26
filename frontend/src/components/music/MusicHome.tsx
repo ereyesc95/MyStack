@@ -3,6 +3,7 @@ import { fetchMusicDashPreview } from "../../api";
 import type { MusicDashboard } from "../../types";
 import { EMPTY_DASHBOARD } from "../../types";
 import DashMorphCard from "../DashMorphCard";
+import DashPaneLabel from "../DashPaneLabel";
 import { useDashCardReveal } from "../DashHoverTitle";
 import {
   prefetchDashArt,
@@ -171,26 +172,6 @@ function PlaceholderTiles({
   );
 }
 
-function DashPaneLabel({
-  logo,
-  title,
-  subtitle,
-}: {
-  logo: string;
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <div className="dash-row-label">
-      <img src={logo} alt="" className="dash-pane-logo" />
-      <div className="dash-row-label-text">
-        <strong>{title}</strong>
-        <span>{subtitle}</span>
-      </div>
-    </div>
-  );
-}
-
 export default function MusicHome({
   data,
   loading,
@@ -296,7 +277,7 @@ export default function MusicHome({
     <div className={`music-dashboard${dashClass}`}>
       <section className="dash-row dash-row--tracks">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-on-repeat"
+          icon="repeat"
           title="ON REPEAT"
           subtitle="Most played tracks"
         />
@@ -355,7 +336,7 @@ export default function MusicHome({
 
       <section className="dash-row dash-row--icons">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-best"
+          icon="star"
           title="BEST ARTISTS"
           subtitle="Your top artists"
         />
@@ -405,7 +386,7 @@ export default function MusicHome({
 
       <section className="dash-row dash-row--tracks">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-top-records"
+          icon="disc"
           title="TOP RECORDS"
           subtitle="Most played releases"
         />
@@ -461,7 +442,7 @@ export default function MusicHome({
 
       <section className="dash-row dash-row--genres">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-vibes"
+          icon="heart"
           title="MUSIC VIBES"
           subtitle="Genres on rotation"
         />
@@ -478,7 +459,13 @@ export default function MusicHome({
                 bannerUrl={g.image_url}
                 landscapeUrl={g.image_url}
                 logoUrl={g.logo_url}
-                parentLine={g.parent_genre}
+                parentLine={
+                  g.parent_genre &&
+                  g.parent_genre.trim().toLowerCase() !==
+                    (g.name || "").trim().toLowerCase()
+                    ? g.parent_genre
+                    : null
+                }
                 expanded={genresExpand.expandedId === cid}
                 revealed={revealedId === cid}
                 preview={{
@@ -506,7 +493,7 @@ export default function MusicHome({
 
       <section className="dash-row dash-row--flags">
         <DashPaneLabel
-          logo="/api/assets/icons/pane-origins"
+          icon="globe"
           title="ORIGINS"
           subtitle="Origins of your music"
         />

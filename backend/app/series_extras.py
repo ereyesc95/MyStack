@@ -632,8 +632,17 @@ def collect_audio_tracks_from_folders(
     return tracks
 
 
-def collect_series_audio_tracks(db: Session, franchise_id: str) -> list[dict]:
-    """Resolve Audio/ .lnk releases into playable track entries for the series player."""
+def collect_series_audio_tracks(
+    db: Session,
+    franchise_id: str,
+    *,
+    subseries_id: str | None = None,
+) -> list[dict]:
+    """Resolve Audio/ .lnk releases into playable track entries for the series player.
+
+    When ``subseries_id`` is set, prefer that leaf folder's Audio/; if empty,
+    fall back to the full franchise pool.
+    """
     root = Path(settings.media_root) if settings.media_root else None
     if not root or not root.is_dir():
         return []
@@ -641,8 +650,24 @@ def collect_series_audio_tracks(db: Session, franchise_id: str) -> list[dict]:
     if not found:
         return []
     franchise_dir, _ = found
+    subs = list(_list_subseries(franchise_dir, root))
+    leaf_key = (subseries_id or "").strip()
+    if leaf_key:
+        for s in subs:
+            sid = str(s.get("id") or "").strip()
+            if sid != leaf_key and sid.casefold() != leaf_key.casefold():
+                continue
+            fp = s.get("folder_path") or ""
+            if not fp:
+                break
+            leaf_tracks = collect_audio_tracks_from_folders(
+                db, [root / fp.replace("\\", "/")], root
+            )
+            if leaf_tracks:
+                return leaf_tracks
+            break
     scopes = [franchise_dir]
-    for s in _list_subseries(franchise_dir, root):
+    for s in subs:
         fp = s.get("folder_path") or ""
         if fp:
             scopes.append(root / fp.replace("\\", "/"))

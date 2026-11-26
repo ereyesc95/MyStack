@@ -88,8 +88,7 @@ export default function ReleaseLyricsEditModal({
             />
           </label>
           <p className="muted release-lyrics-edit-modal__note">
-            Editing plain text here does not remove synced timestamps if this
-            track already has an .lrc file stored.
+            Editing lyrics will not have effect on synced timestamps
           </p>
         </div>
 

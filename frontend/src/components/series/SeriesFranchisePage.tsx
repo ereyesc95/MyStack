@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -44,6 +45,9 @@ import {
   type FranchiseQuizCatalogItem,
 } from "../../api";
 import ConfirmDialog from "../ConfirmDialog";
+import ModuleHomeAudioPlayer, {
+  type ModuleHomeAudioKind,
+} from "../ModuleHomeAudioPlayer";
 import {
   applyMediaTheme,
   beginArtistPageSession,
@@ -112,6 +116,12 @@ import CardOrientationPicker from "../CardOrientationPicker";
 import ReleaseCardLayoutPicker from "../ReleaseCardLayoutPicker";
 import MediaBeatFx from "../music/MediaBeatFx";
 import MediaBeatFrame from "../music/MediaBeatFrame";
+import {
+  getGlobalMusicAudioElement,
+  subscribeGlobalMusic,
+  getGlobalMusicSnapshot,
+} from "../../globalMusicPlayer";
+import { useBeatPulse } from "../../useBeatPulse";
 import MediaInlineSearch from "../music/MediaInlineSearch";
 import FranchiseAboutEditModal from "./FranchiseAboutEditModal";
 import SeriesAbout from "./SeriesAbout";
@@ -528,6 +538,17 @@ export default function SeriesFranchisePage({
   const [musicCards, setMusicCards] = useState<SeriesMediaCard[]>([]);
   const [opedOpen, setOpedOpen] = useState(false);
   const [seriesPlaying, setSeriesPlaying] = useState(false);
+  const globalMusic = useSyncExternalStore(
+    subscribeGlobalMusic,
+    getGlobalMusicSnapshot,
+    getGlobalMusicSnapshot
+  );
+  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
+  globalAudioRef.current = getGlobalMusicAudioElement();
+  const pageBeatPlaying = Boolean(
+    seriesPlaying || (globalMusic.playing && globalMusic.hasTrack)
+  );
+  useBeatPulse(globalAudioRef, pageBeatPlaying, pageBeatPlaying);
   const [playerOpen, setPlayerOpen] = useState(false);
   const [showCards, setShowCards] = useState<SeriesMediaCard[]>([]);
   const [showLoading, setShowLoading] = useState(
@@ -2342,7 +2363,7 @@ export default function SeriesFranchisePage({
     stacked ? "artist-page--stacked" : "",
     mobilePortrait ? "artist-page--mobile-portrait" : "",
     bgLayers.current ? "artist-page--has-bg" : "",
-    seriesPlaying ? "artist-page--beat-ready artist-page--playing" : "",
+    pageBeatPlaying ? "artist-page--beat-ready artist-page--playing" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -2518,6 +2539,19 @@ export default function SeriesFranchisePage({
                 }}
               />
             ) : null}
+            <ModuleHomeAudioPlayer
+              module={
+                (module === "movies" ||
+                module === "books" ||
+                module === "games"
+                  ? module
+                  : "series") as ModuleHomeAudioKind
+              }
+              franchiseId={franchiseId}
+              franchiseName={data?.name || shell?.name || null}
+              enabled
+              userId={userId}
+            />
             <AppMenu
               onImport={onImport}
               onSync={onSync}

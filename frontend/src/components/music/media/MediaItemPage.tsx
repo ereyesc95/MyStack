@@ -925,19 +925,17 @@ export default function MediaItemPage({
                   <div className="release-page__panel-bottom">
                     {data.publisher ? (
                       <div className="release-page__label">
-                        <span className="release-page__label-logo-btn">
+                        <span
+                          className="release-page__label-logo-btn"
+                          title={`Published by ${data.publisher}`}
+                          aria-label={`Published by ${data.publisher}`}
+                        >
                           <img
                             src={publisherLogoSrc}
                             alt={data.publisher}
                             className="release-page__label-logo"
                           />
                         </span>
-                        <p className="release-page__label-name">
-                          Published by{" "}
-                          <span className="release-page__person-link">
-                            {data.publisher}
-                          </span>
-                        </p>
                       </div>
                     ) : null}
                     <div className="release-page__panel-bottom-bar">
@@ -964,19 +962,17 @@ export default function MediaItemPage({
                 ) : data.publisher ? (
                   <div className="release-page__panel-bottom">
                     <div className="release-page__label">
-                      <span className="release-page__label-logo-btn">
+                      <span
+                        className="release-page__label-logo-btn"
+                        title={`Published by ${data.publisher}`}
+                        aria-label={`Published by ${data.publisher}`}
+                      >
                         <img
                           src={publisherLogoSrc}
                           alt={data.publisher}
                           className="release-page__label-logo"
                         />
                       </span>
-                      <p className="release-page__label-name">
-                        Published by{" "}
-                        <span className="release-page__person-link">
-                          {data.publisher}
-                        </span>
-                      </p>
                     </div>
                   </div>
                 ) : null}

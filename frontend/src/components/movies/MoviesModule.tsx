@@ -58,6 +58,7 @@ import {
 import {
   moduleHomePlaybackClassNames,
   PlaybackCoverAtmosphere,
+  useModuleHomeBeatPulse,
 } from "../../usePlaybackCoverBg";
 import type {
   CardOrientation,
@@ -77,7 +78,7 @@ import {
 import AppMenu from "../AppMenu";
 import ManageCatalogModal from "../ManageCatalogModal";
 import CardOrientationPicker from "../CardOrientationPicker";
-import { IconMediaMusic, IconUniverse } from "../MenuIcons";
+import { IconUniverse } from "../MenuIcons";
 import ModuleHomeAudioPlayer from "../ModuleHomeAudioPlayer";
 import ModuleWrapped, {
   type ModuleWrappedBrowseTarget,
@@ -214,7 +215,6 @@ export default function MoviesModule({
   const portraitMenuChrome =
     isMobilePortraitLayout(deviceLayout) ||
     deviceLayout === "tablet-portrait";
-  const [homeAudioOpen, setHomeAudioOpen] = useState(false);
   const [wrappedOpen, setWrappedOpen] = useState(false);
   const wrappedYear = wrappedSeasonYear();
   const [homeAudioPlaying, setHomeAudioPlaying] = useState(false);
@@ -222,6 +222,10 @@ export default function MoviesModule({
   const [homeAudioCover, setHomeAudioCover] = useState<string | null>(null);
 
   const [tab, setTab] = useState<MoviesTab>("home");
+  useModuleHomeBeatPulse({
+    enabled: tab === "home" || homeAudioHasSrc || homeAudioPlaying,
+    playing: homeAudioPlaying,
+  });
   const showHomeWrapped = tab === "home" && wrappedYear != null;
   const [franchises, setFranchises] = useState<SeriesFranchiseCard[]>([]);
   const [catalogLetters, setCatalogLetters] = useState<string[]>([]);
@@ -1257,15 +1261,15 @@ export default function MoviesModule({
     <div
       className={`series-module${moduleHomePlaybackClassNames({
         backdrop: moduleBackdrop && !showHomePlaybackBg,
-        showPlaybackBg: showHomePlaybackBg,
-        hasSrc: homeAudioHasSrc,
+        showPlaybackBg: showHomePlaybackBg || tab === "home",
+        hasSrc: homeAudioHasSrc || tab === "home" || homeAudioPlaying,
         playing: homeAudioPlaying,
       })}`}
     >
-      {showHomePlaybackBg || homeAudioPlaying || homeAudioHasSrc ? (
+      {showHomePlaybackBg || homeAudioPlaying || homeAudioHasSrc || tab === "home" ? (
         <PlaybackCoverAtmosphere
           playing={homeAudioPlaying}
-          hasSrc={homeAudioHasSrc}
+          hasSrc={homeAudioHasSrc || tab === "home"}
           coverUrl={homeAudioCover}
         />
       ) : moduleBackdrop ? (
@@ -1338,8 +1342,6 @@ export default function MoviesModule({
               module="movies"
               userId={userId}
               hideToggle={portraitMenuChrome}
-              open={homeAudioOpen}
-              onOpenChange={setHomeAudioOpen}
               onPlayingChange={setHomeAudioPlaying}
               onCoverChange={setHomeAudioCover}
               onHasSrcChange={setHomeAudioHasSrc}
@@ -1417,13 +1419,6 @@ export default function MoviesModule({
                         {`${wrappedYear} Wrapped`}
                       </button>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => setHomeAudioOpen((v) => !v)}
-                    >
-                      <IconMediaMusic className="menu-item-icon" />
-                      {homeAudioOpen ? "Hide music" : "Play music"}
-                    </button>
                     {tab === "catalog" ? (
                       <button
                         type="button"

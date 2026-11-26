@@ -17,6 +17,7 @@ COVER_BACK_STEM = "cover - back"
 COVER_INNER_STEM = "cover - inner"
 COVER_ANIMATION_STEM = "cover - animation"
 COVER_CANVAS_STEM = "cover - canvas"
+COVER_VISUALIZER_STEM = "cover - visualizer"
 VIDEO_EXTS = {".mp4", ".webm", ".mov", ".m4v"}
 
 
@@ -158,6 +159,15 @@ def resolve_canvas_album_file(artwork: Path | None) -> Path | None:
     if not artwork or not artwork.is_dir():
         return None
     return _media_file_in_artwork(artwork, COVER_CANVAS_STEM, allow_video=True)
+
+
+def resolve_visualizer_album_file(artwork: Path | None) -> Path | None:
+    """Cover - Visualizer — animated landscape wallpaper (.mp4 / video)."""
+    if not artwork or not artwork.is_dir():
+        return None
+    return _media_file_in_artwork(
+        artwork, COVER_VISUALIZER_STEM, allow_video=True
+    )
 
 
 def find_track_cover_file(artwork: Path | None, track_title: str) -> Path | None:

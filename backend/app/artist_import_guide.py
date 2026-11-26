@@ -192,6 +192,7 @@ Static cover and background images:
 Motion (release / now-playing UI — not the Promo tab):
   Cover - Animation         .mp4, .webm, .mov or .m4v
   Cover - Canvas            .mp4, .webm, .mov or .m4v
+  Cover - Visualizer        Animated landscape wallpaper (.mp4 / video)
 
 Track-specific media:
   Cover - Track title

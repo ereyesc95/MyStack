@@ -60,6 +60,17 @@ const ARTWORK_ORDER = [
   "Other",
 ] as const;
 
+/** Keep UI in sync with backend MANDATORY_ARTWORK Cover stems. */
+const MANDATORY_COVER_LABELS = [
+  "Front",
+  "Landscape",
+  "Portrait",
+  "Banner",
+  "Animation",
+  "Canvas",
+  "Visualizer",
+] as const;
+
 type ArtworkItem = {
   label: string;
   missing?: boolean;
@@ -112,7 +123,12 @@ function artworkGroupFor(canonical: string, fallback: string): string {
   if (CODE_ALIASES[low] || low.startsWith("code - ") || low.startsWith("code-")) {
     return "Codes";
   }
-  if (low.startsWith("cover - ") || low.startsWith("animation") || low.startsWith("canvas")) {
+  if (
+    low.startsWith("cover - ") ||
+    low.startsWith("animation") ||
+    low.startsWith("canvas") ||
+    low.startsWith("visualizer")
+  ) {
     return "Cover";
   }
   if (low.startsWith("photo - ") || low.startsWith("photo-")) return "Photo";
@@ -144,6 +160,19 @@ function normalizeArtworkGroups(
       buckets.set(nextGroup, list);
     }
   }
+  // Ensure mandatory Cover stems always appear (e.g. Visualizer on older payloads).
+  const coverList = buckets.get("Cover") ?? [];
+  const coverKeys = new Set(coverList.map((i) => i.label.toLowerCase()));
+  for (const label of MANDATORY_COVER_LABELS) {
+    if (coverKeys.has(label.toLowerCase())) continue;
+    coverList.push({
+      label,
+      canonical: `Cover - ${label}`,
+      missing: true,
+    });
+  }
+  buckets.set("Cover", coverList);
+
   const entries: [string, ArtworkItem[]][] = [];
   for (const [group, items] of buckets) {
     const byLabel = new Map<string, ArtworkItem>();
@@ -360,7 +389,18 @@ export default function CollectionModal({
     setReleaseId(data.release_id || null);
     setResolvedBandId(data.band_id ?? bandId ?? null);
     setArtwork(data.artwork);
-    setMissing(data.missing_mandatory || []);
+    const miss = [...(data.missing_mandatory || [])];
+    if (!miss.some((m) => /visualizer/i.test(m))) {
+      // Older API payloads / cleared lists: still surface Visualizer as pending.
+      const groups = data.artwork?.Cover || [];
+      const hasViz = groups.some(
+        (g) =>
+          !g.missing &&
+          /visualizer/i.test(g.canonical || g.label || "")
+      );
+      if (!hasViz) miss.push("Cover - Visualizer");
+    }
+    setMissing(miss);
   }
 
   function applyLeaf(item: CollectionLeaf) {
@@ -384,7 +424,17 @@ export default function CollectionModal({
     setReleaseId(item.release_id || null);
     setResolvedBandId(item.band_id ?? null);
     setArtwork(item.artwork as CollectionPreview["artwork"]);
-    setMissing(item.missing_mandatory || item.pending || []);
+    const miss = [...(item.missing_mandatory || item.pending || [])];
+    if (!miss.some((m) => /visualizer/i.test(m))) {
+      const groups = (item.artwork as CollectionPreview["artwork"])?.Cover || [];
+      const hasViz = groups.some(
+        (g) =>
+          !g.missing &&
+          /visualizer/i.test(g.canonical || g.label || "")
+      );
+      if (!hasViz) miss.push("Cover - Visualizer");
+    }
+    setMissing(miss);
   }
 
   const isStandardEdition = edition.trim().toLowerCase() === "standard edition";
@@ -749,7 +799,7 @@ export default function CollectionModal({
                               const showSource =
                                 !it.missing &&
                                 (group === "Cover") &&
-                                /^(animation|canvas)$/i.test(it.label);
+                                /^(animation|canvas|visualizer)$/i.test(it.label);
                               const src =
                                 it.source ||
                                 (showSource ? "Official" : null);

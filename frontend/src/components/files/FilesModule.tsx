@@ -38,6 +38,7 @@ import ConfirmDialog from "../ConfirmDialog";
 import ModalPortal from "../ModalPortal";
 import {
   IconCopy,
+  IconDownload,
   IconFileTags,
   IconList,
   IconMore,
@@ -48,7 +49,7 @@ import {
 } from "../MenuIcons";
 import ManageFilesModal from "./ManageFilesModal";
 
-type SortMode = "title" | "format";
+type SortMode = "title" | "format" | "size";
 
 const TAB_OVERFLOW = 6;
 
@@ -320,6 +321,13 @@ export default function FilesModule({
         if (ea !== eb) return ea.localeCompare(eb);
         return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
       });
+    } else if (sort === "size") {
+      sorted.sort((a, b) => {
+        const sa = typeof a.size === "number" ? a.size : 0;
+        const sb = typeof b.size === "number" ? b.size : 0;
+        if (sb !== sa) return sb - sa; // largest → smallest
+        return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+      });
     } else {
       sorted.sort((a, b) =>
         a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
@@ -374,8 +382,12 @@ export default function FilesModule({
     void reloadTabs();
   }
 
-  const sortLabel = sort === "title" ? "TITLE" : "FORMAT";
-  const nextSort: SortMode = sort === "title" ? "format" : "title";
+  const sortLabel =
+    sort === "title" ? "TITLE" : sort === "format" ? "FORMAT" : "SIZE";
+  const nextSort: SortMode =
+    sort === "title" ? "format" : sort === "format" ? "size" : "title";
+  const nextSortLabel =
+    nextSort === "title" ? "Title" : nextSort === "format" ? "Format" : "Size";
 
   return (
     <div className="files-module">
@@ -470,13 +482,15 @@ export default function FilesModule({
               type="button"
               className="catalog-scope-toggle catalog-scope-toggle--switch"
               aria-label={sortLabel}
-              title={`Switch to ${nextSort === "title" ? "Title" : "Format"}`}
+              title={`Switch to ${nextSortLabel}`}
               onClick={() => setSort(nextSort)}
             >
               {sort === "title" ? (
                 <IconList className="catalog-scope-toggle__icon" />
-              ) : (
+              ) : sort === "format" ? (
                 <IconFileTags className="catalog-scope-toggle__icon" />
+              ) : (
+                <IconDownload className="catalog-scope-toggle__icon" />
               )}
               {sortLabel}
             </button>

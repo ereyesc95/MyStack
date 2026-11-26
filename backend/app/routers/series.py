@@ -1019,11 +1019,20 @@ def series_openings_endings(franchise_id: str):
 
 
 @router.get("/franchises/{franchise_id}/player-tracks")
-def series_player_tracks(franchise_id: str, db: Session = Depends(get_db)):
-    """Playable audio tracks resolved from Series Audio/ .lnk shortcuts."""
+def series_player_tracks(
+    franchise_id: str,
+    subseries_id: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Playable audio tracks resolved from Series Audio/ .lnk shortcuts.
+
+    Optional ``subseries_id`` prefers that leaf's Audio/, then franchise fallback.
+    """
     from app.series_extras import collect_series_audio_tracks
 
-    tracks = collect_series_audio_tracks(db, franchise_id)
+    tracks = collect_series_audio_tracks(
+        db, franchise_id, subseries_id=subseries_id
+    )
     return {"tracks": tracks, "count": len(tracks)}
 
 

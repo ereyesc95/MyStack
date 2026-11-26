@@ -5,18 +5,19 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
   getGlobalMusicSnapshot,
   globalMusicClear,
   globalMusicNext,
+  globalMusicPlayAt,
   globalMusicPrev,
   globalMusicRemoveAt,
   globalMusicReorder,
   globalMusicSeekRatio,
   globalMusicSetBarHidden,
   globalMusicSetQueueOpen,
-  globalMusicSetVolume,
   globalMusicToggle,
   globalMusicToggleQueueOpen,
   globalMusicToggleRepeatOne,
@@ -25,14 +26,29 @@ import {
   type GlobalMusicTrack,
 } from "../globalMusicPlayer";
 import { trackMainTitle } from "./music/release/releaseTrackPanelMeta";
+import {
+  TrackActionLyricsIcon,
+  TrackActionVersionsIcon,
+} from "./music/release/releaseTrackActionIcons";
 import { formatTrackDate } from "../formatDate";
+import { usePhoneLayout } from "../usePhoneLayout";
+import {
+  getActiveReleasePlayerAction,
+  subscribeReleasePlayerActionActive,
+  toggleReleasePlayerAction,
+  type ReleasePlayerAction,
+} from "../releasePlayerActions";
 
 export type GlobalMusicBarNav = {
   onOpenArtist?: (bandId: number, name?: string | null) => void;
   onOpenRelease?: (
     bandId: number,
     releaseId: string,
-    meta?: { artistName?: string | null; title?: string | null }
+    meta?: {
+      artistName?: string | null;
+      title?: string | null;
+      tab?: "overview" | "tracklist" | "gallery";
+    }
   ) => void;
 };
 
@@ -130,15 +146,7 @@ function cleanReleaseTitle(raw: string | null | undefined): string {
   return t;
 }
 
-function ScrollingTitle({
-  text,
-  onClick,
-  disabled,
-}: {
-  text: string;
-  onClick?: () => void;
-  disabled?: boolean;
-}) {
+function useBillboardScroll(text: string) {
   const clipRef = useRef<HTMLSpanElement>(null);
   const innerRef = useRef<HTMLSpanElement>(null);
   const [scroll, setScroll] = useState(false);
@@ -163,6 +171,20 @@ function ScrollingTitle({
     ro.observe(clip);
     return () => ro.disconnect();
   }, [text]);
+
+  return { clipRef, innerRef, scroll, end, duration };
+}
+
+function ScrollingTitle({
+  text,
+  onClick,
+  disabled,
+}: {
+  text: string;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  const { clipRef, innerRef, scroll, end, duration } = useBillboardScroll(text);
 
   return (
     <button
@@ -193,6 +215,47 @@ function ScrollingTitle({
   );
 }
 
+function ScrollingArtist({
+  text,
+  onClick,
+  disabled,
+}: {
+  text: string;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  const { clipRef, innerRef, scroll, end, duration } = useBillboardScroll(text);
+
+  return (
+    <button
+      type="button"
+      className="global-music-bar__artist"
+      onClick={onClick}
+      disabled={disabled}
+      title="Open artist"
+    >
+      <span
+        ref={clipRef}
+        className={`global-music-bar__title-clip${
+          scroll ? " is-scroll" : ""
+        }`}
+        style={
+          scroll
+            ? ({
+                "--scroll-end": end,
+                "--scroll-duration": duration,
+              } as CSSProperties)
+            : undefined
+        }
+      >
+        <span ref={innerRef} className="global-music-bar__title-inner">
+          {text}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 type Props = GlobalMusicBarNav;
 
 export default function GlobalMusicBar({
@@ -200,10 +263,28 @@ export default function GlobalMusicBar({
   onOpenRelease,
 }: Props) {
   const snap = useGlobalMusic();
+  const phone = usePhoneLayout();
   const [edgeHover, setEdgeHover] = useState(false);
+  const [slideDir, setSlideDir] = useState<"next" | "prev" | null>(null);
+  const [slideKey, setSlideKey] = useState(0);
   const dragFrom = useRef<number | null>(null);
+  const [dropAt, setDropAt] = useState<number | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
-  const volumeBeforeMute = useRef(1);
+  const trackIdRef = useRef<string | null>(null);
+  const swipeRef = useRef<{ x: number; y: number; active: boolean } | null>(
+    null
+  );
+
+  const goPrev = () => {
+    setSlideDir("prev");
+    setSlideKey((k) => k + 1);
+    globalMusicPrev();
+  };
+  const goNext = () => {
+    setSlideDir("next");
+    setSlideKey((k) => k + 1);
+    globalMusicNext();
+  };
 
   const pinned = snap.hasTrack && !snap.barHidden;
   const visible =
@@ -277,7 +358,7 @@ export default function GlobalMusicBar({
     const root = document.documentElement;
     if (pinned) {
       root.classList.add("mystack-player-pinned");
-      root.style.setProperty("--mystack-player-pad", "3.1rem");
+      root.style.setProperty("--mystack-player-pad", "3.35rem");
     } else {
       root.classList.remove("mystack-player-pinned");
       root.style.setProperty("--mystack-player-pad", "0px");
@@ -288,12 +369,41 @@ export default function GlobalMusicBar({
     };
   }, [pinned]);
 
+  // External track changes (auto-advance) still get a slide when id changes.
+  useEffect(() => {
+    const id = snap.current?.id ?? null;
+    const prev = trackIdRef.current;
+    trackIdRef.current = id;
+    if (prev && id && prev !== id && !slideDir) {
+      setSlideDir("next");
+      setSlideKey((k) => k + 1);
+    }
+  }, [snap.current?.id, slideDir]);
+
+  useEffect(() => {
+    if (!slideDir) return;
+    const t = window.setTimeout(() => setSlideDir(null), 320);
+    return () => window.clearTimeout(t);
+  }, [slideKey, slideDir]);
+
+  // Must stay above the hasTrack early-return (Rules of Hooks).
+  const activeAction = useSyncExternalStore(
+    subscribeReleasePlayerActionActive,
+    getActiveReleasePlayerAction,
+    getActiveReleasePlayerAction
+  );
+
   if (!snap.hasTrack) return null;
 
   const cur = snap.current as GlobalMusicTrack;
   const pct = snap.duration ? (snap.progress / snap.duration) * 100 : 0;
   const displayTitle = trackMainTitle(cur.title) || cur.title;
-  const releaseTipTitle = cleanReleaseTitle(cur.releaseTitle);
+  const releaseTipTitle =
+    cleanReleaseTitle(cur.releaseTitle) ||
+    String(cur.releaseTitle || "")
+      .replace(/^\d{4}(?:\.\d{1,2}){0,2}\.\s*/, "")
+      .trim();
+  const albumBesideArtist = phone ? "" : releaseTipTitle;
   const releaseTipDate =
     formatTrackDate(cur.releaseDate) ||
     (cur.releaseDate && /^\d{4}/.test(cur.releaseDate)
@@ -303,14 +413,54 @@ export default function GlobalMusicBar({
   const openArtist = () => {
     if (cur.artistId != null) onOpenArtist?.(cur.artistId, cur.artist);
   };
-  const openRelease = () => {
+  const openRelease = (tab: "overview" | "tracklist" = "overview") => {
     if (cur.artistId != null && cur.releaseId) {
       onOpenRelease?.(cur.artistId, cur.releaseId, {
         artistName: cur.artist,
         title: cur.releaseTitle,
+        tab,
       });
     }
   };
+
+  const openTrackAction = (action: ReleasePlayerAction) => {
+    if (cur.artistId == null || !cur.releaseId) return;
+    const result = toggleReleasePlayerAction({
+      action,
+      bandId: cur.artistId,
+      releaseId: cur.releaseId,
+      trackPath: cur.path,
+      trackTitle: cur.title,
+    });
+    if (result === "closed") return;
+    openRelease("tracklist");
+  };
+
+  const onMetaPointerDown = (e: ReactPointerEvent) => {
+    if (!phone) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    swipeRef.current = { x: e.clientX, y: e.clientY, active: true };
+  };
+  const onMetaPointerUp = (e: ReactPointerEvent) => {
+    if (!phone || !swipeRef.current?.active) return;
+    const start = swipeRef.current;
+    swipeRef.current = null;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+    if (dx < 0) goNext();
+    else goPrev();
+  };
+  const onMetaPointerCancel = () => {
+    swipeRef.current = null;
+  };
+
+  const slideClass =
+    slideDir === "next"
+      ? " is-slide-next"
+      : slideDir === "prev"
+        ? " is-slide-prev"
+        : "";
 
   return (
     <>
@@ -332,8 +482,12 @@ export default function GlobalMusicBar({
           }
         }}
       >
-        {snap.queueOpen ? (
-          <div className="global-music-queue" role="list">
+        <div
+          className={`global-music-queue${snap.queueOpen ? " is-open" : ""}`}
+          role="list"
+          aria-hidden={!snap.queueOpen}
+        >
+          <div className="global-music-queue__inner">
             <div className="global-music-queue__head">
               <span>Queue</span>
               <button
@@ -344,49 +498,88 @@ export default function GlobalMusicBar({
                 Clear
               </button>
             </div>
-            <ul className="global-music-queue__list">
+            <ul
+              className="global-music-queue__list"
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  setDropAt(null);
+                }
+              }}
+            >
               {snap.queue.map((t, i) => (
                 <li
                   key={`${t.id}-${i}`}
                   className={`global-music-queue__row${
                     i === snap.index ? " is-current" : ""
+                  }${i < snap.index ? " is-passed" : ""}${
+                    dropAt === i ? " is-drop-before" : ""
+                  }${
+                    dropAt === snap.queue.length && i === snap.queue.length - 1
+                      ? " is-drop-after"
+                      : ""
                   }`}
                   draggable
                   onDragStart={() => {
                     dragFrom.current = i;
                   }}
-                  onDragOver={(e) => e.preventDefault()}
+                  onDragEnd={() => {
+                    dragFrom.current = null;
+                    setDropAt(null);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const before = e.clientY < rect.top + rect.height / 2;
+                    setDropAt(before ? i : i + 1);
+                  }}
                   onDrop={() => {
                     const from = dragFrom.current;
+                    const insertAt = dropAt;
                     dragFrom.current = null;
-                    if (from == null || from === i) return;
-                    globalMusicReorder(from, i);
+                    setDropAt(null);
+                    if (from == null || insertAt == null) return;
+                    const to = from < insertAt ? insertAt - 1 : insertAt;
+                    if (to === from) return;
+                    globalMusicReorder(from, to);
                   }}
                   role="listitem"
                 >
                   <span className="global-music-queue__grip" aria-hidden>
                     ⋮⋮
                   </span>
-                  {t.coverUrl ? (
-                    <img
-                      className="global-music-queue__cover"
-                      src={t.coverUrl}
-                      alt=""
-                      draggable={false}
-                    />
-                  ) : (
-                    <span className="global-music-queue__cover global-music-queue__cover--empty" />
-                  )}
-                  <span className="global-music-queue__meta">
-                    <span className="global-music-queue__title">
-                      {trackMainTitle(t.title) || t.title}
-                    </span>
-                    {t.artist ? (
-                      <span className="global-music-queue__artist">
-                        {t.artist}
+                  <button
+                    type="button"
+                    className="global-music-queue__play"
+                    onClick={() => globalMusicPlayAt(i)}
+                    aria-label={`Play ${trackMainTitle(t.title) || t.title}`}
+                  >
+                    {t.coverUrl ? (
+                      <img
+                        className="global-music-queue__cover"
+                        src={t.coverUrl}
+                        alt=""
+                        draggable={false}
+                      />
+                    ) : (
+                      <span className="global-music-queue__cover global-music-queue__cover--empty" />
+                    )}
+                    <span className="global-music-queue__meta">
+                      <span className="global-music-queue__title">
+                        {trackMainTitle(t.title) || t.title}
+                        {t.titleSuffix ? (
+                          <span className="global-music-queue__title-suffix">
+                            {" "}
+                            {t.titleSuffix}
+                          </span>
+                        ) : null}
                       </span>
-                    ) : null}
-                  </span>
+                      {t.artist ? (
+                        <span className="global-music-queue__artist">
+                          {t.artist}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
                   <button
                     type="button"
                     className="global-music-queue__remove"
@@ -399,144 +592,225 @@ export default function GlobalMusicBar({
               ))}
             </ul>
           </div>
-        ) : null}
+        </div>
+
+        <div
+          className="global-music-bar__seek-top"
+          role="group"
+          aria-label="Track progress"
+        >
+          <input
+            type="range"
+            className="global-music-bar__seek-top-input"
+            min={0}
+            max={100}
+            step={0.1}
+            value={pct}
+            onChange={(e) =>
+              globalMusicSeekRatio(Number(e.target.value) / 100)
+            }
+            aria-label="Seek"
+            style={
+              {
+                "--seek-pct": `${pct}%`,
+              } as CSSProperties
+            }
+          />
+        </div>
 
         <div className="global-music-bar__inner">
-          <button
-            type="button"
-            className="global-music-bar__cover-btn"
-            onClick={openRelease}
-            disabled={!(cur.artistId != null && cur.releaseId)}
-            aria-label="Open release"
+          <div
+            className={`global-music-bar__meta${slideClass}`}
+            onPointerDown={onMetaPointerDown}
+            onPointerUp={onMetaPointerUp}
+            onPointerCancel={onMetaPointerCancel}
           >
-            {cur.coverUrl ? (
-              <img src={cur.coverUrl} alt="" className="global-music-bar__cover" />
-            ) : (
-              <span className="global-music-bar__cover global-music-bar__cover--empty" />
-            )}
-            {releaseTipTitle || releaseTipDate ? (
-              <span className="global-music-bar__cover-tip" role="tooltip">
-                {releaseTipTitle ? (
-                  <span className="global-music-bar__cover-tip-title">
-                    {releaseTipTitle}
-                  </span>
-                ) : null}
-                {releaseTipDate ? (
-                  <span className="global-music-bar__cover-tip-date">
-                    {releaseTipDate}
-                  </span>
-                ) : null}
-              </span>
-            ) : null}
-          </button>
-
-          <div className="global-music-bar__text">
-            <ScrollingTitle
-              text={displayTitle}
-              onClick={openRelease}
+            <button
+              type="button"
+              className="global-music-bar__cover-btn"
+              onClick={() => openRelease()}
               disabled={!(cur.artistId != null && cur.releaseId)}
-            />
-            {cur.artist ? (
-              <button
-                type="button"
-                className="global-music-bar__artist"
-                onClick={openArtist}
-                disabled={cur.artistId == null}
+              aria-label="Open release"
+              title="Open release"
+            >
+              {cur.coverUrl ? (
+                <img
+                  key={`cover-${slideKey}-${cur.id}`}
+                  src={cur.coverUrl}
+                  alt=""
+                  className="global-music-bar__cover"
+                />
+              ) : (
+                <span className="global-music-bar__cover global-music-bar__cover--empty" />
+              )}
+              {!phone && (releaseTipTitle || releaseTipDate) ? (
+                <span className="global-music-bar__cover-tip" role="tooltip">
+                  {releaseTipTitle ? (
+                    <span className="global-music-bar__cover-tip-title">
+                      {releaseTipTitle}
+                    </span>
+                  ) : null}
+                  {releaseTipDate ? (
+                    <span className="global-music-bar__cover-tip-date">
+                      {releaseTipDate}
+                    </span>
+                  ) : null}
+                </span>
+              ) : null}
+            </button>
+
+            <div
+              className="global-music-bar__text"
+              key={`text-${slideKey}-${cur.id}`}
+            >
+              <ScrollingTitle
+                text={displayTitle}
+                onClick={() => openRelease()}
+                disabled={!(cur.artistId != null && cur.releaseId)}
+              />
+              {cur.artist || albumBesideArtist ? (
+                <div className="global-music-bar__artist-line">
+                  {cur.artist ? (
+                    phone ? (
+                      <ScrollingArtist
+                        text={cur.artist}
+                        onClick={openArtist}
+                        disabled={cur.artistId == null}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className="global-music-bar__artist"
+                        onClick={openArtist}
+                        disabled={cur.artistId == null}
+                        title="Open artist"
+                      >
+                        {cur.artist}
+                      </button>
+                    )
+                  ) : null}
+                  {albumBesideArtist ? (
+                    <>
+                      <span className="global-music-bar__meta-dot" aria-hidden>
+                        ·
+                      </span>
+                      <button
+                        type="button"
+                        className="global-music-bar__album"
+                        onClick={() => openRelease()}
+                        disabled={!(cur.artistId != null && cur.releaseId)}
+                        title="Open release"
+                      >
+                        {albumBesideArtist}
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            {!phone ? (
+              <div
+                className="global-music-bar__controls artist-mini-player"
+                onPointerDown={(e) => e.stopPropagation()}
               >
-                {cur.artist}
-              </button>
+                <button
+                  type="button"
+                  className="artist-mini-player__skip artist-mini-player__skip--prev artist-mini-player__skip--chevron"
+                  onClick={goPrev}
+                  aria-label="Previous track"
+                  title="Previous"
+                />
+                <button
+                  type="button"
+                  className="artist-mini-player__play"
+                  onClick={() => globalMusicToggle()}
+                  aria-label={snap.playing ? "Pause" : "Play"}
+                  title={snap.playing ? "Pause" : "Play"}
+                >
+                  {snap.playing ? (
+                    <span className="artist-mini-player__pause" />
+                  ) : (
+                    <span className="artist-mini-player__triangle" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="artist-mini-player__skip artist-mini-player__skip--next artist-mini-player__skip--chevron"
+                  onClick={goNext}
+                  aria-label="Next track"
+                  title="Next"
+                />
+              </div>
             ) : null}
           </div>
 
-          <div className="global-music-bar__controls artist-mini-player">
-            <button
-              type="button"
-              className="artist-mini-player__skip artist-mini-player__skip--prev"
-              onClick={() => globalMusicPrev()}
-              aria-label="Previous track"
-            />
-            <button
-              type="button"
-              className="artist-mini-player__play"
-              onClick={() => globalMusicToggle()}
-              aria-label={snap.playing ? "Pause" : "Play"}
-            >
-              {snap.playing ? (
-                <span className="artist-mini-player__pause" />
-              ) : (
-                <span className="artist-mini-player__triangle" />
-              )}
-            </button>
-            <button
-              type="button"
-              className="artist-mini-player__skip artist-mini-player__skip--next"
-              onClick={() => globalMusicNext()}
-              aria-label="Next track"
-            />
-            <input
-              type="range"
-              className="artist-mini-player__seek global-music-bar__seek"
-              min={0}
-              max={100}
-              step={0.1}
-              value={pct}
-              onChange={(e) =>
-                globalMusicSeekRatio(Number(e.target.value) / 100)
-              }
-              aria-label="Seek"
-            />
-            <span className="global-music-bar__time" aria-hidden>
-              {formatTime(snap.progress)}
-            </span>
-            <div className="global-music-bar__volume">
-              <button
-                type="button"
-                className={`global-music-bar__mute${
-                  snap.volume <= 0.001 ? " is-muted" : ""
-                }`}
-                onClick={() => {
-                  if (snap.volume > 0.001) {
-                    volumeBeforeMute.current = snap.volume;
-                    globalMusicSetVolume(0);
-                  } else {
-                    globalMusicSetVolume(
-                      volumeBeforeMute.current > 0.001
-                        ? volumeBeforeMute.current
-                        : 1
-                    );
-                  }
-                }}
-                aria-label={snap.volume <= 0.001 ? "Unmute" : "Mute"}
-                aria-pressed={snap.volume <= 0.001}
+          <div className="global-music-bar__right">
+            {!phone ? (
+              <span className="global-music-bar__time" aria-hidden>
+                {formatTime(snap.progress)}
+              </span>
+            ) : null}
+            {phone ? (
+              <div
+                className="global-music-bar__controls artist-mini-player global-music-bar__controls--phone"
+                onPointerDown={(e) => e.stopPropagation()}
               >
-                {snap.volume <= 0.001 ? "⌀" : "♪"}
-              </button>
-              <input
-                type="range"
-                className="global-music-bar__volume-slider"
-                min={0}
-                max={100}
-                step={1}
-                value={Math.round(snap.volume * 100)}
-                onChange={(e) => {
-                  const next = Number(e.target.value) / 100;
-                  if (next > 0.001) volumeBeforeMute.current = next;
-                  globalMusicSetVolume(next);
-                }}
-                aria-label="Volume"
-              />
-            </div>
-            <button
-              type="button"
-              className={`global-music-bar__shuffle${
-                snap.shuffle ? " is-active" : ""
-              }`}
-              onClick={() => globalMusicToggleShuffle()}
-              aria-label={snap.shuffle ? "Disable shuffle" : "Enable shuffle"}
-              aria-pressed={snap.shuffle}
-            >
-              ⇄
-            </button>
+                <button
+                  type="button"
+                  className="artist-mini-player__play"
+                  onClick={() => globalMusicToggle()}
+                  aria-label={snap.playing ? "Pause" : "Play"}
+                  title={snap.playing ? "Pause" : "Play"}
+                >
+                  {snap.playing ? (
+                    <span className="artist-mini-player__pause" />
+                  ) : (
+                    <span className="artist-mini-player__triangle" />
+                  )}
+                </button>
+              </div>
+            ) : null}
+            {cur.artistId != null && cur.releaseId ? (
+              <>
+                <button
+                  type="button"
+                  className={`global-music-bar__track-action${
+                    activeAction?.action === "lyrics" &&
+                    activeAction.trackPath === cur.path
+                      ? " is-active"
+                      : ""
+                  }`}
+                  onClick={() => openTrackAction("lyrics")}
+                  aria-label="Lyrics"
+                  title="Lyrics"
+                  aria-pressed={
+                    activeAction?.action === "lyrics" &&
+                    activeAction.trackPath === cur.path
+                  }
+                >
+                  <TrackActionLyricsIcon className="global-music-bar__track-action-icon" />
+                </button>
+                <button
+                  type="button"
+                  className={`global-music-bar__track-action${
+                    activeAction?.action === "versions" &&
+                    activeAction.trackPath === cur.path
+                      ? " is-active"
+                      : ""
+                  }`}
+                  onClick={() => openTrackAction("versions")}
+                  aria-label="Versions"
+                  title="Versions"
+                  aria-pressed={
+                    activeAction?.action === "versions" &&
+                    activeAction.trackPath === cur.path
+                  }
+                >
+                  <TrackActionVersionsIcon className="global-music-bar__track-action-icon" />
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
               className={`artist-mini-player__repeat${
@@ -546,9 +820,22 @@ export default function GlobalMusicBar({
               aria-label={
                 snap.repeatOne ? "Disable repeat" : "Repeat track"
               }
+              title={snap.repeatOne ? "Disable repeat" : "Repeat"}
               aria-pressed={snap.repeatOne}
             >
               ↻
+            </button>
+            <button
+              type="button"
+              className={`global-music-bar__shuffle${
+                snap.shuffle ? " is-active" : ""
+              }`}
+              onClick={() => globalMusicToggleShuffle()}
+              aria-label={snap.shuffle ? "Disable shuffle" : "Enable shuffle"}
+              title={snap.shuffle ? "Disable shuffle" : "Shuffle"}
+              aria-pressed={snap.shuffle}
+            >
+              ⇄
             </button>
             <button
               type="button"
@@ -557,31 +844,34 @@ export default function GlobalMusicBar({
               }`}
               onClick={() => globalMusicToggleQueueOpen()}
               aria-label="Queue"
+              title="Queue"
               aria-pressed={snap.queueOpen}
             >
               ≡
             </button>
-            {snap.barHidden ? (
-              <button
-                type="button"
-                className="global-music-bar__hide global-music-bar__pin"
-                onClick={() => globalMusicSetBarHidden(false)}
-                aria-label="Pin player"
-                title="Pin player"
-              >
-                <PinIcon />
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="global-music-bar__hide"
-                onClick={() => globalMusicSetBarHidden(true)}
-                aria-label="Hide player"
-                title="Hide player"
-              >
-                ▾
-              </button>
-            )}
+            {!phone ? (
+              snap.barHidden ? (
+                <button
+                  type="button"
+                  className="global-music-bar__hide global-music-bar__pin"
+                  onClick={() => globalMusicSetBarHidden(false)}
+                  aria-label="Pin player"
+                  title="Pin player"
+                >
+                  <PinIcon />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="global-music-bar__hide global-music-bar__hide--chevron"
+                  onClick={() => globalMusicSetBarHidden(true)}
+                  aria-label="Hide player"
+                  title="Hide player"
+                >
+                  <span className="global-music-bar__hide-chevron" aria-hidden />
+                </button>
+              )
+            ) : null}
           </div>
         </div>
       </div>

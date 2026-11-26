@@ -2,9 +2,17 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
 } from "react";
+import {
+  getGlobalMusicAudioElement,
+  subscribeGlobalMusic,
+  getGlobalMusicSnapshot,
+} from "../globalMusicPlayer";
+import { useBeatPulse } from "../useBeatPulse";
 import { deleteUniverse, fetchUniverseHub } from "../api";
 import { notifyUniversesChanged } from "../universesCache";
 import {
@@ -38,6 +46,7 @@ import {
 } from "../usePhoneLayout";
 import { getStoredReleaseCardLayout, saveReleaseCardLayout } from "../themes";
 import AppMenu from "./AppMenu";
+import ModuleHomeAudioPlayer from "./ModuleHomeAudioPlayer";
 import ConfirmDialog from "./ConfirmDialog";
 import TopBarTitle from "./TopBarTitle";
 import OfficialUnofficialBar from "./OfficialUnofficialBar";
@@ -196,6 +205,18 @@ export default function UniversePage({
   const [activeLanguage, setActiveLanguage] = useState<string | null>(null);
   const [gallerySectionKey, setGallerySectionKey] = useState("all");
   const [officialOnly, setOfficialOnly] = useState(true);
+  const [universePlaying, setUniversePlaying] = useState(false);
+  const globalMusic = useSyncExternalStore(
+    subscribeGlobalMusic,
+    getGlobalMusicSnapshot,
+    getGlobalMusicSnapshot
+  );
+  const globalAudioRef = useRef<HTMLAudioElement | null>(null);
+  globalAudioRef.current = getGlobalMusicAudioElement();
+  const pageBeatPlaying = Boolean(
+    universePlaying || (globalMusic.playing && globalMusic.hasTrack)
+  );
+  useBeatPulse(globalAudioRef, pageBeatPlaying, pageBeatPlaying);
   const [cardLayout, setCardLayout] = useState<ReleaseCardLayout>(() =>
     userId ? getStoredReleaseCardLayout(userId) : "cover"
   );
@@ -424,6 +445,7 @@ export default function UniversePage({
     mobileLandscape ? "artist-page--mobile-landscape" : "",
     tabletLayout && !stacked ? "artist-page--tablet-landscape" : "",
     !stacked && !mobileLandscape && !tabletLayout ? "artist-page--desktop" : "",
+    pageBeatPlaying ? "artist-page--beat-ready artist-page--playing" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -578,6 +600,13 @@ export default function UniversePage({
                 onChange={setCardLayoutPersisted}
               />
             ) : null}
+            <ModuleHomeAudioPlayer
+              module="series"
+              franchiseName={title || null}
+              enabled={Boolean(title)}
+              userId={userId}
+              onPlayingChange={setUniversePlaying}
+            />
             <AppMenu
               onImport={onImport}
               onSync={onSync}

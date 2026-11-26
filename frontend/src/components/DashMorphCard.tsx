@@ -11,6 +11,19 @@ import DashCardPreview, {
   EMPTY_OVERLAY,
   type DashPreviewOverlay,
 } from "./DashCardPreview";
+import {
+  killDashPreviewsForMainPlay,
+  setDashPreviewBackdrop,
+} from "../dashPreviewController";
+import { usePhoneLayout } from "../usePhoneLayout";
+
+const LINE_FADE_MS = 400;
+
+type LingerSecondary = {
+  logo: string | null;
+  icon: string | null;
+  text: string | null;
+};
 
 export type DashMorphShape =
   | "square"
@@ -86,8 +99,12 @@ function PlayGlyph() {
 function pickExpandedBg(
   bannerUrl?: string | null,
   landscapeUrl?: string | null,
-  coverUrl?: string | null
+  coverUrl?: string | null,
+  preferLandscape = false
 ): string | null {
+  if (preferLandscape) {
+    return landscapeUrl || bannerUrl || coverUrl || null;
+  }
   return bannerUrl || landscapeUrl || coverUrl || null;
 }
 
@@ -114,6 +131,13 @@ function sentenceCaseLabel(label: string): string {
   const t = label.trim();
   if (!t) return t;
   return t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+}
+
+/** Strip YYYY. / YYYY.MM. / YYYY.MM.DD. prefixes from display lines. */
+function stripDatePrefix(text: string | null | undefined): string | null {
+  const t = (text || "").trim();
+  if (!t) return null;
+  return t.replace(/^\d{4}(?:\.\d{1,2}){0,2}\.\s*/, "").trim() || t;
 }
 
 export default function DashMorphCard({
@@ -146,6 +170,7 @@ export default function DashMorphCard({
   children,
 }: Props) {
   const cardRef = useRef<HTMLButtonElement>(null);
+  const phone = usePhoneLayout();
   const [previewOverlay, setPreviewOverlay] =
     useState<DashPreviewOverlay>(EMPTY_OVERLAY);
   const onOverlay = useCallback((s: DashPreviewOverlay) => {
@@ -157,8 +182,35 @@ export default function DashMorphCard({
   );
   const previewActive = previewOverlay.active;
 
+  // Page atmosphere: landscape of the hovered media while preview is live.
+  useEffect(() => {
+    if (!previewActive) {
+      setDashPreviewBackdrop(null);
+      return;
+    }
+    const url =
+      cleanUrl(landscapeUrl) ||
+      cleanUrl(bannerUrl) ||
+      cleanUrl(previewOverlay.artworkUrl) ||
+      cleanUrl(coverUrl);
+    setDashPreviewBackdrop(url);
+    return () => setDashPreviewBackdrop(null);
+  }, [
+    previewActive,
+    landscapeUrl,
+    bannerUrl,
+    coverUrl,
+    previewOverlay.artworkUrl,
+  ]);
+
   const idleBg = coverUrl || landscapeUrl || bannerUrl || null;
-  const expandedBg = pickExpandedBg(bannerUrl, landscapeUrl, coverUrl);
+  // Mobile tap expand: landscape art + 16:9 frame (banner remains desktop hover).
+  const expandedBg = pickExpandedBg(
+    bannerUrl,
+    landscapeUrl,
+    coverUrl,
+    phone
+  );
   const previewArt =
     previewActive && previewOverlay.mediaKind === "audio"
       ? cleanUrl(previewOverlay.artworkUrl)
@@ -184,9 +236,9 @@ export default function DashMorphCard({
   const secondaryCompanionIconUrl = usePreviewArtist
     ? cleanUrl(previewOverlay.artistIconUrl)
     : cleanUrl(secondaryIconUrl);
-  const effectiveSecondaryTitle = usePreviewArtist
-    ? previewOverlay.artistName
-    : secondaryTitle;
+  const effectiveSecondaryTitle = stripDatePrefix(
+    usePreviewArtist ? previewOverlay.artistName : secondaryTitle
+  );
 
   const [logoIndex, setLogoIndex] = useState(0);
   const [iconFailed, setIconFailed] = useState(false);
@@ -223,36 +275,72 @@ export default function DashMorphCard({
 
   const isFlag = Boolean(flagIso) || shape === "flag";
   const showFlagBadge = expanded && Boolean(flagIso);
+  const displayTitle = stripDatePrefix(title) || title;
+  const displayParentLine = stripDatePrefix(parentLine);
 
+  // Origins: once preview loads, hide the flag circle and show artist/media brand.
+  const flagPreviewLogo = showFlagBadge && previewActive ? secondaryLogoMark : null;
+  const flagPreviewTitle =
+    showFlagBadge && previewActive && !flagPreviewLogo
+      ? effectiveSecondaryTitle
+      : null;
+  const flagPreviewIcon =
+    showFlagBadge && previewActive && Boolean(secondaryCompanionIcon)
+      ? secondaryCompanionIcon
+      : null;
+  const flagShowsPreview = Boolean(
+    previewActive && (flagPreviewLogo || flagPreviewTitle || flagPreviewIcon)
+  );
+  const flagLabelText = flagShowsPreview
+    ? flagPreviewTitle || null
+    : previewActive
+      ? null
+      : displayTitle || null;
+  const showFlagCircle = showFlagBadge && !previewActive;
+
+  // Vibes / genre cards: once preview loads, hide genre/subgenre branding and
+  // show artist (icon+logo/name) + media title instead.
+  const hideGenreBrandForPreview = usePreviewArtist;
   const showTitleOver =
     expanded &&
     !showFlagBadge &&
+    !hideGenreBrandForPreview &&
     titleOverBrand &&
-    Boolean(title) &&
+    Boolean(displayTitle) &&
     Boolean(logoMark);
   const showTitleAlone =
-    expanded && !showFlagBadge && !logoMark && Boolean(title);
-  const showPrimaryLogo = expanded && !showFlagBadge && Boolean(logoMark);
+    expanded &&
+    !showFlagBadge &&
+    !hideGenreBrandForPreview &&
+    !logoMark &&
+    Boolean(displayTitle);
+  const showPrimaryLogo =
+    expanded &&
+    !showFlagBadge &&
+    !hideGenreBrandForPreview &&
+    Boolean(logoMark);
   const showPrimaryIcon =
     expanded &&
     !showFlagBadge &&
+    !hideGenreBrandForPreview &&
     Boolean(companionIcon) &&
     (showPrimaryLogo || showTitleAlone || showTitleOver);
   const showParentLine =
-    expanded && !showFlagBadge && Boolean(parentLine);
-  // Origins (flag): still show preview artist + media lines under the flag title.
-  const showSecondaryLogo =
     expanded &&
-    (!showFlagBadge || previewActive) &&
-    Boolean(secondaryLogoMark);
+    !showFlagBadge &&
+    !hideGenreBrandForPreview &&
+    Boolean(displayParentLine);
+  // Origins preview brand lives in the flag row — don't duplicate under it.
+  const showSecondaryLogo =
+    expanded && !showFlagBadge && Boolean(secondaryLogoMark);
   const showSecondaryText =
     expanded &&
-    (!showFlagBadge || previewActive) &&
+    !showFlagBadge &&
     !secondaryLogoMark &&
     Boolean(effectiveSecondaryTitle);
   const showSecondaryIcon =
     expanded &&
-    (!showFlagBadge || previewActive) &&
+    !showFlagBadge &&
     Boolean(secondaryCompanionIcon) &&
     (showSecondaryLogo || showSecondaryText);
   const showPlayOnTitle =
@@ -265,7 +353,7 @@ export default function DashMorphCard({
     Boolean(previewOverlay.mediaTitle);
   const showAction =
     expanded && !showFlagBadge && Boolean(actionLabel) && Boolean(onAction);
-  const showStack =
+  const showStackLive =
     showTitleOver ||
     showTitleAlone ||
     showPrimaryLogo ||
@@ -282,8 +370,69 @@ export default function DashMorphCard({
   const secondaryRow =
     showSecondaryIcon || showSecondaryLogo || showSecondaryText;
 
+  // Keep brand lines mounted briefly so they can fade out on collapse / preview end.
+  const [stackMount, setStackMount] = useState(false);
+  const [stackOn, setStackOn] = useState(false);
+  const stackWanted = Boolean(expanded && showStackLive);
+  useEffect(() => {
+    if (stackWanted) {
+      setStackMount(true);
+      const raf = requestAnimationFrame(() => setStackOn(true));
+      return () => cancelAnimationFrame(raf);
+    }
+    setStackOn(false);
+    const t = window.setTimeout(() => setStackMount(false), LINE_FADE_MS);
+    return () => window.clearTimeout(t);
+  }, [stackWanted]);
+
+  const [secMount, setSecMount] = useState(false);
+  const [secOn, setSecOn] = useState(false);
+  const [secHeld, setSecHeld] = useState<LingerSecondary | null>(null);
+  useEffect(() => {
+    if (secondaryRow) {
+      setSecHeld({
+        logo: secondaryLogoMark,
+        icon: secondaryCompanionIcon,
+        text: effectiveSecondaryTitle || null,
+      });
+      setSecMount(true);
+      const raf = requestAnimationFrame(() => setSecOn(true));
+      return () => cancelAnimationFrame(raf);
+    }
+    setSecOn(false);
+    const t = window.setTimeout(() => {
+      setSecMount(false);
+      setSecHeld(null);
+    }, LINE_FADE_MS);
+    return () => window.clearTimeout(t);
+  }, [
+    secondaryRow,
+    secondaryLogoMark,
+    secondaryCompanionIcon,
+    effectiveSecondaryTitle,
+  ]);
+
+  const [capMount, setCapMount] = useState(false);
+  const [capOn, setCapOn] = useState(false);
+  const [capHeld, setCapHeld] = useState<string | null>(null);
+  useEffect(() => {
+    if (showMediaCaption && previewOverlay.mediaTitle) {
+      setCapHeld(previewOverlay.mediaTitle);
+      setCapMount(true);
+      const raf = requestAnimationFrame(() => setCapOn(true));
+      return () => cancelAnimationFrame(raf);
+    }
+    setCapOn(false);
+    const t = window.setTimeout(() => {
+      setCapMount(false);
+      setCapHeld(null);
+    }, LINE_FADE_MS);
+    return () => window.clearTimeout(t);
+  }, [showMediaCaption, previewOverlay.mediaTitle]);
+
   const handleActivate = (e: MouseEvent<HTMLElement>) => {
-    // Navigate cancels preview via leave/unmount; end immediately.
+    // Hard-stop preview so it cannot overlap main playback.
+    killDashPreviewsForMainPlay();
     setPreviewOverlay(EMPTY_OVERLAY);
     onActivate(e);
   };
@@ -340,7 +489,7 @@ export default function DashMorphCard({
             style={{ backgroundImage: `url("${previewArt}")` }}
           />
         ) : null}
-        {preview && previewArmed ? (
+        {preview ? (
           <DashCardPreview
             armed={previewArmed}
             requestKey={preview.requestKey}
@@ -363,37 +512,75 @@ export default function DashMorphCard({
         {showFlagBadge ? (
           <span
             className={`dash-morph__flag-row${
-              showStack ? " dash-morph__flag-row--with-stack" : ""
+              stackMount && !flagShowsPreview
+                ? " dash-morph__flag-row--with-stack"
+                : ""
+            }${flagShowsPreview ? " dash-morph__flag-row--preview" : ""}${
+              previewActive ? " dash-morph__flag-row--no-flag" : ""
             }`}
           >
-            <span className="dash-morph__flag-badge" aria-hidden>
-              <span className={`fi fi-${flagIso}`} />
-            </span>
-            {title ? (
-              <span className="dash-morph__title dash-morph__title--flag">
-                {title}
+            {showFlagCircle ? (
+              <span className="dash-morph__flag-badge" aria-hidden>
+                <span className={`fi fi-${flagIso}`} />
+              </span>
+            ) : null}
+            {flagPreviewIcon ? (
+              <span className="dash-morph__icon dash-morph__icon--flag-preview">
+                <img
+                  src={flagPreviewIcon}
+                  alt=""
+                  draggable={false}
+                  onError={() => setSecondaryIconFailed(true)}
+                />
+              </span>
+            ) : null}
+            {flagPreviewLogo ? (
+              <span className="dash-morph__brand dash-morph__brand--flag-preview">
+                <img
+                  src={flagPreviewLogo}
+                  alt=""
+                  draggable={false}
+                  onError={() => setSecondaryLogoIndex((i) => i + 1)}
+                />
+              </span>
+            ) : null}
+            {flagLabelText ? (
+              <span
+                className={`dash-morph__title dash-morph__title--flag${
+                  flagShowsPreview ? " is-preview-label" : ""
+                }`}
+              >
+                {flagLabelText}
               </span>
             ) : null}
           </span>
         ) : null}
-        {showStack ? (
+        {stackMount ? (
           <span
             className={`dash-morph__brand-stack${
-              showFlagBadge ? " dash-morph__brand-stack--under-flag" : ""
-            }`}
+              showFlagBadge
+                ? flagShowsPreview
+                  ? " dash-morph__brand-stack--under-flag-preview"
+                  : " dash-morph__brand-stack--under-flag"
+                : ""
+            }${stackOn ? " is-on" : ""}`}
           >
             {showTitleOver ? (
               <span
-                className={`dash-morph__title dash-morph__title--over-brand${
+                className={`dash-morph__fade-line dash-morph__title dash-morph__title--over-brand${
                   showPlayOnTitle ? " dash-morph__title--with-play" : ""
-                }`}
+                }${stackOn ? " is-on" : ""}`}
               >
                 {showPlayOnTitle ? <PlayGlyph /> : null}
-                <span>{title}</span>
+                <span>{displayTitle}</span>
               </span>
             ) : null}
             {primaryRow ? (
-              <span className="dash-morph__brand-row">
+              <span
+                className={`dash-morph__fade-line dash-morph__brand-row${
+                  stackOn ? " is-on" : ""
+                }`}
+              >
                 {showPrimaryIcon ? (
                   <span className="dash-morph__icon">
                     <img
@@ -431,54 +618,70 @@ export default function DashMorphCard({
                     }`}
                   >
                     {showPlayOnTitle ? <PlayGlyph /> : null}
-                    <span>{title}</span>
+                    <span>{displayTitle}</span>
                   </span>
                 ) : null}
               </span>
             ) : null}
             {showParentLine ? (
-              <span className="dash-morph__parent-line">{parentLine}</span>
+              <span
+                className={`dash-morph__fade-line dash-morph__parent-line${
+                  stackOn ? " is-on" : ""
+                }`}
+              >
+                {displayParentLine}
+              </span>
             ) : null}
-            {secondaryRow ? (
-              <span className="dash-morph__brand-row dash-morph__brand-row--secondary">
-                {showSecondaryIcon ? (
+            {secMount && secHeld ? (
+              <span
+                className={`dash-morph__fade-line dash-morph__brand-row dash-morph__brand-row--secondary${
+                  secOn && stackOn ? " is-on" : ""
+                }`}
+              >
+                {secHeld.icon ? (
                   <span className="dash-morph__icon dash-morph__icon--secondary">
                     <img
-                      src={secondaryCompanionIcon!}
+                      src={secHeld.icon}
                       alt=""
                       draggable={false}
                       onError={() => setSecondaryIconFailed(true)}
                     />
                   </span>
                 ) : null}
-                {showSecondaryLogo ? (
+                {secHeld.logo ? (
                   <span className="dash-morph__brand dash-morph__brand--secondary">
                     <img
-                      src={secondaryLogoMark!}
+                      src={secHeld.logo}
                       alt=""
                       draggable={false}
                       onError={() => setSecondaryLogoIndex((i) => i + 1)}
                     />
                   </span>
                 ) : null}
-                {showSecondaryText ? (
+                {!secHeld.logo && secHeld.text ? (
                   <span className="dash-morph__secondary-title">
-                    {effectiveSecondaryTitle}
+                    {secHeld.text}
                   </span>
                 ) : null}
               </span>
             ) : null}
-            {showMediaCaption ? (
-              <span className="dash-morph__media-caption">
+            {capMount && capHeld ? (
+              <span
+                className={`dash-morph__fade-line dash-morph__media-caption${
+                  capOn && stackOn ? " is-on" : ""
+                }`}
+              >
                 <PlayGlyph />
-                <span>{previewOverlay.mediaTitle}</span>
+                <span>{capHeld}</span>
               </span>
             ) : null}
             {showAction ? (
               <span
                 role="link"
                 tabIndex={-1}
-                className="dash-morph__action"
+                className={`dash-morph__fade-line dash-morph__action${
+                  stackOn ? " is-on" : ""
+                }`}
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();

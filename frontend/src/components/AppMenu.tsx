@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { useAdminSetup } from "../adminSetupContext";
 import {
   setAppMenuOpen,
@@ -8,6 +14,11 @@ import { getStoredProfile } from "../auth";
 import { usePlayVideosPreference } from "../playVideosPreference";
 import { usePhoneLayout } from "../usePhoneLayout";
 import { useMenuPresence } from "../useMenuPresence";
+import {
+  getGlobalMusicSnapshot,
+  globalMusicTogglePinned,
+  subscribeGlobalMusic,
+} from "../globalMusicPlayer";
 import { applySavedArtistTheme, pinArtistPageTheme, notifyUserThemePickDuringPlayback, notifyUserThemePickWhilePaused, isPlaybackSessionActive, isPlaybackPlaying, getMenuActiveTheme, isMediaPageThemeSessionActive } from "../mediaTheme";
 import ThemeColorPicker from "./ThemeColorPicker";
 import {
@@ -352,6 +363,13 @@ export default function AppMenu({
     onAdminAppSettingsProp ?? adminSetup.onAdminAppSettings;
   const playVideos = usePlayVideosPreference();
   const isPhone = usePhoneLayout();
+  const musicSnap = useSyncExternalStore(
+    subscribeGlobalMusic,
+    getGlobalMusicSnapshot,
+    getGlobalMusicSnapshot
+  );
+  const showPlayerToggle = isPhone && musicSnap.hasTrack;
+  // Floating icon removed on phone — toggle lives inside the hamburger menu.
   const showAdaptiveTheme =
     adaptiveThemeActive ?? artistThemeActive;
   const switchProfileLabel = (() => {
@@ -963,6 +981,22 @@ export default function AppMenu({
           aria-hidden={!menuVisible}
           inert={menuVisible ? undefined : true}
         >
+          {showPlayerToggle ? (
+            <button
+              type="button"
+              className={
+                musicSnap.barHidden ? undefined : "app-menu-chrome__live"
+              }
+              aria-pressed={!musicSnap.barHidden}
+              onClick={() => {
+                globalMusicTogglePinned();
+                setOpen(false);
+              }}
+            >
+              <IconMediaMusic className="menu-item-icon" />
+              {musicSnap.barHidden ? "Show player" : "Hide player"}
+            </button>
+          ) : null}
           {menuChrome ? (
             <div
               className="app-menu-chrome"
