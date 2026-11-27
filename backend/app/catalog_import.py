@@ -54,6 +54,7 @@ AUDIO_CATEGORIES = (
     "Albums",
     "Extended Plays",
     "Compilations",
+    "Remixes",
     "Demos",
     "Live Albums",
     "Soundtracks",

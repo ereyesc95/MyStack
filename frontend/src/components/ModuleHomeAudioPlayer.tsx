@@ -13,6 +13,8 @@ import {
 import {
   getGlobalMusicSnapshot,
   globalMusicAdoptContext,
+  globalMusicHasContext,
+  globalMusicRestoreContext,
   subscribeGlobalMusic,
   type GlobalMusicTrack,
 } from "../globalMusicPlayer";
@@ -250,7 +252,17 @@ export default function ModuleHomeAudioPlayer({
         const mapped = toGlobalTracks(list);
         if (!mapped.length) return;
         adoptedKeyRef.current = contextKey;
-        globalMusicAdoptContext(mapped, { contextKey, peek: true });
+        // Idle revisit: restore last queue for this franchise/module when saved.
+        // First visit / empty: adopt pool from track 1 paused.
+        // Playing: adopt keeps current and swaps upcoming (preserves Play next/last).
+        if (
+          globalMusicHasContext(contextKey) &&
+          !getGlobalMusicSnapshot().playing
+        ) {
+          const restored = globalMusicRestoreContext(contextKey, { peek: false });
+          if (restored) return;
+        }
+        globalMusicAdoptContext(mapped, { contextKey, peek: false });
       })
       .catch(() => {
         /* quiet */

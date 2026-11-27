@@ -218,7 +218,13 @@ def _participation_flags(
         is_founding = int(start[:4]) <= founding_year + 2
     is_former = bool(end) or 3 in type_ids
     is_touring = 2 in type_ids
-    is_official = is_active or 0 in type_ids or (not type_ids and is_active)
+    # "Current" = still active official (or unmarked) — not touring, not ended.
+    # Type 0 alone must not keep a departed member on the current tab.
+    is_official = (
+        is_active
+        and not is_touring
+        and (0 in type_ids or not type_ids)
+    )
     return {
         "is_active": is_active,
         "is_founding": is_founding,

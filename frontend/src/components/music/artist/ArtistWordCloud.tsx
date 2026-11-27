@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchWordCloud, prefetchWordCloud } from "../../../api";
+import { prefetchWordCloud } from "../../../api";
+import {
+  getCachedArtistWordCloud,
+  prefetchArtistWordCloud,
+  rememberArtistWordCloud,
+} from "../../../artistWordCloudCache";
 import type { WordCloudPayload, WordCloudTerm } from "../../../types";
 import {
   WORD_CLOUD_INVALIDATE_EVENT,
 } from "../../../wordCloudInvalidation";
+import { useFirstLoadIntro } from "../../../useFirstLoadIntro";
 import { trackMainTitle } from "../release/releaseTrackPanelMeta";
 
 type Props = {
@@ -25,18 +31,28 @@ export default function ArtistWordCloud({
   embedded = false,
   onOpenRelease,
 }: Props) {
-  const [data, setData] = useState<WordCloudPayload | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<WordCloudPayload | null>(() =>
+    getCachedArtistWordCloud(bandId)
+  );
+  const [loading, setLoading] = useState(
+    () => !getCachedArtistWordCloud(bandId)
+  );
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [topicTerm, setTopicTerm] = useState<WordCloudTerm | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (force = false) => {
+    const cached = !force ? getCachedArtistWordCloud(bandId) : null;
+    if (cached) {
+      setData(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
-      setData(await fetchWordCloud(bandId));
+      setData(await prefetchArtistWordCloud(bandId, { force }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -45,14 +61,16 @@ export default function ArtistWordCloud({
   }, [bandId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    setData(getCachedArtistWordCloud(bandId));
+    setLoading(!getCachedArtistWordCloud(bandId));
+    void load(false);
+  }, [bandId, load]);
 
   useEffect(() => {
     const onInvalidate = (event: Event) => {
       const detail = (event as CustomEvent<{ bandId: number }>).detail;
       if (detail?.bandId === bandId) {
-        void load();
+        void load(true);
       }
     };
     window.addEventListener(WORD_CLOUD_INVALIDATE_EVENT, onInvalidate);
@@ -66,6 +84,7 @@ export default function ArtistWordCloud({
     setError(null);
     try {
       const res = await prefetchWordCloud(bandId);
+      rememberArtistWordCloud(bandId, res);
       setData(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -73,6 +92,15 @@ export default function ArtistWordCloud({
       setBuilding(false);
     }
   };
+
+  const terms = data?.ready && data.terms.length > 0 ? data.terms : [];
+  const topTerms = terms.slice(0, 5);
+  const hasMore = terms.length > 5;
+  // Must run before any conditional return (hooks order).
+  const topicsReveal = useFirstLoadIntro(
+    terms.length > 0,
+    `artist-topics:${bandId}`
+  );
 
   if (loading && !data) {
     return embedded ? <span className="muted artist-word-cloud__hint">…</span> : null;
@@ -93,10 +121,6 @@ export default function ArtistWordCloud({
     </p>
   );
 
-  const terms = data?.ready && data.terms.length > 0 ? data.terms : [];
-  const topTerms = terms.slice(0, 5);
-  const hasMore = terms.length > 5;
-
   const openTopic = (t: WordCloudTerm) => {
     setTopicTerm(t);
     setModalOpen(false);
@@ -104,7 +128,11 @@ export default function ArtistWordCloud({
 
   const pills =
     terms.length > 0 ? (
-      <div className="artist-word-cloud__pills">
+      <div
+        className={`artist-word-cloud__pills${
+          topicsReveal.intro ? " ms-pill-strip--intro" : ""
+        }`}
+      >
         {topTerms.map((t) => (
           <button
             type="button"

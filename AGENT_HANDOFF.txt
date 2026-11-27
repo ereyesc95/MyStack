@@ -277,8 +277,10 @@ Cross-media: franchise index Related — no nested portal farms.
 Series audio: …/[Audio]/{Albums|…}/ with .lnk into Music.
 Golden path: Series/D/Dragon Ball/ (+ Movies/Books/Games scaffolding)
 
-Music audio categories: Albums, Extended Plays, Compilations, Demos, Live Albums,
-  Soundtracks, Singles
+Music audio categories: Albums, Extended Plays, Compilations, Remixes, Demos,
+  Live Albums, Soundtracks, Singles
+MB secondary-type remix → Remixes/ (not Compilations). Empty folder via artist
+  create/update only — no global ensure.
 Box set: [Box Set] tag. Editions / format versions each own [Artwork].
 
 

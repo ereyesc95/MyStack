@@ -8,6 +8,7 @@ import {
 } from "react";
 import { formatTrackDate } from "../../../formatDate";
 import type { BandOverview } from "../../../types";
+import { useFirstLoadIntro } from "../../../useFirstLoadIntro";
 import { trackDisplayTitle, defaultArtistHeroUrl } from "../release/releaseTrackPanelMeta";
 import ArtistWordCloud from "./ArtistWordCloud";
 
@@ -135,14 +136,20 @@ function MetaValue({
 
 function FittingGenrePills({
   items,
+  bandId,
   onSubgenre,
 }: {
   items: BandOverview["subgenres"];
+  bandId: number;
   onSubgenre: (id: number) => void;
 }) {
   const containerRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [visibleCount, setVisibleCount] = useState(items.length);
+  const genresReveal = useFirstLoadIntro(
+    items.length > 0,
+    `artist-genres:${bandId}`
+  );
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -170,7 +177,12 @@ function FittingGenrePills({
   }, [items]);
 
   return (
-    <dd className="artist-about__genre-pills" ref={containerRef}>
+    <dd
+      className={`artist-about__genre-pills${
+        genresReveal.intro ? " ms-pill-strip--intro" : ""
+      }`}
+      ref={containerRef}
+    >
       {items.map((genre, index) => (
         <button
           key={genre.id}
@@ -502,14 +514,15 @@ export default function ArtistAbout({
                         </button>
                       )}
                       {originText && (
-                        <MetaValue
-                          flat={flatMeta}
+                        <button
+                          type="button"
+                          className="artist-about__origin-link"
                           onClick={() =>
                             data.country && onCountry(data.country.id)
                           }
                         >
                           {originText}
-                        </MetaValue>
+                        </button>
                       )}
                     </dd>
                   </div>
@@ -546,21 +559,10 @@ export default function ArtistAbout({
                     ) : (
                       <FittingGenrePills
                         items={data.subgenres}
+                        bandId={data.id}
                         onSubgenre={onSubgenre}
                       />
                     )}
-                  </div>
-                )}
-                {hasOtherMetadata && (
-                  <div className="artist-about__meta-row">
-                    <dt>Topics</dt>
-                    <dd className="artist-about__topics-dd">
-                      <ArtistWordCloud
-                        bandId={data.id}
-                        embedded
-                        onOpenRelease={onOpenRelease}
-                      />
-                    </dd>
                   </div>
                 )}
                 {visibleLabels.length > 0 && (
@@ -583,6 +585,18 @@ export default function ArtistAbout({
                           </MetaValue>
                         )
                       )}
+                    </dd>
+                  </div>
+                )}
+                {hasOtherMetadata && (
+                  <div className="artist-about__meta-row">
+                    <dt>Topics</dt>
+                    <dd className="artist-about__topics-dd">
+                      <ArtistWordCloud
+                        bandId={data.id}
+                        embedded
+                        onOpenRelease={onOpenRelease}
+                      />
                     </dd>
                   </div>
                 )}

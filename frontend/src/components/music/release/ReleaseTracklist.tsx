@@ -99,22 +99,16 @@ export {
   prefetchReleaseTracklist,
 } from "../../../releaseTracklistCache";
 
-function groupBsideGroups(groups: ReleaseTrackGroup[]) {
-  const order: string[] = [];
-  const map = new Map<string, ReleaseTrackGroup[]>();
-  for (const group of groups) {
-    const key = (group.single_title ?? group.label ?? group.id).trim();
-    if (!map.has(key)) {
-      map.set(key, []);
-      order.push(key);
-    }
-    map.get(key)!.push(group);
-  }
-  return order.map((singleTitle) => ({
-    singleTitle,
-    groups: map.get(singleTitle)!,
-    showSingleHeader: (map.get(singleTitle)?.length ?? 0) > 1,
-  }));
+const FROM_LIST_KINDS = new Set([
+  "bside",
+  "demos",
+  "remixes",
+  "acoustic",
+  "live",
+]);
+
+function isFromListEdition(kind?: string | null): boolean {
+  return Boolean(kind && FROM_LIST_KINDS.has(kind));
 }
 
 export type ReleasePlaybackArt = {
@@ -122,10 +116,18 @@ export type ReleasePlaybackArt = {
   cover_back_url?: string | null;
   cover_animation_url?: string | null;
   canvas_url?: string | null;
+  visualizer_url?: string | null;
+  cover_landscape_url?: string | null;
+  cover_portrait_url?: string | null;
+  cover_banner_url?: string | null;
+  photo_landscape_url?: string | null;
+  photo_portrait_url?: string | null;
+  icon_url?: string | null;
   disc_url?: string | null;
   logo_url?: string | null;
   group_kind?: string | null;
   background_layers?: string[];
+  is_single?: boolean | null;
 };
 
 export type ReleaseMobileTrackView = "player" | "tracks";
@@ -203,14 +205,56 @@ function editionDisplayParts(edition: ReleaseEdition): {
   title: string;
   dateLabel: string | null;
 } {
-  if (edition.kind === "bside") {
-    return { title: "B-sides", dateLabel: null };
+  if (isFromListEdition(edition.kind)) {
+    return { title: edition.label || "Related", dateLabel: null };
   }
   return labelDisplayParts(
     edition.label,
     edition.date_iso,
     edition.display_date
   );
+}
+
+function editionTrackCount(
+  edition: ReleaseEdition,
+  activeVersionIds: Record<string, string>
+): number {
+  return editionVisibleGroups(edition, activeVersionIds).reduce(
+    (n, group) => n + (group.tracks?.length ?? 0),
+    0
+  );
+}
+
+function formatTrackCountLabel(count: number): string {
+  return count === 1 ? "1 track" : `${count} tracks`;
+}
+
+function fromSourceFromTrack(
+  track: ReleaseTrackItem,
+  bandId: number,
+  isSingle: boolean
+): {
+  album_title: string;
+  navigate_release_id: string;
+  navigate_band_id?: number;
+  date_iso?: string | null;
+  display_date?: string | null;
+  is_single?: boolean;
+} | null {
+  const navId = track.navigate_release_id?.trim();
+  const title =
+    track.source_album_title?.trim() ||
+    track.from_label?.trim() ||
+    "";
+  if (!title || !navId) return null;
+  return {
+    album_title: title,
+    navigate_release_id: navId,
+    navigate_band_id: track.navigate_band_id ?? bandId,
+    date_iso: track.source_date_iso ?? null,
+    display_date: track.source_display_date ?? null,
+    is_single: isSingle,
+  };
 }
 
 function editionHasFormatVersions(edition: ReleaseEdition): boolean {
@@ -265,30 +309,6 @@ function TrackExclusiveBadge() {
       </span>
     </span>
   );
-}
-
-function bsideSourceFromGroup(
-  group: ReleaseTrackGroup,
-  bandId: number
-): {
-  album_title: string;
-  navigate_release_id: string;
-  navigate_band_id?: number;
-  date_iso?: string | null;
-  display_date?: string | null;
-  is_single?: boolean;
-} | null {
-  const title = group.source_single_title?.trim();
-  const navId = group.navigate_release_id?.trim();
-  if (!title || !navId) return null;
-  return {
-    album_title: title,
-    navigate_release_id: navId,
-    navigate_band_id: bandId,
-    date_iso: group.date_iso ?? null,
-    display_date: group.display_date ?? null,
-    is_single: true,
-  };
 }
 
 function linkSourceFromTrack(
@@ -397,6 +417,7 @@ type Props = {
   isAdmin?: boolean;
   onOpenLyricsSet?: () => void;
   onPausePlayback?: () => void;
+  onOpenRelease?: (bandId: number, releaseId: string) => void;
 };
 
 function trackArt(
@@ -435,7 +456,8 @@ function trackArt(
     };
   }
 
-  const useEditionArt = edition.kind === "bside" || edition.kind === "single";
+  const useEditionArt =
+    isFromListEdition(edition.kind) || edition.kind === "single";
   const cover = track.cover_url ?? edition.cover_url ?? null;
   const background_layers = useEditionArt
     ? track.cover_url
@@ -563,6 +585,7 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
     isAdmin = false,
     onOpenLyricsSet,
     onPausePlayback,
+    onOpenRelease,
   },
   ref
 ) {
@@ -760,7 +783,7 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
 
 
   const shouldShowEditionHeader = (edition: ReleaseEdition) => {
-    if (edition.kind === "bside") return true;
+    if (isFromListEdition(edition.kind)) return true;
     if (edition.unresolved || edition.is_link) return true;
     if (!data) return false;
     if (data.editions.length > 1) return true;
@@ -815,26 +838,35 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
       setExpandedEditionId(null);
       return;
     }
-    // Follow the playing track across editions (next/prev / track end).
-    if (playingPath) {
-      const match = data.editions.find((ed) =>
-        editionVisibleGroups(ed, activeVersionIds).some((g) =>
-          g.tracks.some((t) => t.play_path === playingPath)
-        ) ||
-        (ed.versions ?? []).some((v) =>
-          v.groups.some((g) => g.tracks.some((t) => t.play_path === playingPath))
-        )
+    const editionHasPath = (ed: ReleaseEdition, path: string) =>
+      editionVisibleGroups(ed, activeVersionIds).some((g) =>
+        g.tracks.some((t) => t.play_path === path)
+      ) ||
+      (ed.versions ?? []).some((v) =>
+        v.groups.some((g) => g.tracks.some((t) => t.play_path === path))
       );
-      if (match) {
-        setExpandedEditionId(match.id);
-        return;
-      }
+
+    // Follow the playing track across editions (next/prev / track end).
+    // If the open edition already lists this path (shared Standard/Deluxe file),
+    // stay there — do not jump back to the first matching section.
+    if (playingPath) {
+      setExpandedEditionId((prev) => {
+        if (prev) {
+          const current = data.editions.find((e) => e.id === prev);
+          if (current && editionHasPath(current, playingPath)) return prev;
+        }
+        const match = data.editions.find((ed) =>
+          editionHasPath(ed, playingPath)
+        );
+        return match?.id ?? prev ?? data.editions[0]?.id ?? null;
+      });
+      return;
     }
     setExpandedEditionId((prev) => {
       if (prev && data.editions.some((e) => e.id === prev)) return prev;
       return data.editions[0]?.id ?? null;
     });
-  }, [data?.editions, playingPath, bandId, releaseId]);
+  }, [data?.editions, playingPath, bandId, releaseId, activeVersionIds]);
 
   const toggleEdition = (id: string) => {
     setExpandedEditionId((prev) => (prev === id ? null : id));
@@ -895,17 +927,18 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
 
     if (rightView === "lyrics") {
       const ctx = resolveTrackContext(playingPath ?? "");
-      const bsideSource =
-        ctx?.edition.kind === "bside"
-          ? bsideSourceFromGroup(ctx.group, bandId)
+      const fromTrack = lyricsTrack ?? ctx?.track ?? null;
+      const fromSource =
+        fromTrack && isFromListEdition(ctx?.edition.kind)
+          ? fromSourceFromTrack(fromTrack, bandId, ctx?.edition.kind === "bside")
           : null;
       onPanelActionsChange({
         track: lyricsTrack ?? ctx?.track ?? idleTrack,
         showLyrics: false,
         showVersions: true,
-        panelDateIso: bsideSource?.date_iso ?? resolvePanelDateIso(playingPath ?? null),
+        panelDateIso: fromSource?.date_iso ?? resolvePanelDateIso(playingPath ?? null),
         versionSource:
-          bsideSource ??
+          fromSource ??
           linkSourceFromTrack(lyricsTrack ?? ctx?.track) ??
           versionSourceForPath(playingPath ?? null),
       });
@@ -935,17 +968,21 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
     }
 
     const current = resolveTrackContext(playingPath ?? "");
-    const bsideSource =
-      current?.edition.kind === "bside"
-        ? bsideSourceFromGroup(current.group, bandId)
+    const fromSource =
+      current?.track && isFromListEdition(current.edition.kind)
+        ? fromSourceFromTrack(
+            current.track,
+            bandId,
+            current.edition.kind === "bside"
+          )
         : null;
     onPanelActionsChange({
       track: current?.track ?? idleTrack,
       showLyrics: true,
       showVersions: true,
-      panelDateIso: bsideSource?.date_iso ?? resolvePanelDateIso(playingPath ?? null),
+      panelDateIso: fromSource?.date_iso ?? resolvePanelDateIso(playingPath ?? null),
       versionSource:
-        bsideSource ??
+        fromSource ??
         linkSourceFromTrack(current?.track) ??
         versionSourceForPath(playingPath ?? null),
     });
@@ -1237,6 +1274,12 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
       {data.editions.map((ed) => {
           const showHeader = shouldShowEditionHeader(ed);
           const parts = editionDisplayParts(ed);
+          const fromTrackCount = isFromListEdition(ed.kind)
+            ? editionTrackCount(ed, activeVersionIds)
+            : 0;
+          const headerMeta =
+            parts.dateLabel ||
+            (fromTrackCount > 0 ? formatTrackCountLabel(fromTrackCount) : null);
           const open = !showHeader || expandedEditionId === ed.id;
           const formatVersions = editionHasFormatVersions(ed) ? ed.versions! : null;
           const activeVersion = formatVersions
@@ -1274,9 +1317,9 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
                   aria-expanded={open}
                 >
                   <span className="release-tracklist__edition-name">{parts.title}</span>
-                  {parts.dateLabel ? (
+                  {headerMeta ? (
                     <span className="release-tracklist__title-suffix release-tracklist__edition-date">
-                      {parts.dateLabel}
+                      {headerMeta}
                     </span>
                   ) : null}
                 </button>
@@ -1343,137 +1386,147 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
               </p>
             )}
 
-            {ed.kind === "bside"
-              ? groupBsideGroups(visibleGroups).map(({ singleTitle, groups, showSingleHeader }) => (
-                  <div key={singleTitle} className="release-tracklist__bside-single">
-                    {showSingleHeader && (
-                      <h3 className="release-tracklist__single-title">{singleTitle}</h3>
-                    )}
-                    {groups.map((group) => {
-                      const showEditionLabel =
-                        showSingleHeader || groups.length > 1 || Boolean(group.label);
-                      const groupParts = group.label
-                        ? labelDisplayParts(
-                            group.label,
-                            group.date_iso,
-                            group.display_date
-                          )
-                        : null;
-                      return (
-                        <div key={group.id} className="release-tracklist__group">
-                          {showEditionLabel && groupParts ? (
-                            <h4 className="release-tracklist__group-label release-tracklist__group-label--edition">
-                              <span className="release-tracklist__edition-name">
-                                {groupParts.title}
-                              </span>
-                              {groupParts.dateLabel ? (
-                                <span className="release-tracklist__title-suffix release-tracklist__edition-date">
-                                  {groupParts.dateLabel}
-                                </span>
-                              ) : null}
-                            </h4>
-                          ) : null}
-                          <ol className="release-tracklist__tracks">
-                            {group.tracks.map((track) => {
-                              const active = playingPath === track.play_path;
-                              const art = trackArt(track, editionArt, group.disc_url);
-                              const videos = trackYoutubeVideos(track);
-                              const playTrack = () => {
-                                if (track.is_video) {
-                                  openVideoTrack(track);
-                                  return;
+            {isFromListEdition(ed.kind)
+              ? visibleGroups.map((group) => (
+                  <div key={group.id} className="release-tracklist__group">
+                    <ol className="release-tracklist__tracks release-tracklist__tracks--from">
+                      {group.tracks.map((track) => {
+                        const active = playingPath === track.play_path;
+                        const art = trackArt(track, editionArt, group.disc_url);
+                        const videos = trackYoutubeVideos(track);
+                        const fromLabel = (() => {
+                          const raw = track.from_label?.trim() || null;
+                          if (!raw) return null;
+                          // Defensive: strip "Edition" even if an older cached payload still has it.
+                          return raw
+                            .replace(/\bEdition\b/gi, "")
+                            .replace(/\s{2,}/g, " ")
+                            .replace(/\s*·\s*$/g, "")
+                            .trim();
+                        })();
+                        const fromNavId = track.navigate_release_id?.trim() || null;
+                        const fromBandId = track.navigate_band_id ?? bandId;
+                        const playTrack = () => {
+                          if (track.is_video) {
+                            openVideoTrack(track);
+                            return;
+                          }
+                          setPlayingVersionPath(null);
+                          setExpandedEditionId(ed.id);
+                          const fromSource = fromSourceFromTrack(
+                            track,
+                            bandId,
+                            ed.kind === "bside"
+                          );
+                          setActiveVersionSource(fromSource);
+                          if (track.version_id) {
+                            setActiveVersionIds((prev) =>
+                              prev[ed.id] === track.version_id
+                                ? prev
+                                : { ...prev, [ed.id]: track.version_id! }
+                            );
+                          }
+                          onPlay(track.play_path, track.title, art, ed.label);
+                          onPanelActionsChange?.({
+                            track,
+                            showLyrics: true,
+                            showVersions: true,
+                            panelDateIso:
+                              fromSource?.date_iso ??
+                              resolvePanelDateIso(track.play_path),
+                            versionSource: fromSource,
+                          });
+                        };
+                        return (
+                          <li
+                            key={track.id}
+                            className={
+                              active
+                                ? "release-tracklist__row release-tracklist__row--from release-tracklist__row--playable active"
+                                : "release-tracklist__row release-tracklist__row--from release-tracklist__row--playable"
+                            }
+                            onClick={playTrack}
+                          >
+                            <span className="release-tracklist__num">{track.number}</span>
+                            <span className="release-tracklist__title-cluster">
+                              <button
+                                type="button"
+                                className="release-tracklist__title-play"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  playTrack();
+                                }}
+                                aria-label={
+                                  track.is_video
+                                    ? `Open video ${track.title}`
+                                    : `Play ${track.title}`
                                 }
-                                setPlayingVersionPath(null);
-                                setActiveVersionSource(null);
-                                if (track.version_id) {
-                                  setActiveVersionIds((prev) =>
-                                    prev[ed.id] === track.version_id
-                                      ? prev
-                                      : { ...prev, [ed.id]: track.version_id! }
-                                  );
-                                }
-                                const linkSource = linkSourceFromTrack(track);
-                                if (linkSource) setActiveVersionSource(linkSource);
-                                onPlay(track.play_path, track.title, art, ed.label);
-                                onPanelActionsChange?.({
-                                  track,
-                                  showLyrics: true,
-                                  showVersions: true,
-                                  panelDateIso:
-                                    linkSource?.date_iso ??
-                                    resolvePanelDateIso(track.play_path),
-                                  versionSource: linkSource,
-                                });
-                              };
-                              return (
-                                <li
-                                  key={track.id}
-                                  className={
-                                    active ? "release-tracklist__row active" : "release-tracklist__row"
-                                  }
-                                >
-                                  <span className="release-tracklist__num">{track.number}</span>
-                                  <span className="release-tracklist__title-cluster">
-                                    <button
-                                      type="button"
-                                      className="release-tracklist__title-play"
-                                      onClick={playTrack}
-                                      aria-label={
-                                        track.is_video
-                                          ? `Open video ${track.title}`
-                                          : `Play ${track.title}`
-                                      }
-                                    >
-                                      <span className="release-tracklist__title-wrap">
-                                        {track.is_live_performance ? (
-                                          <LivePerformanceTitle
-                                            track={track}
-                                            billboard={stacked}
-                                          />
-                                        ) : (
-                                          <>
-                                            <ReleaseTrackTitle
-                                              title={track.title}
-                                              billboard={stacked}
-                                            />
-                                            {track.is_video && (
-                                              <span
-                                                className="release-tracklist__video-badge"
-                                                title="Video"
-                                              >
-                                                <IconVideo />
-                                              </span>
-                                            )}
-                                          </>
-                                        )}
-                                        {track.is_exclusive && <TrackExclusiveBadge />}
-                                      </span>
-                                    </button>
-                                    <TrackYoutubeButton
-                                      videos={videos}
-                                      onBeforeOpen={onPausePlayback}
-                                      media={{
-                                        title: trackMainTitle(track.title) || track.title,
-                                        artist: artistName,
-                                        album: releaseTitle || parts.title || null,
-                                        artworkUrl:
-                                          track.cover_url ??
-                                          editionArt.cover_url ??
-                                          null,
-                                      }}
+                              >
+                                <span className="release-tracklist__title-wrap">
+                                  {track.is_live_performance ? (
+                                    <LivePerformanceTitle
+                                      track={track}
+                                      billboard
                                     />
-                                  </span>
-                                  {durationCell(
-                                    track,
-                                    track.cover_url ?? editionArt.cover_url
+                                  ) : (
+                                    <>
+                                      <ReleaseTrackTitle
+                                        title={track.title}
+                                        billboard
+                                      />
+                                      {track.is_video && (
+                                        <span
+                                          className="release-tracklist__video-badge"
+                                          title="Video"
+                                        >
+                                          <IconVideo />
+                                        </span>
+                                      )}
+                                    </>
                                   )}
-                                </li>
-                              );
-                            })}
-                          </ol>
-                        </div>
-                      );
-                    })}
+                                  {track.is_exclusive && <TrackExclusiveBadge />}
+                                </span>
+                              </button>
+                              <TrackYoutubeButton
+                                videos={videos}
+                                onBeforeOpen={onPausePlayback}
+                                media={{
+                                  title: trackMainTitle(track.title) || track.title,
+                                  artist: artistName,
+                                  album: fromLabel || releaseTitle || parts.title || null,
+                                  artworkUrl:
+                                    track.cover_url ?? editionArt.cover_url ?? null,
+                                }}
+                              />
+                            </span>
+                            {fromLabel ? (
+                              fromNavId && onOpenRelease ? (
+                                <button
+                                  type="button"
+                                  className="release-tracklist__from"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenRelease(fromBandId, fromNavId);
+                                  }}
+                                >
+                                  <BillboardText short={fromLabel} full={fromLabel} />
+                                </button>
+                              ) : (
+                                <span className="release-tracklist__from">
+                                  <BillboardText short={fromLabel} full={fromLabel} />
+                                </span>
+                              )
+                            ) : (
+                              <span className="release-tracklist__from release-tracklist__from--empty" />
+                            )}
+                            {durationCell(
+                              track,
+                              track.cover_url ?? editionArt.cover_url
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ol>
                   </div>
                 ))
               : visibleGroups.map((group) => {
@@ -1494,6 +1547,7 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
                         return;
                       }
                       setPlayingVersionPath(null);
+                      setExpandedEditionId(ed.id);
                       setActiveVersionSource(null);
                       if (track.version_id) {
                         setActiveVersionIds((prev) =>
@@ -1518,15 +1572,21 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
                       <li
                         key={track.id}
                         className={
-                          active ? "release-tracklist__row active" : "release-tracklist__row"
+                          active
+                            ? "release-tracklist__row release-tracklist__row--playable active"
+                            : "release-tracklist__row release-tracklist__row--playable"
                         }
+                        onClick={playTrack}
                       >
                         <span className="release-tracklist__num">{track.number}</span>
                         <span className="release-tracklist__title-cluster">
                           <button
                             type="button"
                             className="release-tracklist__title-play"
-                            onClick={playTrack}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              playTrack();
+                            }}
                             aria-label={
                               track.is_video
                                 ? `Open video ${track.title}`
@@ -1671,67 +1731,76 @@ const ReleaseTracklist = forwardRef<ReleaseTracklistHandle, Props>(function Rele
           <ol className="release-tracklist__tracks">
             {versions.map((v, i) => {
               const active = playingPath === v.play_path;
+              const playVersion = () => {
+                const source = versionSourceFromItem(
+                  v,
+                  releaseId,
+                  releaseNavigateId,
+                  versionsTrack?.play_path ?? null
+                );
+                setPlayingVersionPath(v.play_path);
+                setActiveVersionSource(source);
+                const versionQueue: GlobalMusicTrack[] = versions.map(
+                  (item) => {
+                    // Match the versions tracklist bracket suffix
+                    // (e.g. Remastered 2025), not edition/format labels.
+                    const split = splitTrackTitleDisplay(item.title);
+                    const suffix = split.suffix;
+                    const main =
+                      split.main ||
+                      trackMainTitle(item.title) ||
+                      item.title ||
+                      "Track";
+                    return {
+                      id: item.play_path,
+                      path: item.play_path,
+                      title: main,
+                      titleSuffix: suffix,
+                      artist: artistName || null,
+                      artistId: item.navigate_band_id ?? bandId,
+                      releaseId:
+                        item.navigate_release_id ??
+                        releaseNavigateId ??
+                        releaseId,
+                      releaseTitle: item.album_title ?? releaseTitle,
+                      releaseDate: item.date_iso ?? null,
+                      coverUrl: item.cover_url ?? null,
+                    };
+                  }
+                );
+                onPlay(
+                  v.play_path,
+                  v.title,
+                  versionPlaybackArt(v),
+                  null,
+                  versionQueue
+                );
+                if (onPanelActionsChange) {
+                  onPanelActionsChange({
+                    track: versionToTrackItem(v),
+                    showLyrics: true,
+                    showVersions: false,
+                    versionSource: source,
+                  });
+                }
+              };
               return (
                 <li
                   key={v.play_path}
-                  className={active ? "release-tracklist__row active" : "release-tracklist__row"}
+                  className={
+                    active
+                      ? "release-tracklist__row release-tracklist__row--playable active"
+                      : "release-tracklist__row release-tracklist__row--playable"
+                  }
+                  onClick={playVersion}
                 >
                   <span className="release-tracklist__num">{i + 1}</span>
                   <button
                     type="button"
                     className="release-tracklist__title-play"
-                    onClick={() => {
-                      const source = versionSourceFromItem(
-                        v,
-                        releaseId,
-                        releaseNavigateId,
-                        versionsTrack?.play_path ?? null
-                      );
-                      setPlayingVersionPath(v.play_path);
-                      setActiveVersionSource(source);
-                      const versionQueue: GlobalMusicTrack[] = versions.map(
-                        (item) => {
-                          // Match the versions tracklist bracket suffix
-                          // (e.g. Remastered 2025), not edition/format labels.
-                          const split = splitTrackTitleDisplay(item.title);
-                          const suffix = split.suffix;
-                          const main =
-                            split.main ||
-                            trackMainTitle(item.title) ||
-                            item.title ||
-                            "Track";
-                          return {
-                            id: item.play_path,
-                            path: item.play_path,
-                            title: main,
-                            titleSuffix: suffix,
-                            artist: artistName || null,
-                            artistId: item.navigate_band_id ?? bandId,
-                            releaseId:
-                              item.navigate_release_id ??
-                              releaseNavigateId ??
-                              releaseId,
-                            releaseTitle: item.album_title ?? releaseTitle,
-                            releaseDate: item.date_iso ?? null,
-                            coverUrl: item.cover_url ?? null,
-                          };
-                        }
-                      );
-                      onPlay(
-                        v.play_path,
-                        v.title,
-                        versionPlaybackArt(v),
-                        null,
-                        versionQueue
-                      );
-                      if (onPanelActionsChange) {
-                        onPanelActionsChange({
-                          track: versionToTrackItem(v),
-                          showLyrics: true,
-                          showVersions: false,
-                          versionSource: source,
-                        });
-                      }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      playVersion();
                     }}
                   >
                     <ReleaseTrackTitle title={v.title} billboard={stacked} />

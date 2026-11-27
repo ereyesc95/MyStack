@@ -62,7 +62,16 @@ export type GlobalMusicSnapshot = {
   /** Temporary reveal while unpinned (hover peek or track-change flash). */
   barPeeking: boolean;
   queueOpen: boolean;
+  /** Fullscreen now-playing / visualizer overlay. */
+  visualizerOpen: boolean;
   hasTrack: boolean;
+};
+
+type ContextBlob = {
+  queue: GlobalMusicTrack[];
+  originalQueue: GlobalMusicTrack[];
+  index: number;
+  progress: number;
 };
 
 type PersistBlob = {
@@ -74,9 +83,12 @@ type PersistBlob = {
   repeatOne: boolean;
   shuffle: boolean;
   barHidden: boolean;
+  activeContextKey?: string;
+  contexts?: Record<string, ContextBlob>;
 };
 
-const STORAGE_KEY = "mystack.globalMusicPlayer.v1";
+const STORAGE_KEY = "mystack.globalMusicPlayer.v2";
+const LEGACY_SESSION_KEY = "mystack.globalMusicPlayer.v1";
 const listeners = new Set<() => void>();
 
 let audioEl: HTMLAudioElement | null = null;
@@ -89,10 +101,12 @@ let duration = 0;
 let volume = 1;
 let repeatOne = false;
 let shuffle = false;
-let barHidden = false;
+/** Default unpinned — bar stays hidden until the user pins or peeks. */
+let barHidden = true;
 let barPeeking = false;
 let peekTimer: ReturnType<typeof setTimeout> | null = null;
 let queueOpen = false;
+let visualizerOpen = false;
 let userId: number | undefined;
 let endedHandlerAttached = false;
 let restoredPaused = false;
@@ -107,9 +121,10 @@ let snapshot: GlobalMusicSnapshot = {
   volume: 1,
   repeatOne: false,
   shuffle: false,
-  barHidden: false,
+  barHidden: true,
   barPeeking: false,
   queueOpen: false,
+  visualizerOpen: false,
   hasTrack: false,
 };
 
@@ -128,6 +143,7 @@ function buildSnapshot(): GlobalMusicSnapshot {
     barHidden,
     barPeeking,
     queueOpen,
+    visualizerOpen: visualizerOpen && Boolean(cur),
     hasTrack: Boolean(cur),
   };
 }
@@ -199,8 +215,13 @@ function wireAudio(el: HTMLAudioElement) {
 }
 
 function persist() {
-  if (typeof sessionStorage === "undefined") return;
+  if (typeof localStorage === "undefined") return;
   try {
+    saveActiveContext();
+    const contexts: Record<string, ContextBlob> = {};
+    for (const [key, blob] of contextStore.entries()) {
+      contexts[key] = blob;
+    }
     const blob: PersistBlob = {
       queue,
       originalQueue,
@@ -210,19 +231,31 @@ function persist() {
       repeatOne,
       shuffle,
       barHidden,
+      activeContextKey,
+      contexts,
     };
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(blob));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(blob));
   } catch {
     /* ignore quota */
   }
 }
 
 function loadPersist(): PersistBlob | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as PersistBlob;
+  } catch {
+    /* ignore */
+  }
+  // One-time migrate from sessionStorage v1.
   if (typeof sessionStorage === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as PersistBlob;
+    const legacy = sessionStorage.getItem(LEGACY_SESSION_KEY);
+    if (!legacy) return null;
+    const parsed = JSON.parse(legacy) as PersistBlob;
+    sessionStorage.removeItem(LEGACY_SESSION_KEY);
+    return parsed;
   } catch {
     return null;
   }
@@ -283,6 +316,7 @@ function reportPlay(track: GlobalMusicTrack) {
 function scheduleBarPeek(ms = 2600) {
   if (!barHidden) return;
   barPeeking = true;
+  notify();
   if (peekTimer) clearTimeout(peekTimer);
   peekTimer = setTimeout(() => {
     peekTimer = null;
@@ -295,7 +329,7 @@ function scheduleBarPeek(ms = 2600) {
 async function loadIndex(
   i: number,
   autoPlay: boolean,
-  opts?: { previousId?: string | null }
+  opts?: { previousId?: string | null; peek?: boolean }
 ) {
   const el = ensureAudio();
   if (!el) return;
@@ -319,7 +353,8 @@ async function loadIndex(
   publishSession(track, el);
   applyPlaybackThemeFromCover(track.coverUrl ?? null, userId);
   reportPlay(track);
-  if (barHidden && track.id !== prevId) {
+  // Peek only on user-driven track changes — never on idle restore / seed.
+  if (opts?.peek !== false && barHidden && track.id !== prevId) {
     scheduleBarPeek();
   }
   notify();
@@ -422,6 +457,7 @@ function clearPlayback(clearStorage: boolean) {
   progress = 0;
   duration = 0;
   queueOpen = false;
+  visualizerOpen = false;
   barPeeking = false;
   if (peekTimer) {
     clearTimeout(peekTimer);
@@ -430,12 +466,14 @@ function clearPlayback(clearStorage: boolean) {
   setPlaybackPlaying(false);
   endPlaybackThemeSession(userId);
   notify();
-  if (clearStorage && typeof sessionStorage !== "undefined") {
+  if (clearStorage) {
     try {
-      sessionStorage.removeItem(STORAGE_KEY);
+      localStorage?.removeItem(STORAGE_KEY);
+      sessionStorage?.removeItem(LEGACY_SESSION_KEY);
     } catch {
       /* ignore */
     }
+    contextStore.clear();
   } else {
     persist();
   }
@@ -477,20 +515,31 @@ export function setGlobalMusicUserId(id: number | undefined) {
  * Play a tracklist starting at `startIndex`.
  * Queue keeps tracks before the current one so Previous can walk backward.
  * Manual play-next / play-last inserts are re-seated after current / at end.
+ *
+ * `startIndex` is resolved against the caller list by id/path after dedupe —
+ * never reused as a raw index into the normalized queue (duplicate paths in
+ * multi-edition tracklists would shift and play the wrong song).
  */
 export function globalMusicPlayFrom(
   tracks: GlobalMusicTrack[],
   startIndex: number,
   opts?: { autoPlay?: boolean }
 ) {
+  if (!tracks.length) return;
+  const preferred =
+    tracks[Math.max(0, Math.min(startIndex, tracks.length - 1))] ?? tracks[0];
+  const wantId = (preferred?.id || "").trim();
+  const wantPath = (preferred?.path || "").trim();
   const list = normalizeTracks(tracks);
   if (!list.length) return;
-  const start = Math.max(0, Math.min(startIndex, list.length - 1));
   const previousId = currentTrack()?.id ?? null;
   const manuals = collectManualInserts();
   const base = list.map((t) => ({ ...t, queuedBy: null as const }));
   originalQueue = base.slice();
-  const startId = base[start]?.id ?? null;
+  let startId =
+    base.find((t) => (wantId && t.id === wantId) || (wantPath && t.path === wantPath))
+      ?.id ?? null;
+  if (!startId) startId = base[0]?.id ?? null;
   let nextQueue = shuffle
     ? buildShuffledOrder(originalQueue, startId)
     : originalQueue.slice();
@@ -563,16 +612,28 @@ export function globalMusicPlayList(
   startIndex = 0,
   opts?: { autoPlay?: boolean }
 ) {
+  if (!tracks.length) return;
+  const preferred =
+    tracks[Math.max(0, Math.min(startIndex, tracks.length - 1))] ?? tracks[0];
+  const wantId = (preferred?.id || "").trim();
+  const wantPath = (preferred?.path || "").trim();
   const list = normalizeTracks(tracks);
   if (!list.length) return;
-  const start = Math.max(0, Math.min(startIndex, list.length - 1));
   const previousId = currentTrack()?.id ?? null;
   originalQueue = list.slice();
-  const currentId = list[start]?.id ?? null;
+  let currentId =
+    list.find((t) => (wantId && t.id === wantId) || (wantPath && t.path === wantPath))
+      ?.id ?? null;
+  if (!currentId) currentId = list[0]?.id ?? null;
   queue = shuffle
     ? buildShuffledOrder(originalQueue, currentId)
     : originalQueue.slice();
-  index = shuffle ? 0 : start;
+  index = shuffle
+    ? 0
+    : Math.max(
+        0,
+        currentId ? queue.findIndex((t) => t.id === currentId) : 0
+      );
   void loadIndex(index, opts?.autoPlay !== false, { previousId });
 }
 
@@ -755,21 +816,26 @@ export function globalMusicTogglePinned() {
 
 export function globalMusicToggleQueueOpen() {
   queueOpen = !queueOpen;
-  if (queueOpen) barHidden = false;
+  // Queue panel already forces bar visibility — do not pin (barHidden=false),
+  // or the next persist() would restore a pinned bar after login.
   notify();
+}
+
+export function globalMusicSetVisualizerOpen(open: boolean) {
+  if (open && !currentTrack()) return;
+  visualizerOpen = open;
+  if (open) queueOpen = false;
+  notify();
+}
+
+export function globalMusicToggleVisualizer() {
+  globalMusicSetVisualizerOpen(!visualizerOpen);
 }
 
 export function globalMusicSetQueueOpen(open: boolean) {
   queueOpen = open;
   notify();
 }
-
-type ContextBlob = {
-  queue: GlobalMusicTrack[];
-  originalQueue: GlobalMusicTrack[];
-  index: number;
-  progress: number;
-};
 
 const contextStore = new Map<string, ContextBlob>();
 let activeContextKey = "music";
@@ -787,18 +853,41 @@ function saveActiveContext() {
   });
 }
 
+function mergeContextQueueKeepingCurrent(
+  contextTracks: GlobalMusicTrack[],
+  cur: GlobalMusicTrack
+): { queue: GlobalMusicTrack[]; originalQueue: GlobalMusicTrack[] } {
+  const manuals = collectManualInserts();
+  const base = [
+    { ...cur, queuedBy: null as const },
+    ...contextTracks
+      .filter((t) => t.id !== cur.id && t.path !== cur.path)
+      .map((t) => ({ ...t, queuedBy: null as const })),
+  ];
+  const merged = applyManualInserts(base, manuals, 0);
+  return {
+    queue: merged,
+    originalQueue: base.map((t) => ({ ...t, queuedBy: null })),
+  };
+}
+
 /**
  * Adopt a module / franchise / universe soundtrack pool into the global bar.
- * - If a track is currently playing, keep it playing and refresh the queue.
- * - Otherwise load the first context track paused (no autoplay) and peek the bar.
+ * - If a track is currently playing, keep it playing and refresh the queue
+ *   (Play next / Play last inserts are preserved).
+ * - If idle and this context was saved before, restore that last position.
+ * - Otherwise load the first context track paused (no autoplay).
+ * Peek is opt-in (`peek: true`) — idle mount/restore stays hidden.
  */
 export function globalMusicAdoptContext(
   tracks: GlobalMusicTrack[],
-  opts?: { contextKey?: string; peek?: boolean }
+  opts?: { contextKey?: string; peek?: boolean; forcePoolStart?: boolean }
 ) {
+  ensureHydrated();
   const key = (opts?.contextKey || "module").trim() || "module";
   const list = normalizeTracks(tracks);
   if (!list.length) return;
+  const wantPeek = opts?.peek === true;
 
   if (key !== activeContextKey) {
     saveActiveContext();
@@ -806,42 +895,83 @@ export function globalMusicAdoptContext(
   }
 
   const cur = currentTrack();
-  // While a track is already loaded (playing or paused mid-listen), only
-  // refresh the upcoming queue — never stop/replace the current track.
-  if (cur) {
-    const rest = list.filter(
-      (t) => t.id !== cur.id && t.path !== cur.path
+  const el = ensureAudio();
+  const wasPlaying = Boolean(el && !el.paused && cur);
+
+  // Playing: keep current track; swap upcoming to this context; keep manuals.
+  if (cur && (wasPlaying || playing)) {
+    const merged = mergeContextQueueKeepingCurrent(list, cur);
+    queue = merged.queue;
+    originalQueue = merged.originalQueue;
+    index = Math.max(
+      0,
+      queue.findIndex((t) => t.id === cur.id || t.path === cur.path)
     );
-    queue = [{ ...cur, queuedBy: null }, ...rest];
-    originalQueue = queue.map((t) => ({ ...t, queuedBy: null }));
-    index = 0;
-    if (opts?.peek !== false) scheduleBarPeek(2800);
+    if (wantPeek) scheduleBarPeek(2800);
     notify();
     persist();
     return;
   }
 
+  // Idle: prefer restoring this context's last queue/position when available.
+  const saved = !opts?.forcePoolStart ? contextStore.get(key) : undefined;
+  if (saved?.queue?.length && !opts?.forcePoolStart) {
+    const previousId = cur?.id ?? null;
+    queue = saved.queue.slice();
+    originalQueue = (
+      saved.originalQueue.length ? saved.originalQueue : saved.queue
+    ).slice();
+    const nextIndex = Math.max(
+      0,
+      Math.min(saved.index ?? 0, queue.length - 1)
+    );
+    void loadIndex(nextIndex, false, { previousId, peek: wantPeek }).then(() => {
+      const audio = ensureAudio();
+      if (!audio) return;
+      const seekTo = typeof saved.progress === "number" ? saved.progress : 0;
+      if (seekTo > 0 && Number.isFinite(seekTo)) {
+        try {
+          audio.currentTime = seekTo;
+          progress = seekTo;
+          notify();
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+    if (wantPeek) scheduleBarPeek(2800);
+    persist();
+    return;
+  }
+
+  // First visit / empty context: soundtrack pool from track 1, paused.
   originalQueue = list.map((t) => ({ ...t, queuedBy: null }));
   queue = originalQueue.slice();
   index = 0;
-  void loadIndex(0, false, { previousId: null });
-  if (opts?.peek !== false) scheduleBarPeek(2800);
+  void loadIndex(0, false, { previousId: cur?.id ?? null, peek: wantPeek });
+  if (wantPeek) scheduleBarPeek(2800);
+  persist();
 }
 
 /** Restore a previously saved context (e.g. Music stack queue). */
 export function globalMusicRestoreContext(
   contextKey: string,
   opts?: { peek?: boolean }
-) {
+): boolean {
+  ensureHydrated();
   const key = contextKey.trim() || "music";
+  const wantPeek = opts?.peek === true;
   if (key === activeContextKey && queue.length) {
-    if (opts?.peek !== false) scheduleBarPeek(2800);
-    return;
+    if (wantPeek) scheduleBarPeek(2800);
+    return true;
   }
   saveActiveContext();
   const blob = contextStore.get(key);
   activeContextKey = key;
-  if (!blob?.queue?.length) return;
+  if (!blob?.queue?.length) {
+    persist();
+    return false;
+  }
 
   const cur = currentTrack();
   const el = ensureAudio();
@@ -849,18 +979,20 @@ export function globalMusicRestoreContext(
 
   // Never interrupt an in-progress listen when swapping contexts.
   if (cur && (wasPlaying || playing)) {
-    const rest = blob.queue.filter(
-      (t) => t.id !== cur.id && t.path !== cur.path
+    const merged = mergeContextQueueKeepingCurrent(
+      blob.originalQueue.length ? blob.originalQueue : blob.queue,
+      cur
     );
-    queue = [{ ...cur, queuedBy: null }, ...rest];
-    originalQueue = (
-      blob.originalQueue.length ? blob.originalQueue : blob.queue
-    ).map((t) => ({ ...t, queuedBy: null }));
-    index = 0;
-    if (opts?.peek !== false) scheduleBarPeek(2800);
+    queue = merged.queue;
+    originalQueue = merged.originalQueue;
+    index = Math.max(
+      0,
+      queue.findIndex((t) => t.id === cur.id || t.path === cur.path)
+    );
+    if (wantPeek) scheduleBarPeek(2800);
     notify();
     persist();
-    return;
+    return true;
   }
 
   const previousId = cur?.id ?? null;
@@ -872,7 +1004,7 @@ export function globalMusicRestoreContext(
     0,
     Math.min(blob.index ?? 0, queue.length - 1)
   );
-  void loadIndex(nextIndex, false, { previousId }).then(() => {
+  void loadIndex(nextIndex, false, { previousId, peek: wantPeek }).then(() => {
     const audio = ensureAudio();
     if (!audio) return;
     const seekTo = typeof blob.progress === "number" ? blob.progress : 0;
@@ -886,7 +1018,44 @@ export function globalMusicRestoreContext(
       }
     }
   });
-  if (opts?.peek !== false) scheduleBarPeek(2800);
+  if (wantPeek) scheduleBarPeek(2800);
+  persist();
+  return true;
+}
+
+/** Seed a context only when it has no saved/active queue (e.g. On Repeat). */
+export function globalMusicSeedContextIfEmpty(
+  tracks: GlobalMusicTrack[],
+  opts?: { contextKey?: string; peek?: boolean }
+): boolean {
+  // Never seed before localStorage hydrate — child effects can run before App init
+  // and would overwrite the restored session (e.g. Heartless → On Repeat #1).
+  ensureHydrated();
+  const key = (opts?.contextKey || "music").trim() || "music";
+  const list = normalizeTracks(tracks);
+  if (!list.length) return false;
+  if (key === activeContextKey && queue.length) return false;
+  if (contextStore.get(key)?.queue?.length) return false;
+  // Persisted session exists but isn't the active context yet — don't clobber it.
+  if (hasPersistedQueue()) return false;
+  const wantPeek = opts?.peek === true;
+  if (key !== activeContextKey) {
+    saveActiveContext();
+    activeContextKey = key;
+  }
+  originalQueue = list.map((t) => ({ ...t, queuedBy: null }));
+  queue = originalQueue.slice();
+  index = 0;
+  void loadIndex(0, false, { previousId: null, peek: wantPeek });
+  if (wantPeek) scheduleBarPeek(2800);
+  persist();
+  return true;
+}
+
+export function globalMusicHasContext(contextKey: string): boolean {
+  const key = contextKey.trim() || "music";
+  if (key === activeContextKey && queue.length) return true;
+  return Boolean(contextStore.get(key)?.queue?.length);
 }
 
 export function globalMusicGetContextKey() {
@@ -897,29 +1066,57 @@ export function getGlobalMusicAudioElement(): HTMLAudioElement | null {
   return ensureAudio();
 }
 
-/** Call once from App mount — restore paused session + dash preview bridge. */
-export function initGlobalMusicPlayer() {
-  ensureAudio();
-  setDashPreviewMainPlayer({
-    pause: () => globalMusicPause(),
-    resume: () => globalMusicResume(),
-    getVolume: () => volume,
-    wasPlaying: () => Boolean(audioEl && !audioEl.paused && currentTrack()),
-  });
+function hasPersistedQueue(): boolean {
+  const blob = loadPersist();
+  if (!blob) return false;
+  if (blob.queue?.length) return true;
+  if (!blob.contexts) return false;
+  return Object.values(blob.contexts).some((ctx) => Boolean(ctx?.queue?.length));
+}
 
+/** Restore paused session from localStorage (safe to call more than once). */
+function hydrateFromStorage() {
   if (restoredPaused) return;
   restoredPaused = true;
   const blob = loadPersist();
-  if (!blob?.queue?.length) return;
+  if (!blob) return;
+
+  contextStore.clear();
+  if (blob.contexts) {
+    for (const [key, ctx] of Object.entries(blob.contexts)) {
+      if (!ctx?.queue?.length) continue;
+      contextStore.set(key, {
+        queue: normalizeTracks(ctx.queue),
+        originalQueue: normalizeTracks(
+          ctx.originalQueue?.length ? ctx.originalQueue : ctx.queue
+        ),
+        index: ctx.index ?? 0,
+        progress: typeof ctx.progress === "number" ? ctx.progress : 0,
+      });
+    }
+  }
+  activeContextKey = (blob.activeContextKey || "music").trim() || "music";
+
+  if (!blob.queue?.length) {
+    notify();
+    return;
+  }
   queue = normalizeTracks(blob.queue);
-  originalQueue = normalizeTracks(blob.originalQueue?.length ? blob.originalQueue : blob.queue);
+  originalQueue = normalizeTracks(
+    blob.originalQueue?.length ? blob.originalQueue : blob.queue
+  );
   index = Math.max(0, Math.min(blob.index ?? 0, queue.length - 1));
   volume = typeof blob.volume === "number" ? blob.volume : 1;
   repeatOne = Boolean(blob.repeatOne);
   shuffle = Boolean(blob.shuffle);
-  barHidden = Boolean(blob.barHidden);
+  // Always start unpinned; pin is a session gesture, not a login restore.
+  barHidden = true;
+  barPeeking = false;
   const el = ensureAudio();
-  if (!el || !queue[index]) return;
+  if (!el || !queue[index]) {
+    notify();
+    return;
+  }
   const track = queue[index];
   el.volume = volume;
   el.src = streamUrlFor(track);
@@ -940,6 +1137,27 @@ export function initGlobalMusicPlayer() {
   el.addEventListener("loadedmetadata", onMeta);
   publishSession(track, el);
   playing = false;
-  // Restore paused — user hits play (locked 12c).
+  // Restore paused — user hits play.
   notify();
+}
+
+function ensureHydrated() {
+  hydrateFromStorage();
+}
+
+/** Call once from App mount — restore paused session + dash preview bridge. */
+export function initGlobalMusicPlayer() {
+  hydrateFromStorage();
+  ensureAudio();
+  setDashPreviewMainPlayer({
+    pause: () => globalMusicPause(),
+    resume: () => globalMusicResume(),
+    getVolume: () => volume,
+    wasPlaying: () => Boolean(audioEl && !audioEl.paused && currentTrack()),
+  });
+}
+
+// Hydrate before any React child effect can seed On Repeat over a restored session.
+if (typeof window !== "undefined") {
+  hydrateFromStorage();
 }

@@ -77,7 +77,11 @@ def _split_bracket_parts(title: str) -> tuple[str, list[str]]:
     if not match:
         return text, []
     main = text[: match.start()].strip()
-    parts = [piece.strip() for piece in match.group(1).split(";") if piece.strip()]
+    parts = [
+        piece.strip()
+        for piece in re.split(r"[;:]+", match.group(1))
+        if piece.strip()
+    ]
     return main, parts
 
 

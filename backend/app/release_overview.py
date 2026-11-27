@@ -101,6 +101,8 @@ CATEGORY_TYPE_LABELS: dict[str, str] = {
     "albums": "Album",
     "extended_plays": "EP",
     "compilations": "Compilation",
+    "remixes": "Remix",
+    "demos": "Demo",
     "soundtracks": "Soundtrack",
     "live_albums": "Live album",
     "singles": "Single",
@@ -279,6 +281,7 @@ def _artwork_urls(artwork: Path | None, media_root: Path) -> dict[str, str | Non
         resolve_cover_banner_file,
         resolve_cover_landscape_file,
         resolve_cover_portrait_file,
+        resolve_visualizer_album_file,
     )
 
     if not artwork:
@@ -291,6 +294,7 @@ def _artwork_urls(artwork: Path | None, media_root: Path) -> dict[str, str | Non
             "cover_portrait_url": None,
             "cover_animation_url": None,
             "canvas_url": None,
+            "visualizer_url": None,
             "icon_url": None,
             "logo_url": None,
             "disc_url": "/api/assets/default/disc.png",
@@ -318,6 +322,7 @@ def _artwork_urls(artwork: Path | None, media_root: Path) -> dict[str, str | Non
     cover_portrait = resolve_cover_portrait_file(artwork)
     cover_animation = resolve_animation_album_file(artwork)
     canvas = resolve_canvas_album_file(artwork)
+    visualizer = resolve_visualizer_album_file(artwork)
     logo = _artwork_file(artwork, LOGO_STEM)
     icon = _artwork_file(artwork, ICON_STEM)
     spotify = _match_code_file(artwork, _SPOTIFY_CODE_STEMS)
@@ -337,6 +342,7 @@ def _artwork_urls(artwork: Path | None, media_root: Path) -> dict[str, str | Non
         if cover_animation
         else None,
         "canvas_url": _media_url(canvas, media_root) if canvas else None,
+        "visualizer_url": _media_url(visualizer, media_root) if visualizer else None,
         "icon_url": _media_url(icon, media_root) if icon else None,
         "logo_url": _media_url(logo, media_root) if logo else None,
         "disc_url": _disc_image_url(artwork, media_root),

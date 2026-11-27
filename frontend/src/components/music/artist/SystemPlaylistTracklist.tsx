@@ -1935,60 +1935,76 @@ const SystemPlaylistTracklist = forwardRef<SystemPlaylistTracklistHandle, Props>
                     {versions.map((v, i) => {
                       const active = playingPath === v.play_path;
                       const sourceTrack = trackByPath.get(versionsTrack?.play_path ?? "");
+                      const playVersion = () => {
+                        const source = versionSourceFromVersionItem(
+                          v,
+                          versionsTrack?.play_path ?? null
+                        );
+                        onPlay(v.play_path, v.title, {
+                          cover_url: v.cover_url,
+                          cover_animation_url: v.cover_animation_url,
+                          canvas_url: v.canvas_url,
+                          disc_url: v.disc_url,
+                          background_layers: v.background_layers,
+                        });
+                        onPanelActionsChange?.({
+                          track: {
+                            id: v.play_path,
+                            number: i + 1,
+                            title: v.title,
+                            play_path: v.play_path,
+                            duration: v.duration ?? null,
+                            duration_sec: null,
+                            has_lrc: false,
+                            has_synced_lrc: false,
+                            is_link: false,
+                            cover_url: v.cover_url,
+                            navigate_release_id:
+                              v.navigate_release_id ??
+                              sourceTrack?.navigate_release_id ??
+                              null,
+                          },
+                          showLyrics: true,
+                          showVersions: false,
+                          panelDateIso: v.date_iso ?? source?.date_iso ?? null,
+                          versionSource: source,
+                        });
+                      };
                       return (
                         <li
                           key={v.play_path}
-                          className={active ? "release-tracklist__row active" : "release-tracklist__row"}
+                          className={
+                            active
+                              ? "release-tracklist__row release-tracklist__row--playable active"
+                              : "release-tracklist__row release-tracklist__row--playable"
+                          }
+                          onClick={playVersion}
                         >
+                          <span className="release-tracklist__num">{i + 1}</span>
                           <button
                             type="button"
-                            className="release-tracklist__play"
-                            onClick={() => {
-                              const source = versionSourceFromVersionItem(
-                                v,
-                                versionsTrack?.play_path ?? null
-                              );
-                              onPlay(v.play_path, v.title, {
-                                cover_url: v.cover_url,
-                                cover_animation_url: v.cover_animation_url,
-                                canvas_url: v.canvas_url,
-                                disc_url: v.disc_url,
-                                background_layers: v.background_layers,
-                              });
-                              onPanelActionsChange?.({
-                                track: {
-                                  id: v.play_path,
-                                  number: i + 1,
-                                  title: v.title,
-                                  play_path: v.play_path,
-                                  duration: v.duration ?? null,
-                                  duration_sec: null,
-                                  has_lrc: false,
-                                  has_synced_lrc: false,
-                                  is_link: false,
-                                  cover_url: v.cover_url,
-                                  navigate_release_id:
-                                    v.navigate_release_id ??
-                                    sourceTrack?.navigate_release_id ??
-                                    null,
-                                },
-                                showLyrics: true,
-                                showVersions: false,
-                                panelDateIso: v.date_iso ?? source?.date_iso ?? null,
-                                versionSource: source,
-                              });
+                            className="release-tracklist__title-play"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              playVersion();
                             }}
                           >
-                            <span className="release-tracklist__num">{i + 1}</span>
                             <ReleaseTrackTitle
                               title={v.title}
                               billboard={stacked}
                               hidePerformer={hidePerformer}
                             />
-                            {v.duration && (
-                              <span className="release-tracklist__duration">{v.duration}</span>
-                            )}
                           </button>
+                          {v.duration ? (
+                            <span className="release-tracklist__duration">
+                              {v.duration}
+                            </span>
+                          ) : (
+                            <span
+                              className="release-tracklist__duration release-tracklist__duration--empty"
+                              aria-hidden
+                            />
+                          )}
                         </li>
                       );
                     })}

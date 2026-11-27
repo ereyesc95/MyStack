@@ -61,6 +61,7 @@ _CATEGORY_TO_TYPE = {
     "albums": "Studio Album",
     "extended_plays": "Extended Play",
     "compilations": "Compilation",
+    "remixes": "Remix",
     "demos": "Demo",
     "soundtracks": "Soundtrack",
     "live_albums": "Live Album",

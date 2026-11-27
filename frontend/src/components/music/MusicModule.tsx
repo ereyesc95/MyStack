@@ -18,6 +18,7 @@ import {
   getGlobalMusicSnapshot,
   globalMusicPlayFrom,
   globalMusicRestoreContext,
+  globalMusicSeedContextIfEmpty,
   globalMusicToggle,
   subscribeGlobalMusic,
   type GlobalMusicTrack,
@@ -750,6 +751,7 @@ export default function MusicModule({
   useBeatPulse(globalAudioRef, homeBeatActive, globalMusic.playing);
 
   // Returning to MusicStack restores the music queue (module stacks adopt their own).
+  // Brief peek then auto-hide — default chrome stays unpinned.
   useEffect(() => {
     globalMusicRestoreContext("music", { peek: true });
   }, []);
@@ -1375,6 +1377,25 @@ export default function MusicModule({
 
   const homeTracks = dashboard.top_tracks;
 
+  // First Music visit (no saved queue): seed On Repeat paused.
+  useEffect(() => {
+    if (!homeTracks.length) return;
+    const tracks: GlobalMusicTrack[] = homeTracks
+      .filter((t) => Boolean(t.path))
+      .map((t) => ({
+        id: t.path!,
+        path: t.path!,
+        title: t.title || "Track",
+        artist: t.artist_name ?? null,
+        artistId: t.artist_id ?? null,
+        releaseId: t.navigate_release_id ?? null,
+        releaseTitle: (t.release || "").trim() || null,
+        coverUrl: t.cover_url ?? null,
+      }));
+    if (!tracks.length) return;
+    globalMusicSeedContextIfEmpty(tracks, { contextKey: "music", peek: false });
+  }, [homeTracks]);
+
   const resolveHomeTrackCover = useCallback(
     (path: string) => {
       return homeTracks.find((t) => t.path === path)?.cover_url ?? null;
@@ -1407,6 +1428,7 @@ export default function MusicModule({
                 "albums",
                 "extended plays",
                 "compilations",
+                "remixes",
                 "demos",
                 "singles",
                 "soundtracks",
@@ -2372,11 +2394,11 @@ export default function MusicModule({
           onBrowseArtistAudio={(id, category, options) => {
             openArtistAudio(id, category, options);
           }}
-          onOpenRelease={(bid, rid) => {
+          onOpenRelease={(bid, rid, releaseTab) => {
             void prefetchReleaseOverview(bid, rid);
             onReleaseNavigate?.(
               rid,
-              "overview",
+              releaseTab ?? "overview",
               bid !== bandId ? bid : undefined
             );
           }}

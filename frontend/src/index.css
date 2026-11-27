@@ -9187,6 +9187,82 @@ html.mystack-player-pinned .dash-scroll--icons .dash-morph--square:not(.is-expan
   letter-spacing: 0.04em;
 }
 
+/* Shared first-load top-bar reveal (Artist / Series / Release / Universe). */
+.ms-nav-slot,
+.artist-page__nav-slot {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.28s ease;
+}
+.ms-nav-slot.is-open,
+.artist-page__nav-slot.is-open {
+  grid-template-rows: 1fr;
+}
+.ms-nav-slot-inner,
+.artist-page__nav-slot-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+.ms-nav-slot--intro.is-open .ms-nav-slot-inner > nav,
+.artist-page__nav-slot--intro.is-open .artist-page__nav-slot-inner > nav {
+  animation: ms-nav-slide-down 0.28s ease;
+}
+@keyframes ms-nav-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-0.4rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ms-pill-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-0.55rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.ms-pill-strip--intro > * {
+  animation: ms-pill-slide-in 0.26s ease both;
+}
+.ms-pill-strip--intro > *:nth-child(1) {
+  animation-delay: 0s;
+}
+.ms-pill-strip--intro > *:nth-child(2) {
+  animation-delay: 0.03s;
+}
+.ms-pill-strip--intro > *:nth-child(3) {
+  animation-delay: 0.06s;
+}
+.ms-pill-strip--intro > *:nth-child(4) {
+  animation-delay: 0.09s;
+}
+.ms-pill-strip--intro > *:nth-child(5) {
+  animation-delay: 0.12s;
+}
+.ms-pill-strip--intro > *:nth-child(6) {
+  animation-delay: 0.15s;
+}
+.ms-pill-strip--intro > *:nth-child(n + 7) {
+  animation-delay: 0.18s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ms-nav-slot,
+  .artist-page__nav-slot {
+    transition: none;
+  }
+  .ms-nav-slot--intro.is-open .ms-nav-slot-inner > nav,
+  .artist-page__nav-slot--intro.is-open .artist-page__nav-slot-inner > nav,
+  .ms-pill-strip--intro > * {
+    animation: none;
+  }
+}
+
 .artist-page__sections,
 .artist-page__subtabs {
   display: flex;
@@ -9883,7 +9959,8 @@ html.mystack-player-pinned .dash-scroll--icons .dash-morph--square:not(.is-expan
 .artist-about:not(.artist-about--stacked) .artist-about__foot {
   margin-top: auto;
   margin-bottom: 0;
-  padding-top: 1.25rem;
+  /* Keep meta close to bio; match Activity → Top tracks to meta-row rhythm. */
+  padding-top: var(--artist-meta-gap);
 }
 
 .artist-about:not(.artist-about--stacked) .artist-about__meta--primary,
@@ -9891,9 +9968,20 @@ html.mystack-player-pinned .dash-scroll--icons .dash-morph--square:not(.is-expan
   font-size: 0.82rem;
 }
 
+/* Match vertical rhythm across both meta columns (pill rows vs text rows). */
+.artist-about:not(.artist-about--stacked) .artist-about__meta--primary .artist-about__meta-row,
+.artist-about:not(.artist-about--stacked) .artist-about__meta--secondary .artist-about__meta-row {
+  gap: 0.35rem 0.5rem;
+  align-items: center;
+  min-height: 1.55rem;
+}
+
+.artist-about:not(.artist-about--stacked) .artist-about__meta--primary .artist-about__meta-row {
+  grid-template-columns: 7rem minmax(0, 1fr);
+}
+
 .artist-about:not(.artist-about--stacked) .artist-about__meta--secondary .artist-about__meta-row {
   grid-template-columns: 4.25rem minmax(0, 1fr);
-  gap: 0.35rem 0.5rem;
 }
 
 .artist-about:not(.artist-about--stacked) .artist-about__meta--secondary .artist-about__meta-row dd {
@@ -10093,14 +10181,26 @@ html.mystack-player-pinned .dash-scroll--icons .dash-morph--square:not(.is-expan
   flex-wrap: wrap;
 }
 
-.artist-about__origin .artist-about__pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
+.artist-about__origin-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.artist-about__origin-link:hover {
+  color: var(--accent);
+  text-decoration: none;
 }
 
 .artist-about:not(.artist-about--stacked) .artist-about__tracks {
-  margin-top: 0;
+  margin-top: var(--artist-meta-gap);
   padding-top: 0;
 }
 
@@ -14757,7 +14857,6 @@ button.media-release-card--banner {
 }
 
 .artist-page--mobile-landscape .artist-about__pill,
-.artist-page--mobile-landscape .artist-about__origin .artist-about__pill,
 .artist-page--mobile-landscape
   .artist-about:not(.artist-about--stacked)
   .artist-about__meta--secondary
@@ -14769,6 +14868,10 @@ button.media-release-card--banner {
 .artist-page--mobile-landscape .artist-word-cloud__pill {
   font-size: 0.62rem !important;
   padding: 0.1rem 0.4rem;
+}
+
+.artist-page--mobile-landscape .artist-about__origin-link {
+  font-size: 0.62rem !important;
 }
 
 .artist-page--mobile-landscape .artist-about__tracks-label,
@@ -15188,7 +15291,8 @@ button.media-release-card--banner {
 .release-page__panel {
   position: sticky;
   top: 0;
-  z-index: 2;
+  /* Above hidden-player edge reveal (z-index 85) so prev/next stay clickable. */
+  z-index: 90;
   align-self: stretch;
   display: flex;
   flex-direction: column;
@@ -15197,9 +15301,9 @@ button.media-release-card--banner {
   background: rgba(0, 0, 0, 0.52);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  border-radius: 4px;
+  border-radius: 0;
   border: 1px solid rgba(255, 255, 255, 0.06);
-  min-height: calc(100% - 0.5rem);
+  min-height: 100%;
   text-align: center;
   align-items: center;
   justify-content: flex-start;
@@ -15244,7 +15348,7 @@ button.media-release-card--banner {
   inset: 0;
   background: rgba(0, 0, 0, 0.42);
   pointer-events: none;
-  transition: opacity 0.45s ease;
+  transition: opacity 0.28s ease;
 }
 
 .release-page__panel-content {
@@ -15257,20 +15361,33 @@ button.media-release-card--banner {
   min-height: 0;
   width: 100%;
   gap: 0.45rem;
-  transition: opacity 0.45s ease;
+  /* Match reveal / visualizer fade timing. */
+  transition: opacity 0.32s ease;
 }
-.release-page__panel-reveal {
+.release-page__panel-tools {
   position: absolute;
-  top: 0.4rem;
-  right: 0.4rem;
+  left: 50%;
+  top: 0;
+  /* Sit a bit above the divider; no pill/circle chrome. */
+  transform: translate(-50%, calc(-50% - 0.55rem));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  z-index: 8;
+  pointer-events: none;
+}
+.release-page__panel-reveal,
+.release-page__panel-viz {
+  position: relative;
   z-index: 6;
   width: 1.55rem;
   height: 1.55rem;
   padding: 0;
   border: none;
-  border-radius: 999px;
+  border-radius: 0;
   background: transparent;
-  color: rgba(255, 255, 255, 0.42);
+  color: rgba(255, 255, 255, 0.48);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -15279,31 +15396,65 @@ button.media-release-card--banner {
   pointer-events: none;
   transition:
     color 0.25s ease,
-    opacity 0.28s ease,
-    background 0.25s ease;
+    opacity 0.28s ease;
+}
+.release-page__panel-reveal-icon,
+.release-page__panel-viz-icon {
+  width: 0.95em;
+  height: 0.95em;
 }
 .release-page__panel:hover .release-page__panel-reveal,
-.release-page__panel-reveal:focus-visible {
+.release-page__panel:hover .release-page__panel-viz,
+.release-page__panel-reveal:focus-visible,
+.release-page__panel-viz:focus-visible,
+.release-page__panel-reveal.is-active,
+.release-page__panel-reveal.is-lingering,
+.release-page__panel-viz.is-active {
   opacity: 1;
   pointer-events: auto;
 }
-/* Do not keep eye visible via focus-within / linger — hover only. */
+/* Do not keep control visible via focus-within — hover / active only. */
 .release-page__panel-reveal:hover,
-.release-page__panel-reveal.is-active {
-  color: rgba(255, 255, 255, 0.88);
-  background: rgba(0, 0, 0, 0.22);
+.release-page__panel-viz:hover,
+.release-page__panel-reveal.is-active,
+.release-page__panel-viz.is-active {
+  color: var(--accent, #00d4c8);
+  background: transparent;
 }
 .release-page__panel.is-bg-revealed .release-page__panel-content {
+  opacity: 0;
+  pointer-events: none;
+}
+/* Peek panel chrome back on hover while still in “view background” mode. */
+.release-page__panel.is-bg-revealed:hover .release-page__panel-content {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* After enabling reveal, ignore hover until pointer leaves the panel. */
+.release-page__panel.is-bg-revealed.is-reveal-hover-suppressed .release-page__panel-content,
+.release-page__panel.is-bg-revealed.is-reveal-hover-suppressed:hover .release-page__panel-content {
   opacity: 0;
   pointer-events: none;
 }
 .release-page__panel.is-bg-revealed .release-page__panel-canvas-shade {
   opacity: 0;
 }
+.release-page__panel.is-bg-revealed:hover .release-page__panel-canvas-shade {
+  opacity: 1;
+}
+.release-page__panel.is-bg-revealed.is-reveal-hover-suppressed .release-page__panel-canvas-shade,
+.release-page__panel.is-bg-revealed.is-reveal-hover-suppressed:hover .release-page__panel-canvas-shade {
+  opacity: 0;
+}
 /* Undim static cover/background instead of hiding it when no canvas. */
 .release-page__panel.is-bg-revealed.release-page__panel--track::before {
   opacity: 1;
   filter: none;
+  transition: opacity 0.28s ease, filter 0.28s ease;
+}
+.release-page__panel.is-bg-revealed:hover.release-page__panel--track::before {
+  opacity: 0.14;
+  filter: blur(2px);
 }
 
 .release-page:not(.release-page--stacked) .release-page__panel-content > .ms-disclosure.is-open {
@@ -16309,10 +16460,11 @@ button.media-release-card--banner {
 }
 
 .release-page__panel-footer {
+  position: relative;
   flex-shrink: 0;
   width: 100%;
   margin-top: auto;
-  padding-top: 0.55rem;
+  padding-top: 0.85rem;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   display: flex;
   flex-direction: column;
@@ -16750,6 +16902,37 @@ button.media-release-card--banner {
   gap: clamp(0.55rem, 1.4vh, 0.85rem);
   width: 100%;
   padding-bottom: 0.35rem;
+}
+
+/*
+ * Music release desktop overview: flush left panel neighbor bar with the
+ * right-side lineup/singles glass (same baseline as series cast fix).
+ */
+.release-page:not(.release-page--stacked):not(.series-subseries-page).release-page--overview
+  .release-page__panel {
+  min-height: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding-bottom: 0;
+}
+
+.release-page:not(.release-page--stacked):not(.series-subseries-page).release-page--overview
+  .release-page__main {
+  padding-bottom: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.release-page:not(.release-page--stacked):not(.series-subseries-page).release-page--overview
+  .release-page__overview {
+  height: 100%;
+  min-height: 0;
+}
+
+.release-page:not(.release-page--stacked):not(.series-subseries-page).release-page--overview
+  .release-page__overview-bottom {
+  padding-bottom: 0;
+  margin-bottom: 0;
 }
 
 .release-page__overview--compact-lineup {
@@ -17704,7 +17887,7 @@ button.media-release-card--banner {
   background: rgba(0, 0, 0, 0.52);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  border-radius: 4px;
+  border-radius: 0;
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -18615,20 +18798,6 @@ button.media-release-card--banner {
   border-bottom-color: var(--accent, #c9a227);
 }
 
-.release-tracklist__bside-single + .release-tracklist__bside-single {
-  margin-top: 1rem;
-}
-
-.release-tracklist__single-title {
-  margin: 0 0 0.35rem;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text);
-  letter-spacing: 0.02em;
-  line-height: 1.25;
-  padding: 0.08rem 0.1rem;
-}
-
 .release-tracklist__title-suffix {
   font-size: 0.72em;
   font-weight: 400;
@@ -18731,6 +18900,106 @@ button.release-tracklist__group-label.series-season-block__header.is-open {
   padding: 0.15rem 0.25rem;
 }
 
+.release-tracklist__row.release-tracklist__row--playable {
+  cursor: pointer;
+}
+
+/* B-sides / Demos / Remixes / Acoustic / Live — title-first; compact From + duration.
+   Must follow .release-tracklist__row so display:grid wins over flex. */
+.release-tracklist__row.release-tracklist__row--from {
+  display: grid;
+  /* Title flexes; From wide enough for typical "Title · Deluxe"; duration fixed. */
+  grid-template-columns: 2rem minmax(0, 1fr) minmax(9rem, 14rem) 3.5rem;
+  align-items: center;
+  column-gap: 0.65rem;
+  row-gap: 0;
+}
+
+.release-tracklist__row.release-tracklist__row--from > .release-tracklist__num {
+  flex: none;
+  width: auto;
+}
+
+.release-tracklist__row.release-tracklist__row--from > .release-tracklist__title-cluster {
+  flex: none;
+  width: auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.release-tracklist__row.release-tracklist__row--from > .release-tracklist__from {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.72em;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  text-align: left;
+  text-decoration: none;
+  cursor: default;
+}
+
+.release-tracklist__row.release-tracklist__row--from > .release-tracklist__from .billboard-text,
+.release-tracklist__row.release-tracklist__row--from > .release-tracklist__from .billboard-text-clip,
+.release-tracklist__row.release-tracklist__row--from > .release-tracklist__from .billboard-text-inner {
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+}
+
+.release-tracklist__row.release-tracklist__row--from > button.release-tracklist__from {
+  cursor: pointer;
+}
+
+.release-tracklist__row.release-tracklist__row--from > button.release-tracklist__from:hover {
+  color: var(--text);
+}
+
+.release-tracklist__row.release-tracklist__row--from > .release-tracklist__from--empty {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.release-tracklist__row.release-tracklist__row--from > .release-tracklist__duration-wrap {
+  margin-left: 0;
+  justify-self: end;
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.release-page--stacked .release-tracklist__row.release-tracklist__row--from,
+.release-page--mobile-landscape .release-tracklist__row.release-tracklist__row--from {
+  grid-template-columns: 2rem minmax(0, 1fr) 3.5rem;
+}
+
+@media (min-width: 1100px) {
+  .release-tracklist__row.release-tracklist__row--from {
+    grid-template-columns: 2rem minmax(0, 1fr) minmax(11rem, 16rem) 3.5rem;
+  }
+}
+
+.release-page--stacked .release-tracklist__row.release-tracklist__row--from > .release-tracklist__from,
+.release-page--mobile-landscape .release-tracklist__row.release-tracklist__row--from > .release-tracklist__from {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .release-tracklist__row.release-tracklist__row--from {
+    grid-template-columns: 2rem minmax(0, 1fr) 3.5rem;
+  }
+
+  .release-tracklist__row.release-tracklist__row--from > .release-tracklist__from {
+    display: none;
+  }
+}
+
 .release-tracklist__row-inner {
   display: flex;
   align-items: center;
@@ -18774,7 +19043,7 @@ button.release-tracklist__group-label.series-season-block__header.is-open {
 }
 
 .release-tracklist__title-play {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
   max-width: 100%;
   display: flex;
@@ -37201,8 +37470,9 @@ button.series-audio-player__source-link:focus-visible {
   pointer-events: auto;
   cursor: pointer;
   z-index: 2;
-  /* Hairline so the track stays visible on busy art; fill is played-only. */
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.22);
+  /* Unplayed track invisible; fill is accent-only via --seek-pct. */
+  box-shadow: none;
+  background: transparent;
 }
 /* Invisible hover pad above the seek so unpinned bar stays open while aiming. */
 .global-music-bar.is-overlay.is-visible .global-music-bar__seek-top::before {
@@ -37414,7 +37684,10 @@ button.series-audio-player__source-link:focus-visible {
   cursor: pointer;
   color: inherit;
   overflow: hidden;
+  /* Shrink-wrap to text so empty bar space isn't a hit target. */
+  width: max-content;
   max-width: 100%;
+  flex: 0 1 auto;
 }
 .global-music-bar__title:disabled,
 .global-music-bar__artist:disabled,
@@ -37426,6 +37699,8 @@ button.series-audio-player__source-link:focus-visible {
   align-items: baseline;
   gap: 0.28rem;
   min-width: 0;
+  /* Full text column for layout; only the buttons inside are clickable. */
+  width: 100%;
   max-width: 100%;
   overflow: hidden;
 }
@@ -37435,24 +37710,27 @@ button.series-audio-player__source-link:focus-visible {
   font-size: 0.68rem;
   line-height: 1;
   opacity: 0.85;
+  pointer-events: none;
 }
 .global-music-bar__album {
   font-size: 0.68rem;
   color: var(--text-muted, #8b93a7);
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 2.5rem;
-  flex: 1 1 auto;
+  min-width: 0;
+  /* Size to label; shrink if needed — do not grow into empty bar space. */
+  flex: 0 1 auto;
 }
 .global-music-bar__title {
   font-size: 0.78rem;
   font-weight: 650;
   color: var(--text, #e8eaef);
-  width: 100%;
+  align-self: flex-start;
 }
 .global-music-bar__title-clip {
   display: block;
   width: 100%;
+  max-width: 100%;
   overflow: hidden;
 }
 .global-music-bar__title-inner {
@@ -37488,8 +37766,9 @@ button.series-audio-player__source-link:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+  /* Cap vs the text column (not a fit-content parent — that collapsed to "H."). */
   flex: 0 1 auto;
-  max-width: 55%;
+  max-width: 45%;
 }
 .global-music-bar__title,
 .global-music-bar__artist,
@@ -38062,4 +38341,508 @@ body:has(.global-music-bar.is-pinned.is-visible)
     opacity: 1;
     pointer-events: auto;
   }
+}
+
+/* Empty area left of transport — secondary visualizer entry. */
+.global-music-bar__inner {
+  position: relative;
+}
+.global-music-bar__viz-hit {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Stretch from end of meta toward the controls cluster. */
+  left: min(42%, 16rem);
+  right: 11.5rem;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  z-index: 1;
+}
+html[data-phone] .global-music-bar__viz-hit {
+  right: 8.5rem;
+  left: min(48%, 12rem);
+}
+.global-music-bar__viz-btn:hover {
+  color: var(--accent);
+  opacity: 1;
+}
+.global-music-bar__viz-btn.is-active,
+.global-music-bar__viz-btn[aria-pressed="true"] {
+  color: var(--accent);
+  opacity: 1;
+}
+
+/* —— Fullscreen now-playing / visualizer —— */
+.music-visualizer {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 0.34s ease;
+  /* Beat vars written inline by useBeatPulse — do not zero them here. */
+}
+.music-visualizer.is-shown {
+  opacity: 1;
+}
+.music-visualizer__bg {
+  position: absolute;
+  inset: 0;
+  touch-action: pan-y;
+}
+.music-visualizer__layer {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: 0;
+  z-index: 1;
+  transition: opacity 1.1s ease;
+  will-change: opacity;
+  pointer-events: none;
+}
+.music-visualizer__layer.is-active {
+  opacity: 1;
+  z-index: 2;
+}
+.music-visualizer__layer--video video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.music-visualizer__beat {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 calc(28px + 48px * var(--beat-strength, 0))
+      color-mix(in srgb, var(--beat-accent, var(--accent)) calc(22% + 48% * var(--beat-strength, 0)), transparent),
+    inset 0 0 calc(10px + 18px * var(--beat-bass, 0))
+      color-mix(in srgb, var(--accent) calc(12% + 32% * var(--beat-bass, 0)), transparent);
+  transition: box-shadow 0.05s linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .music-visualizer__beat {
+    display: none;
+  }
+  .music-visualizer__layer {
+    transition: none;
+  }
+  .music-visualizer {
+    transition: none;
+  }
+}
+.music-visualizer__synced {
+  position: absolute;
+  right: max(1.25rem, env(safe-area-inset-right));
+  /* Align with bottom chrome metadata row; stay above the dim. */
+  bottom: max(2.85rem, calc(env(safe-area-inset-bottom) + 2.35rem));
+  z-index: 12;
+  max-width: min(26rem, 42vw);
+  text-align: right;
+  pointer-events: none;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.85),
+    0 0 18px rgba(0, 0, 0, 0.55),
+    0 0 2px rgba(0, 0, 0, 0.9);
+}
+.music-visualizer.is-portrait .music-visualizer__synced {
+  left: 1rem;
+  right: 1rem;
+  max-width: none;
+  text-align: center;
+  bottom: max(6.2rem, calc(env(safe-area-inset-bottom) + 5.4rem));
+}
+.music-visualizer__synced-line {
+  margin: 0.12rem 0;
+  line-height: 1.25;
+}
+.music-visualizer__synced-line--near {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.55);
+  min-height: 1.05em;
+}
+.music-visualizer__synced-line--active {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #fff;
+}
+.music-visualizer__plain {
+  position: absolute;
+  top: auto;
+  bottom: max(6.5rem, calc(env(safe-area-inset-bottom) + 5.6rem));
+  right: max(0.85rem, env(safe-area-inset-right));
+  width: min(22rem, 36vw);
+  max-height: min(42vh, 22rem);
+  z-index: 12;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem;
+  overflow: hidden;
+}
+.music-visualizer.is-portrait .music-visualizer__plain {
+  left: 0.75rem;
+  right: 0.75rem;
+  width: auto;
+  top: auto;
+  bottom: max(5.8rem, calc(env(safe-area-inset-bottom) + 5rem));
+  max-height: 42vh;
+}
+.music-visualizer__plain-scroll {
+  height: 100%;
+  overflow: auto;
+}
+.music-visualizer__plain pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font: inherit;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.88);
+}
+.music-visualizer__lyrics-toggle {
+  position: absolute;
+  right: max(0.85rem, env(safe-area-inset-right));
+  bottom: max(2.9rem, calc(env(safe-area-inset-bottom) + 2.4rem));
+  z-index: 13;
+  width: 2.2rem;
+  height: 2.2rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.music-visualizer__lyrics-toggle:hover,
+.music-visualizer__lyrics-toggle.is-active {
+  color: var(--accent);
+  background: rgba(0, 0, 0, 0.62);
+}
+.music-visualizer.is-portrait .music-visualizer__lyrics-toggle {
+  bottom: max(5.2rem, calc(env(safe-area-inset-bottom) + 4.5rem));
+}
+.music-visualizer__chrome {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 7;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.28s ease;
+}
+.music-visualizer__chrome.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.music-visualizer__chrome-dim {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 11rem;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.78) 0%,
+    rgba(0, 0, 0, 0.42) 48%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+.music-visualizer__chrome-inner {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: end;
+  gap: 0.75rem;
+  padding: 0 1rem max(2.4rem, calc(env(safe-area-inset-bottom) + 1.6rem));
+  min-height: 7.5rem;
+}
+.music-visualizer__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+  max-width: 100%;
+}
+.music-visualizer__art-stack {
+  /* Reserve room for disc peeking right of the cover. */
+  position: relative;
+  width: 6.4rem;
+  height: 4.4rem;
+  flex-shrink: 0;
+}
+.music-visualizer__cover {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 4.4rem;
+  height: 4.4rem;
+  object-fit: cover;
+  border-radius: 4px;
+  z-index: 2;
+  background: #222;
+}
+.music-visualizer__cover--empty {
+  display: block;
+}
+.music-visualizer__disc {
+  position: absolute;
+  left: 2.05rem;
+  top: 0.35rem;
+  width: 3.7rem;
+  height: 3.7rem;
+  object-fit: contain;
+  z-index: 1;
+  border-radius: 50%;
+}
+.music-visualizer__art-stack.is-spinning .music-visualizer__disc {
+  animation: music-viz-spin 8s linear infinite;
+}
+.music-visualizer__art-stack.is-vinyl .music-visualizer__disc {
+  left: 0;
+  top: 0;
+  width: 4.4rem;
+  height: 4.4rem;
+}
+.music-visualizer__art-stack.is-vinyl {
+  width: 4.4rem;
+}
+@keyframes music-viz-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .music-visualizer__art-stack.is-spinning .music-visualizer__disc {
+    animation: none;
+  }
+}
+.music-visualizer__text {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+.music-visualizer__title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.65);
+}
+.music-visualizer__artist {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.28rem;
+  min-height: 1.55rem;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.music-visualizer__artist-icon {
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 0.22rem;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+.music-visualizer__artist-logo {
+  max-width: 9rem;
+  height: 1.45rem;
+  width: auto;
+  object-fit: contain;
+}
+.music-visualizer__transport {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.1rem;
+  justify-self: center;
+  grid-column: 2;
+}
+.music-visualizer__chrome-spacer {
+  min-width: 0;
+}
+.music-visualizer__play {
+  width: 3.4rem;
+  height: 3.4rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.music-visualizer__play:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+.music-visualizer__triangle {
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0.55rem 0 0.55rem 0.95rem;
+  border-color: transparent transparent transparent currentColor;
+  margin-left: 0.15rem;
+}
+.music-visualizer__pause {
+  width: 0.85rem;
+  height: 1rem;
+  border-left: 0.28rem solid currentColor;
+  border-right: 0.28rem solid currentColor;
+  box-sizing: border-box;
+}
+.music-visualizer__skip {
+  width: 2.4rem;
+  height: 2.4rem;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  position: relative;
+}
+.music-visualizer__skip::before,
+.music-visualizer__skip::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  border-style: solid;
+}
+.music-visualizer__skip--prev::before {
+  left: 0.55rem;
+  border-width: 0.45rem 0.7rem 0.45rem 0;
+  border-color: transparent currentColor transparent transparent;
+}
+.music-visualizer__skip--prev::after {
+  left: 1.15rem;
+  width: 0.22rem;
+  height: 0.9rem;
+  background: currentColor;
+  border: 0;
+}
+.music-visualizer__skip--next::before {
+  right: 0.55rem;
+  border-width: 0.45rem 0 0.45rem 0.7rem;
+  border-color: transparent transparent transparent currentColor;
+}
+.music-visualizer__skip--next::after {
+  right: 1.15rem;
+  width: 0.22rem;
+  height: 0.9rem;
+  background: currentColor;
+  border: 0;
+}
+.music-visualizer__exit {
+  position: absolute;
+  top: max(0.85rem, env(safe-area-inset-top));
+  right: max(0.85rem, env(safe-area-inset-right));
+  z-index: 14;
+  width: 2.2rem;
+  height: 2.2rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+.music-visualizer__exit:hover {
+  color: var(--accent);
+  background: rgba(0, 0, 0, 0.55);
+}
+.music-visualizer__seek {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  z-index: 9;
+}
+.music-visualizer__seek-input {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  margin-bottom: -7px;
+  padding: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.music-visualizer__seek-input::-webkit-slider-runnable-track {
+  height: 3px;
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--accent) 92%, #fff) 0%,
+    color-mix(in srgb, var(--accent) 92%, #fff) var(--seek-pct, 0%),
+    transparent var(--seek-pct, 0%),
+    transparent 100%
+  );
+}
+.music-visualizer__seek-input::-moz-range-track {
+  height: 3px;
+  background: transparent;
+}
+.music-visualizer__seek-input::-moz-range-progress {
+  height: 3px;
+  background: color-mix(in srgb, var(--accent) 92%, #fff);
+}
+.music-visualizer__seek-input::-webkit-slider-thumb {
+  appearance: none;
+  width: 1px;
+  height: 3px;
+  background: transparent;
+  border: 0;
+}
+.music-visualizer__seek-input::-moz-range-thumb {
+  width: 1px;
+  height: 3px;
+  background: transparent;
+  border: 0;
+}
+.music-visualizer.is-portrait .music-visualizer__chrome-inner {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  text-align: center;
+  gap: 0.55rem;
+}
+.music-visualizer.is-portrait .music-visualizer__meta {
+  flex-direction: column;
+  width: 100%;
+}
+.music-visualizer.is-portrait .music-visualizer__transport {
+  grid-column: 1;
+}
+.music-visualizer.is-landscape .music-visualizer__chrome-inner > :last-child:not(.music-visualizer__transport) {
+  /* Keep right column empty so transport stays centered. */
+  min-width: 0;
 }

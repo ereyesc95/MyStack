@@ -58,6 +58,7 @@ import HubPage from "./components/HubPage";
 import { suppressDashHoverUntilPointerMove } from "./components/DashHoverTitle";
 import LocalVideoPlayerHost from "./components/LocalVideoPlayer";
 import GlobalMusicBar from "./components/GlobalMusicBar";
+import VisualizerOverlay from "./components/music/VisualizerOverlay";
 import type { MediaOption } from "./components/ModuleTopBar";
 import {
   globalMusicClear,
@@ -2686,6 +2687,8 @@ export default function App() {
       </main>
 
       {appReady ? (
+        <>
+        <VisualizerOverlay />
         <GlobalMusicBar
           onOpenArtist={(bandId, name) => {
             pushArtistRoute({
@@ -2753,6 +2756,7 @@ export default function App() {
             });
           }}
         />
+        </>
       ) : null}
 
       <LocalVideoPlayerHost />

@@ -53,7 +53,7 @@ PDF links prefer `Hobbies/{Collection}/{Stem}.pdf`, then fall back to a Books li
 
 Preferred layout: release categories directly under the artist folder:
 
-`Albums`, `Extended Plays`, `Compilations`, `Demos`, `Live Albums`, `Soundtracks`, `Singles`
+`Albums`, `Extended Plays`, `Compilations`, `Remixes`, `Demos`, `Live Albums`, `Soundtracks`, `Singles`
 
 Legacy `Audio/{Category}/` trees are still scanned as a fallback.
 
@@ -292,6 +292,7 @@ Series/D/Dragon Ball/1986.02.26. Dragon Ball/
 │   ├── Albums/
 │   │   └── 1995.11.21. Dragon Ball Z Music Collection [By Shunsuke Kikuchi].lnk
 │   ├── Compilations/
+│   ├── Remixes/
 │   ├── Demos/
 │   ├── Singles/
 │   └── Soundtracks/

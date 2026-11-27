@@ -28,6 +28,7 @@ STRUCTURAL_ICON_STEMS: dict[str, str] = {
     "albums": "Albums",
     "extended plays": "Extended Plays",
     "compilations": "Compilations",
+    "remixes": "Remixes",
     "demos": "Demos",
     "live albums": "Live Albums",
     "soundtracks": "Soundtracks",

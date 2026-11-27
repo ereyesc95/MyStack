@@ -48,8 +48,10 @@ import { getStoredReleaseCardLayout, saveReleaseCardLayout } from "../themes";
 import AppMenu from "./AppMenu";
 import ModuleHomeAudioPlayer from "./ModuleHomeAudioPlayer";
 import ConfirmDialog from "./ConfirmDialog";
+import FirstLoadNavSlot from "./FirstLoadNavSlot";
 import TopBarTitle from "./TopBarTitle";
 import OfficialUnofficialBar from "./OfficialUnofficialBar";
+import { useFirstLoadIntro } from "../useFirstLoadIntro";
 import {
   filterByOfficial,
   hasUnofficialItems,
@@ -430,6 +432,12 @@ export default function UniversePage({
     gameCards.length,
   ]);
 
+  const universeTabsReady = Boolean(hub) && !loading;
+  const universeTabsReveal = useFirstLoadIntro(
+    universeTabsReady,
+    `universe-tabs:${hub?.id ?? universeId}`
+  );
+
   useEffect(() => {
     if (!hub || loading) return;
     const allowed = new Set(navSections.map((s) => s.id));
@@ -660,25 +668,30 @@ export default function UniversePage({
           </div>
         </header>
 
-        <nav className="artist-page__sections" aria-label="Universe sections">
-          {navSections.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className={section === s.id ? "active" : ""}
-              onClick={() =>
-                onNavigate({
-                  section: s.id,
-                  overviewTab: s.id === "overview" ? "about" : overviewTab,
-                })
-              }
-            >
-              <span>
-                {mobilePortrait && s.mobileLabel ? s.mobileLabel : s.label}
-              </span>
-            </button>
-          ))}
-        </nav>
+        <FirstLoadNavSlot
+          open={universeTabsReveal.show && navSections.length > 0}
+          intro={universeTabsReveal.intro}
+        >
+          <nav className="artist-page__sections" aria-label="Universe sections">
+            {navSections.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={section === s.id ? "active" : ""}
+                onClick={() =>
+                  onNavigate({
+                    section: s.id,
+                    overviewTab: s.id === "overview" ? "about" : overviewTab,
+                  })
+                }
+              >
+                <span>
+                  {mobilePortrait && s.mobileLabel ? s.mobileLabel : s.label}
+                </span>
+              </button>
+            ))}
+          </nav>
+        </FirstLoadNavSlot>
 
         {section === "series" && showSeriesOfficialBar ? (
           <OfficialUnofficialBar

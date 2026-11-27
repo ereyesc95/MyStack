@@ -71,11 +71,14 @@ import { openCatalogVideo } from "../../openCatalogVideo";
 import { trackModuleActivity } from "../../moduleActivity";
 import { usePlayVideosPreference } from "../../playVideosPreference";
 import OfficialUnofficialBar from "../OfficialUnofficialBar";
+import FirstLoadNavSlot from "../FirstLoadNavSlot";
 import {
   filterByOfficial,
   hasUnofficialItems,
 } from "../../unofficialFilter";
 import { formatTrackDate } from "../../formatDate";
+import { preloadImages } from "../../preloadMedia";
+import { useFirstLoadIntro } from "../../useFirstLoadIntro";
 import {
   applyMediaTheme,
   beginArtistPageSession,
@@ -708,6 +711,38 @@ function extraPlayUrl(ep: SeriesEpisodeItem): string | null {
   return `/api/media/file?path=${encodeURIComponent(path)}`;
 }
 
+function matchSubseriesLeaf(
+  s: Pick<SeriesSubseriesCard, "id" | "title">,
+  subseriesId: string
+): boolean {
+  return (
+    s.id === subseriesId ||
+    slugMatch(s.title || "", subseriesId) ||
+    slugMatch(s.id || "", subseriesId) ||
+    slugMatch(stripDatedFolderTitle(s.title || ""), subseriesId) ||
+    slugMatch(stripDatedFolderTitle(s.id || ""), subseriesId)
+  );
+}
+
+function leafArtUrls(parts: {
+  card?: SeriesSubseriesCard | null;
+  detail?: SeriesFolderDetail | null;
+  overview?: SeriesOverview | null;
+}): Array<string | null | undefined> {
+  return [
+    parts.detail?.cover_url,
+    parts.detail?.banner_url,
+    parts.detail?.cover_back_url,
+    parts.detail?.logo_url,
+    parts.card?.cover_url,
+    parts.card?.banner_url,
+    parts.card?.portrait_url,
+    parts.card?.landscape_url,
+    parts.card?.logo_url,
+    parts.overview?.cover_url,
+  ];
+}
+
 function filterCardsForSubseries(
   cards: SeriesMediaCard[],
   subseriesTitle: string,
@@ -841,6 +876,9 @@ export default function SeriesSubseriesPage({
   const [siblings, setSiblings] = useState<SeriesSubseriesCard[]>(
     () => initialCached?.siblings ?? []
   );
+  const siblingsRef = useRef(siblings);
+  siblingsRef.current = siblings;
+  const loadSeqRef = useRef(0);
   const [universeInfo, setUniverseInfo] = useState<Universe | null>(null);
   const [universeCards, setUniverseCards] = useState<UniverseCard[]>([]);
   const [leafUniverses, setLeafUniverses] = useState<Universe[]>([]);
@@ -1079,8 +1117,12 @@ export default function SeriesSubseriesPage({
   );
 
   const loadCard = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     const key = cacheKey(isFilm, franchiseId, subseriesId, isBook, isGame);
     const cached = getCachedLeafPage(key);
+    const seededSibling =
+      siblingsRef.current.find((s) => matchSubseriesLeaf(s, subseriesId)) ||
+      null;
     if (cached) {
       setOverview(cached.overview);
       setCard(cached.card);
@@ -1095,9 +1137,15 @@ export default function SeriesSubseriesPage({
       setWorkName(cached.workName ?? null);
       setLoading(false);
     } else {
+      // Keep prior siblings for neighbor seeding; paint seeded leaf chrome early.
+      if (seededSibling) {
+        setCard(seededSibling);
+        void preloadImages(leafArtUrls({ card: seededSibling }));
+      }
       setLoading(true);
     }
     setError(null);
+    const stillCurrent = () => seq === loadSeqRef.current;
     try {
       if (isGame) {
         const orientation = stackedRef.current ? "landscape" : "portrait";
@@ -1113,6 +1161,7 @@ export default function SeriesSubseriesPage({
           fetchGamesFranchiseOverview(franchiseId, orientation).catch(() => null),
           remoteP,
         ]);
+        if (!stillCurrent()) return;
         const folder = filmDetailToFolder(gameDetail as MoviesFilmDetail);
         const provisionalCard = filmCardToSubseries(gameDetail as MoviesFilmCard);
         const gameList = (
@@ -1161,7 +1210,7 @@ export default function SeriesSubseriesPage({
           }));
         }
 
-        setOverview({
+        const nextOverview = {
           ...gameOv,
           rom_bytes:
             (gameDetail as { rom_bytes?: number | null }).rom_bytes ??
@@ -1172,7 +1221,18 @@ export default function SeriesSubseriesPage({
           open_mode:
             (gameDetail as { open_mode?: string | null }).open_mode ??
             (gameOv as { open_mode?: string | null }).open_mode,
-        } as SeriesOverview);
+        } as SeriesOverview;
+        const nextWorkName =
+          (gameOv as { work_name?: string | null }).work_name ||
+          gameDetail.work_name ||
+          workOv?.name ||
+          franchiseName ||
+          null;
+        await preloadImages(
+          leafArtUrls({ card: found, detail: folder, overview: nextOverview })
+        );
+        if (!stillCurrent()) return;
+        setOverview(nextOverview);
         setCard(found);
         setDetail(folder);
         setSiblings(list);
@@ -1192,13 +1252,7 @@ export default function SeriesSubseriesPage({
         setTrailerUrl(nextTrailer);
         setTrailerItems(nextTrailerItems);
         setExtraVideos(nextExtras);
-        setWorkName(
-          (gameOv as { work_name?: string | null }).work_name ||
-            gameDetail.work_name ||
-            workOv?.name ||
-            franchiseName ||
-            null
-        );
+        setWorkName(nextWorkName);
         setCachedLeafPage(key, {
           overview: gameOv as SeriesOverview,
           card: found,
@@ -1210,12 +1264,7 @@ export default function SeriesSubseriesPage({
           trailerUrl: nextTrailer,
           trailerItems: nextTrailerItems,
           extraVideos: nextExtras,
-          workName:
-            (gameOv as { work_name?: string | null }).work_name ||
-            gameDetail.work_name ||
-            workOv?.name ||
-            franchiseName ||
-            null,
+          workName: nextWorkName,
         });
         return;
       }
@@ -1342,25 +1391,8 @@ export default function SeriesSubseriesPage({
             : {}),
         } as MoviesFilmCard);
 
-        setOverview(filmOv || null);
-        setCard(provisionalCard);
-        setDetail(folder);
-        setFilmVersions(nextVersions);
-        setFilmHasVideo(nextHasVideo);
-        setTrailerUrl(nextTrailer);
-        setFilmOpenUrl(nextOpenUrl);
-        if (isFilm && remoteExtras.length) {
-          setExtraVideos(remoteExtras);
-        }
-        setWorkName(
-          filmDetail.work?.name ||
-            filmOv?.work?.name ||
-            franchiseName ||
-            null
-        );
-        setLoading(false);
-
         const workOv = await workOvP;
+        if (!stillCurrent()) return;
         if (!filmList.length) {
           filmList = (workOv?.films || workOv?.subseries || []) as (
             | MoviesFilmCard
@@ -1382,11 +1414,29 @@ export default function SeriesSubseriesPage({
           franchiseName ||
           null;
 
+        await preloadImages(
+          leafArtUrls({
+            card: found,
+            detail: folder,
+            overview: nextOverview,
+          })
+        );
+        if (!stillCurrent()) return;
         if (nextOverview) {
           setOverview(nextOverview);
+        } else {
+          setOverview(null);
+        }
+        setCard(found);
+        setDetail(folder);
+        setFilmVersions(nextVersions);
+        setFilmHasVideo(nextHasVideo);
+        setTrailerUrl(nextTrailer);
+        setFilmOpenUrl(nextOpenUrl);
+        if (isFilm && remoteExtras.length) {
+          setExtraVideos(remoteExtras);
         }
         setSiblings(list);
-        setCard(found);
         setWorkName(nextWorkName);
         setCachedLeafPage(key, {
           overview: nextOverview,
@@ -1409,6 +1459,7 @@ export default function SeriesSubseriesPage({
       }));
       const overviewP = fetchSeriesOverview(franchiseId).catch(() => null);
       const shows = await showsP;
+      if (!stillCurrent()) return;
       const fromShows: SeriesSubseriesCard[] = (shows.items || [])
         .filter((s) => s.folder_path)
         .map((s) => ({
@@ -1427,14 +1478,9 @@ export default function SeriesSubseriesPage({
           ),
           official: (s as { official?: boolean }).official,
         }));
-      const foundEarly = fromShows.find(
-        (s) =>
-          s.id === subseriesId ||
-          slugMatch(s.title || "", subseriesId) ||
-          slugMatch(s.id || "", subseriesId) ||
-          slugMatch(stripDatedFolderTitle(s.title || ""), subseriesId) ||
-          slugMatch(stripDatedFolderTitle(s.id || ""), subseriesId)
-      );
+      const foundEarly =
+        fromShows.find((s) => matchSubseriesLeaf(s, subseriesId)) ||
+        (seededSibling?.folder_path ? seededSibling : null);
       let ov: Awaited<ReturnType<typeof fetchSeriesOverview>> = null;
       let folder: SeriesFolderDetail | null = null;
       if (foundEarly?.folder_path) {
@@ -1445,27 +1491,20 @@ export default function SeriesSubseriesPage({
       } else {
         ov = await overviewP;
       }
-      setOverview(ov);
-      setFilmVersions([]);
-      setFilmHasVideo(false);
-      setTrailerUrl(null);
-      setTrailerItems([]);
-      setFilmOpenUrl(null);
+      if (!stillCurrent()) return;
       const nextWorkName = franchiseName || ov?.name || null;
-      setWorkName(nextWorkName);
       const fromOverview = (ov?.subseries || []) as SeriesSubseriesCard[];
-      const list = fromOverview.length ? fromOverview : fromShows;
-      setSiblings(list);
+      const list = fromOverview.length
+        ? fromOverview
+        : fromShows.length
+          ? fromShows
+          : seededSibling
+            ? [seededSibling]
+            : [];
       const found =
         foundEarly ||
-        list.find(
-          (s) =>
-            s.id === subseriesId ||
-            slugMatch(s.title || "", subseriesId) ||
-            slugMatch(s.id || "", subseriesId) ||
-            slugMatch(stripDatedFolderTitle(s.title || ""), subseriesId) ||
-            slugMatch(stripDatedFolderTitle(s.id || ""), subseriesId)
-        );
+        list.find((s) => matchSubseriesLeaf(s, subseriesId)) ||
+        seededSibling;
       if (!found?.folder_path) {
         // Soft recover: open the franchise hub instead of an alarming dead-end.
         if (onNavigate) {
@@ -1482,30 +1521,45 @@ export default function SeriesSubseriesPage({
         setDetail(null);
         return;
       }
-      setCard(found);
       rememberLeafSlug("series", franchiseId, found.title || subseriesId, found.id);
       if (!folder) {
         folder = await fetchSeriesFolder(found.folder_path);
       }
+      if (!stillCurrent()) return;
+      await preloadImages(
+        leafArtUrls({ card: found, detail: folder, overview: ov })
+      );
+      if (!stillCurrent()) return;
+      setOverview(ov);
+      setFilmVersions([]);
+      setFilmHasVideo(false);
+      setTrailerUrl(null);
+      setTrailerItems([]);
+      setFilmOpenUrl(null);
+      setWorkName(nextWorkName);
+      setSiblings(list.length ? list : [found]);
+      setCard(found);
       setDetail(folder);
       setCachedLeafPage(key, {
         overview: ov,
         card: found,
         detail: folder,
-        siblings: list,
+        siblings: list.length ? list : [found],
         filmVersions: [],
         filmHasVideo: false,
         trailerUrl: null,
         workName: nextWorkName,
       });
     } catch (e) {
+      if (!stillCurrent()) return;
+      if (e instanceof Error && e.name === "AbortError") return;
       setError(e instanceof Error ? e.message : String(e));
-      if (!cached) {
+      if (!cached && !seededSibling) {
         setCard(null);
         setDetail(null);
       }
     } finally {
-      setLoading(false);
+      if (stillCurrent()) setLoading(false);
     }
   }, [franchiseId, subseriesId, rescanTick, isFilm, isGame, franchiseName, onNavigate]);
 
@@ -1902,17 +1956,15 @@ export default function SeriesSubseriesPage({
       setWorkName(cached.workName ?? null);
       setLoading(false);
     } else {
-      setCard(null);
-      setDetail(null);
-      setOverview(null);
-      setSiblings([]);
+      // Keep prior leaf + siblings painted for neighbor seeding until loadCard swaps.
+      // Clearing here caused soft-recover / "Application not running" on Super→DB.
       setFilmVersions([]);
       setFilmHasVideo(false);
       setTrailerUrl(null);
       setTrailerItems([]);
       setExtraVideos([]);
       setFilmOpenUrl(null);
-      setWorkName(null);
+      setLoading(true);
     }
   }, [subseriesId, franchiseId, isFilm, isGame]);
 
@@ -4751,6 +4803,14 @@ export default function SeriesSubseriesPage({
   const contentReady =
     Boolean(error) ||
     (!loading && (Boolean(overview) || Boolean(card && detail)));
+  const leafTabsReveal = useFirstLoadIntro(
+    contentReady,
+    `leaf-tabs:${isFilm ? "film" : isBook ? "book" : isGame ? "game" : "series"}:${franchiseId}:${subseriesId}`
+  );
+  const leafOverviewTabsReveal = useFirstLoadIntro(
+    contentReady && tab === "overview" && showLeafOverviewSubbar,
+    `leaf-overview-tabs:${franchiseId}:${subseriesId}`
+  );
 
   if (opedOpen) {
     return (
@@ -5201,20 +5261,23 @@ export default function SeriesSubseriesPage({
           </div>
         ) : null}
 
-        {contentReady ? (
-        <nav className="release-page__tabs" aria-label="Subseries sections">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={tab === t.id ? "active" : ""}
-              onClick={() => setTab(t.id)}
-            >
-              <span>{t.label}</span>
-            </button>
-          ))}
-        </nav>
-        ) : null}
+        <FirstLoadNavSlot
+          open={leafTabsReveal.show}
+          intro={leafTabsReveal.intro}
+        >
+          <nav className="release-page__tabs" aria-label="Subseries sections">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={tab === t.id ? "active" : ""}
+                onClick={() => setTab(t.id)}
+              >
+                <span>{t.label}</span>
+              </button>
+            ))}
+          </nav>
+        </FirstLoadNavSlot>
 
         {tab === "games" && gamePlatforms.length > 1 ? (
           <div
@@ -5242,7 +5305,10 @@ export default function SeriesSubseriesPage({
           </div>
         ) : null}
 
-        {contentReady && tab === "overview" && showLeafOverviewSubbar ? (
+        <FirstLoadNavSlot
+          open={leafOverviewTabsReveal.show}
+          intro={leafOverviewTabsReveal.intro}
+        >
           <nav className="artist-page__subtabs" aria-label="Overview sections">
             {(
               [
@@ -5286,7 +5352,7 @@ export default function SeriesSubseriesPage({
               </button>
             ))}
           </nav>
-        ) : null}
+        </FirstLoadNavSlot>
 
         {tab === "overview" &&
         showLeafOverviewSubbar &&
@@ -5859,14 +5925,17 @@ export default function SeriesSubseriesPage({
                       Boolean(parentName) &&
                       Boolean(leafTitle) &&
                       !sameAsParent;
-                    // Also show when franchise has sibling leaves even if the
-                    // overview name briefly matched the leaf (cache races).
+                    // Same-named leaves (e.g. show "Dragon Ball" under franchise
+                    // "Dragon Ball") still show when sibling series exist.
                     const hasSiblings = siblings.some(
                       (s) =>
                         s.id !== subseriesId &&
                         !slugMatch(s.title || "", leafTitle)
                     );
-                    if (!nested && !(hasSiblings && parentName && !sameAsParent))
+                    if (
+                      !nested &&
+                      !(hasSiblings && parentName && Boolean(franchiseId))
+                    )
                       return null;
                     if (!parentName) return null;
                     return (

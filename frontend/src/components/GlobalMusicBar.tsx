@@ -22,9 +22,11 @@ import {
   globalMusicToggleQueueOpen,
   globalMusicToggleRepeatOne,
   globalMusicToggleShuffle,
+  globalMusicToggleVisualizer,
   subscribeGlobalMusic,
   type GlobalMusicTrack,
 } from "../globalMusicPlayer";
+import { IconVisualizer } from "./MenuIcons";
 import { trackMainTitle } from "./music/release/releaseTrackPanelMeta";
 import {
   TrackActionLyricsIcon,
@@ -96,6 +98,7 @@ function cleanReleaseTitle(raw: string | null | undefined): string {
       "albums",
       "extended plays",
       "compilations",
+      "remixes",
       "demos",
       "singles",
       "soundtracks",
@@ -270,6 +273,7 @@ export default function GlobalMusicBar({
   const dragFrom = useRef<number | null>(null);
   const [dropAt, setDropAt] = useState<number | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  const currentQueueRowRef = useRef<HTMLLIElement | null>(null);
   const edgeLeaveTimer = useRef<number | null>(null);
   const trackIdRef = useRef<string | null>(null);
   const swipeRef = useRef<{ x: number; y: number; active: boolean } | null>(
@@ -310,7 +314,39 @@ export default function GlobalMusicBar({
   const pinned = snap.hasTrack && !snap.barHidden;
   const visible =
     snap.hasTrack &&
+    !snap.visualizerOpen &&
     (!snap.barHidden || edgeHover || snap.queueOpen || snap.barPeeking);
+
+  // Global V toggles visualizer whenever a track is loaded.
+  useEffect(() => {
+    if (!snap.hasTrack) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "v" || e.key === "V") {
+        e.preventDefault();
+        globalMusicToggleVisualizer();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [snap.hasTrack]);
+
+  const pointerOverLeftPanel = (target: EventTarget | null) => {
+    const el = target instanceof Element ? target : null;
+    return Boolean(
+      el?.closest(
+        ".release-page__panel, .release-page__panel-bottom-bar, .release-page__neighbor, .series-subseries-page__neighbors"
+      )
+    );
+  };
 
   useEffect(() => {
     if (!snap.barHidden) {
@@ -319,6 +355,11 @@ export default function GlobalMusicBar({
       return;
     }
     const onMove = (e: PointerEvent) => {
+      // Left-panel prev/next sit in the bottom strip — never steal those clicks.
+      if (pointerOverLeftPanel(e.target)) {
+        scheduleEdgeHoverOff();
+        return;
+      }
       const fromBottom = window.innerHeight - e.clientY;
       // Tall enough to cover the seek strip at the top of the unpinned bar.
       if (fromBottom < 96) {
@@ -338,6 +379,7 @@ export default function GlobalMusicBar({
     if (!snap.barHidden) return;
     const onTap = (e: PointerEvent) => {
       if (e.pointerType === "mouse") return;
+      if (pointerOverLeftPanel(e.target)) return;
       const fromBottom = window.innerHeight - e.clientY;
       if (fromBottom < 96) {
         keepEdgeHover();
@@ -358,6 +400,32 @@ export default function GlobalMusicBar({
     document.addEventListener("pointerdown", onDown, true);
     return () => document.removeEventListener("pointerdown", onDown, true);
   }, [snap.queueOpen]);
+
+  // Keep the playing row in view whenever the queue opens or the current index moves.
+  // Show two rows above current (first visible row = index-2) under the Queue header.
+  useLayoutEffect(() => {
+    if (!snap.queueOpen) return;
+    const row = currentQueueRowRef.current;
+    if (!row) return;
+    const inner = row.closest(".global-music-queue__inner");
+    const list = row.closest(".global-music-queue__list");
+    if (!(inner instanceof HTMLElement) || !(list instanceof HTMLElement)) {
+      row.scrollIntoView({ block: "nearest", inline: "nearest" });
+      return;
+    }
+    const rows = list.querySelectorAll<HTMLElement>(".global-music-queue__row");
+    const anchor = rows[Math.max(0, snap.index - 2)] ?? row;
+    const head = inner.querySelector(".global-music-queue__head");
+    const headH =
+      head instanceof HTMLElement ? head.getBoundingClientRect().height : 0;
+    const delta =
+      anchor.getBoundingClientRect().top -
+      inner.getBoundingClientRect().top -
+      headH;
+    if (Math.abs(delta) > 1) {
+      inner.scrollTop += delta;
+    }
+  }, [snap.queueOpen, snap.index, snap.queue.length]);
 
   // Spacebar play/pause when a track is loaded (ignore typing in fields).
   useEffect(() => {
@@ -495,7 +563,7 @@ export default function GlobalMusicBar({
   return (
     <>
       {/* Invisible bottom hover strip when hidden — no floating pin chrome. */}
-      {snap.barHidden && !visible ? (
+      {snap.barHidden && !visible && !snap.visualizerOpen ? (
         <div className="global-music-edge" aria-hidden />
       ) : null}
       <div
@@ -539,6 +607,7 @@ export default function GlobalMusicBar({
               {snap.queue.map((t, i) => (
                 <li
                   key={`${t.id}-${i}`}
+                  ref={i === snap.index ? currentQueueRowRef : undefined}
                   className={`global-music-queue__row${
                     i === snap.index ? " is-current" : ""
                   }${i < snap.index ? " is-passed" : ""}${
@@ -740,7 +809,24 @@ export default function GlobalMusicBar({
             </div>
           </div>
 
+          <button
+            type="button"
+            className="global-music-bar__viz-hit"
+            aria-label="Open visualizer"
+            title="Visualizer"
+            onClick={() => globalMusicToggleVisualizer()}
+          />
           <div className="global-music-bar__right">
+            <button
+              type="button"
+              className="global-music-bar__track-action global-music-bar__viz-btn"
+              onClick={() => globalMusicToggleVisualizer()}
+              aria-label="Open visualizer"
+              title="Visualizer (V)"
+              aria-pressed={snap.visualizerOpen}
+            >
+              <IconVisualizer className="global-music-bar__track-action-icon" />
+            </button>
             {!phone ? (
               <div
                 className="global-music-bar__controls artist-mini-player"

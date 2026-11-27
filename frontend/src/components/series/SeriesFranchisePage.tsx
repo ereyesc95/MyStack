@@ -45,6 +45,8 @@ import {
   type FranchiseQuizCatalogItem,
 } from "../../api";
 import ConfirmDialog from "../ConfirmDialog";
+import FirstLoadNavSlot from "../FirstLoadNavSlot";
+import { useFirstLoadIntro } from "../../useFirstLoadIntro";
 import ModuleHomeAudioPlayer, {
   type ModuleHomeAudioKind,
 } from "../ModuleHomeAudioPlayer";
@@ -1854,8 +1856,18 @@ export default function SeriesFranchisePage({
       window.removeEventListener("playback-theme-ended", onPlaybackThemeEnded);
   }, [coverUrl, bgUrl, userId]);
 
+  const sectionsReady = Boolean(data) && quizAvailabilityReady;
+  const sectionsReveal = useFirstLoadIntro(
+    sectionsReady,
+    `franchise-sections:${isGames ? "games" : isBooks ? "books" : isMoviesOnly ? "movies" : "series"}:${franchiseId}`
+  );
+  const overviewTabsReveal = useFirstLoadIntro(
+    sectionsReady && section === "overview",
+    `franchise-overview-tabs:${franchiseId}`
+  );
+
   const visibleSections = useMemo(() => {
-    if (!data) return navSections.filter((s) => s.id === "overview");
+    if (!sectionsReady || !data) return [];
     const media = data.media || ({} as SeriesOverview["media"]);
     const related = data.related;
     return navSections.filter((s) => {
@@ -1915,6 +1927,7 @@ export default function SeriesFranchisePage({
     });
   }, [
     data,
+    sectionsReady,
     navSections,
     homeReferrer,
     showCards.length,
@@ -1928,19 +1941,12 @@ export default function SeriesFranchisePage({
   ]);
 
   useEffect(() => {
-    if (!data) return;
-    if (section === "quiz" && !quizAvailabilityReady) return;
+    if (!data || !sectionsReady) return;
     const allowed = new Set(visibleSections.map((s) => s.id));
     if (!allowed.has(section)) {
       onNavigate({ section: "overview", overviewTab: "about" });
     }
-  }, [
-    data,
-    section,
-    visibleSections,
-    onNavigate,
-    quizAvailabilityReady,
-  ]);
+  }, [data, sectionsReady, section, visibleSections, onNavigate]);
 
   const era = currentAboutEra ?? data?.eras?.[0];
   const listedLangs = useMemo(() => {
@@ -2742,27 +2748,36 @@ export default function SeriesFranchisePage({
           </div>
         </header>
 
-        <nav className="artist-page__sections" aria-label="Series sections">
-          {visibleSections.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className={section === s.id ? "active" : ""}
-              onClick={() =>
-                onNavigate({
-                  section: s.id,
-                  overviewTab: s.id === "overview" ? overviewTab : overviewTab,
-                })
-              }
-            >
-              <span>
-                {mobilePortrait && s.mobileLabel ? s.mobileLabel : s.label}
-              </span>
-            </button>
-          ))}
-        </nav>
+        <FirstLoadNavSlot
+          open={sectionsReveal.show && visibleSections.length > 0}
+          intro={sectionsReveal.intro}
+        >
+          <nav className="artist-page__sections" aria-label="Series sections">
+            {visibleSections.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={section === s.id ? "active" : ""}
+                onClick={() =>
+                  onNavigate({
+                    section: s.id,
+                    overviewTab:
+                      s.id === "overview" ? overviewTab : overviewTab,
+                  })
+                }
+              >
+                <span>
+                  {mobilePortrait && s.mobileLabel ? s.mobileLabel : s.label}
+                </span>
+              </button>
+            ))}
+          </nav>
+        </FirstLoadNavSlot>
 
-        {section === "overview" ? (
+        <FirstLoadNavSlot
+          open={overviewTabsReveal.show}
+          intro={overviewTabsReveal.intro}
+        >
           <nav className="artist-page__subtabs" aria-label="Overview">
             {(isBooks
               ? BOOKS_OVERVIEW_TABS.filter((t) => {
@@ -2781,13 +2796,15 @@ export default function SeriesFranchisePage({
                 key={t.id}
                 type="button"
                 className={overviewTab === t.id ? "active" : ""}
-                onClick={() => onNavigate({ section: "overview", overviewTab: t.id })}
+                onClick={() =>
+                  onNavigate({ section: "overview", overviewTab: t.id })
+                }
               >
                 <span>{t.label}</span>
               </button>
             ))}
           </nav>
-        ) : null}
+        </FirstLoadNavSlot>
 
         {mobilePortrait &&
         section === "overview" &&

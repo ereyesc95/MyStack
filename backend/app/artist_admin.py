@@ -106,23 +106,48 @@ def _has_touring_participation(db: Session, band_id: int) -> bool:
     return False
 
 
+def _artist_looks_like_person(artist: Artist) -> bool:
+    """True for person-shaped rows (gender and/or a full birth date)."""
+    gender = (artist.art_fk_genders or "").strip()
+    if gender:
+        return True
+    birth = (artist.art_birth_date or "").strip()
+    # Year-only (YYYY) is the MusicBrainz group shape — not a person signal.
+    if birth and not (len(birth) == 4 and birth.isdigit()):
+        return True
+    return False
+
+
 def _is_band_mirror_artist(db: Session, artist: Artist, *, band_id: int) -> bool:
     """True when the artist row is a band entity, not a person.
 
     Catches related-project pollution (HIM/Agents/Daniel Lioneye ARPs on VV):
-    - art_code matches another Band's MBID
-    - display name matches another Band's name
+    - art_code matches another Band's MBID (group-shaped / same-name only)
+    - display name matches another Band's name (group-shaped / same MBID only)
     - MusicBrainz group shape: year-only birth date and no gender
+
+    Solo people often share an MBID with their solo Band (Ville Valo ↔ VV).
+    Those person rows must still appear in other bands' lineups (e.g. HIM).
     """
+    if _artist_looks_like_person(artist):
+        return False
+
+    birth = (artist.art_birth_date or "").strip()
+    gender = (artist.art_fk_genders or "").strip()
+    group_shaped = len(birth) == 4 and birth.isdigit() and not gender
+
     code = (artist.art_code or "").strip()
+    name = _display_name(artist.art_stage_name or artist.art_name).casefold()
+
     if code:
         other = db.scalars(
             select(Band).where(Band.bnd_code == code, Band.bnd_id != band_id)
         ).first()
         if other is not None:
-            return True
+            other_name = (other.bnd_name or "").strip().casefold()
+            if group_shaped or (name and name == other_name):
+                return True
 
-    name = _display_name(artist.art_stage_name or artist.art_name).casefold()
     if name:
         named = db.scalars(
             select(Band).where(
@@ -131,11 +156,11 @@ def _is_band_mirror_artist(db: Session, artist: Artist, *, band_id: int) -> bool
             )
         ).first()
         if named is not None:
-            return True
+            named_code = (named.bnd_code or "").strip()
+            if group_shaped or (code and named_code and code == named_code):
+                return True
 
-    birth = (artist.art_birth_date or "").strip()
-    gender = (artist.art_fk_genders or "").strip()
-    if len(birth) == 4 and birth.isdigit() and not gender:
+    if group_shaped:
         return True
 
     return False

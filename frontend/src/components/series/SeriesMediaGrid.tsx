@@ -391,6 +391,7 @@ export const SERIES_AUDIO_CATEGORY_META: {
   { key: "albums", label: "Albums" },
   { key: "extended_plays", label: "EPs" },
   { key: "compilations", label: "Compilations" },
+  { key: "remixes", label: "Remixes" },
   { key: "demos", label: "Demos" },
   { key: "live_albums", label: "Live" },
   { key: "soundtracks", label: "Soundtracks" },

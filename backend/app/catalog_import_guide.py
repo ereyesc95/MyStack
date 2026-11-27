@@ -155,7 +155,7 @@ Show/subseries folders may contain:
   Episodes/YYYY.MM.DD. Season N/
   Specials/
   Extras/
-  Audio/Albums|Extended Plays|Compilations|Demos|Live Albums|Soundtracks|Singles/
+  Audio/Albums|Extended Plays|Compilations|Remixes|Demos|Live Albums|Soundtracks|Singles/
 
 The franchise root contains [Artwork]/ (Cover - Portrait / Landscape only)
 only when Series is its franchise home. Standalone titles have no [Artwork].

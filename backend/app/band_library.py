@@ -16,6 +16,7 @@ AUDIO_CATEGORIES = {
     "albums": "Albums",
     "extended_plays": "Extended Plays",
     "compilations": "Compilations",
+    "remixes": "Remixes",
     "demos": "Demos",
     "live_albums": "Live Albums",
     "soundtracks": "Soundtracks",

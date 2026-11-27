@@ -25,6 +25,8 @@ import {
   ensureArtistDesktopIni,
   generateArtistFolderIcons,
 } from "../../../api";
+import FirstLoadNavSlot from "../../FirstLoadNavSlot";
+import { useFirstLoadIntro } from "../../../useFirstLoadIntro";
 import {
   getGlobalMusicAudioElement,
   getGlobalMusicSnapshot,
@@ -35,7 +37,12 @@ import {
   type GlobalMusicTrack,
 } from "../../../globalMusicPlayer";
 import { getStoredProfile } from "../../../auth";
-import { setCachedOverview } from "../../../overviewCache";
+import { getCachedOverview, setCachedOverview } from "../../../overviewCache";
+import {
+  readSessionEntry,
+  sessionCacheKey,
+  writeSessionEntry,
+} from "../../../sessionCache";
 import {
   clearArtistAudioCache,
   getCachedArtistAudio,
@@ -261,8 +268,12 @@ export default function ArtistPage({
   onOpenGamesLeaf,
   onOpenTour,
 }: Props) {
-  const [data, setData] = useState<BandOverview | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<BandOverview | null>(() =>
+    getCachedOverview(bandId, cardOrientation)
+  );
+  const [loading, setLoading] = useState(
+    () => !getCachedOverview(bandId, cardOrientation)
+  );
   const [error, setError] = useState<string | null>(null);
   const globalMusic = useSyncExternalStore(
     subscribeGlobalMusic,
@@ -304,7 +315,18 @@ export default function ArtistPage({
   const [quizAvailability, setQuizAvailability] = useState<Record<
     QuizMode,
     boolean
-  > | null>(null);
+  > | null>(() =>
+    readSessionEntry<Record<QuizMode, boolean>>(
+      sessionCacheKey("artist-quiz", String(bandId))
+    )
+  );
+  const [quizAvailabilityReady, setQuizAvailabilityReady] = useState(() =>
+    Boolean(
+      readSessionEntry<Record<QuizMode, boolean>>(
+        sessionCacheKey("artist-quiz", String(bandId))
+      )
+    )
+  );
   const [addSimilarOpen, setAddSimilarOpen] = useState(false);
   const [addProjectOpen, setAddProjectOpen] = useState(false);
   const [audioRefreshKey, setAudioRefreshKey] = useState(0);
@@ -379,8 +401,11 @@ export default function ArtistPage({
       (section === "series" && cachedSeries) ||
       (section === "library" && cachedLibrary)
   );
+  // Start the audio index as soon as the Audio tab is selected — don't wait
+  // for overview to confirm has_audio (first-load waterfall).
   const audioEnabled =
-    section === "audio" && Boolean(data?.media?.has_audio || cachedAudio);
+    section === "audio" &&
+    (Boolean(cachedAudio) || data?.media?.has_audio !== false);
   const audioState = useArtistAudio(bandId, audioRefreshKey, audioEnabled, {
     hidePlaylists: Boolean(data?.is_various_artists),
   });
@@ -388,11 +413,28 @@ export default function ArtistPage({
     section === "gallery" && galleryTabVisible(data?.media);
   const galleryState = useArtistGallery(bandId, galleryEnabled, mediaRefreshKey);
 
+  const sectionsReady =
+    Boolean(data?.media) &&
+    (Boolean(data?.is_various_artists) || quizAvailabilityReady);
+  const sectionsReveal = useFirstLoadIntro(
+    sectionsReady,
+    `artist-sections:${bandId}`
+  );
+  const overviewTabsReveal = useFirstLoadIntro(
+    sectionsReady && section === "overview",
+    `artist-overview-tabs:${bandId}`
+  );
+  const quizTabsReveal = useFirstLoadIntro(
+    sectionsReady && section === "quiz" && !data?.is_various_artists,
+    `artist-quiz-tabs:${bandId}`
+  );
+
   const visibleSections = useMemo(() => {
     const m = data?.media;
-    const base = !m
-      ? SECTIONS.filter((section) => section.id === "overview")
-      : SECTIONS.filter((s) => {
+    // Wait for overview media + quiz availability, then paint every tab at once
+    // (no Overview-alone flash, no late QUIZ insert).
+    if (!sectionsReady) return [];
+    const base = SECTIONS.filter((s) => {
           if (s.id === "overview") return true;
           if (s.id === "quiz") {
             return Boolean(
@@ -401,15 +443,15 @@ export default function ArtistPage({
                 Object.values(quizAvailability).some(Boolean)
             );
           }
-          if (s.id === "audio") return m.has_audio;
-          if (s.id === "video") return m.has_video;
-          if (s.id === "series") return Boolean(m.has_series);
-          if (s.id === "library") return m.has_library;
-          if (s.id === "tours") return Boolean(m.has_tours);
+          if (s.id === "audio") return m!.has_audio;
+          if (s.id === "video") return m!.has_video;
+          if (s.id === "series") return Boolean(m!.has_series);
+          if (s.id === "library") return m!.has_library;
+          if (s.id === "tours") return Boolean(m!.has_tours);
           if (s.id === "gallery") {
             return (
-              m.has_gallery ||
-              (nsfwUnlocked && Boolean(m.has_exclusive_gallery))
+              m!.has_gallery ||
+              (nsfwUnlocked && Boolean(m!.has_exclusive_gallery))
             );
           }
           return false;
@@ -443,28 +485,48 @@ export default function ArtistPage({
     data?.is_various_artists,
     nsfwUnlocked,
     quizAvailability,
+    sectionsReady,
   ]);
 
   useEffect(() => {
-    if (!data || visibleSections.some((item) => item.id === section)) return;
+    if (!data) return;
+    // Wait for the final tab set before correcting an invalid section —
+    // otherwise Audio/Video deep-links bounce to Overview while QUIZ loads.
+    if (!data.is_various_artists && !quizAvailabilityReady) return;
+    if (visibleSections.some((item) => item.id === section)) return;
     onNavigate("overview", "about");
-  }, [data, visibleSections, section, onNavigate]);
+  }, [data, visibleSections, section, onNavigate, quizAvailabilityReady]);
 
   useEffect(() => {
     let cancelled = false;
-    setQuizAvailability(null);
+    const cached = readSessionEntry<Record<QuizMode, boolean>>(
+      sessionCacheKey("artist-quiz", String(bandId))
+    );
+    if (cached) {
+      setQuizAvailability(cached);
+      setQuizAvailabilityReady(true);
+    } else {
+      setQuizAvailability(null);
+      setQuizAvailabilityReady(false);
+    }
     fetchQuizAvailability(bandId)
       .then((value) => {
-        if (!cancelled) setQuizAvailability(value);
+        if (cancelled) return;
+        setQuizAvailability(value);
+        writeSessionEntry(sessionCacheKey("artist-quiz", String(bandId)), value);
       })
       .catch(() => {
-        if (!cancelled) {
-          setQuizAvailability({
-            discography: false,
-            songs: false,
-            lineup: false,
-          });
-        }
+        if (cancelled) return;
+        const empty = {
+          discography: false,
+          songs: false,
+          lineup: false,
+        } as Record<QuizMode, boolean>;
+        setQuizAvailability(empty);
+        writeSessionEntry(sessionCacheKey("artist-quiz", String(bandId)), empty);
+      })
+      .finally(() => {
+        if (!cancelled) setQuizAvailabilityReady(true);
       });
     return () => {
       cancelled = true;
@@ -472,7 +534,7 @@ export default function ArtistPage({
   }, [bandId]);
 
   useEffect(() => {
-    if (section !== "quiz" || !data) return;
+    if (section !== "quiz" || !data || !quizAvailabilityReady) return;
     if (
       data.is_various_artists ||
       (quizAvailability &&
@@ -480,7 +542,7 @@ export default function ArtistPage({
     ) {
       onNavigate("overview", "about");
     }
-  }, [section, data, quizAvailability, onNavigate]);
+  }, [section, data, quizAvailability, quizAvailabilityReady, onNavigate]);
 
   const availableQuizModes = useMemo(
     () =>
@@ -502,14 +564,17 @@ export default function ArtistPage({
   const visibleOverviewTabs = useMemo<
     { id: ArtistOverviewTab; label: string }[]
   >(() => {
-    if (data?.is_various_artists) {
+    // Same rule as section tabs: wait for overview so LINEUP (and VA tabs)
+    // do not insert after ABOUT/LINKS/RELATED already painted.
+    if (!data) return [];
+    if (data.is_various_artists) {
       return [
         { id: "about", label: "ABOUT" },
         { id: "artists", label: "FEATURED ARTISTS" },
       ];
     }
-    return OVERVIEW_TABS.filter((t) => t.id !== "lineup" || data?.show_lineup);
-  }, [data?.is_various_artists, data?.show_lineup, data?.various_artists_hub]);
+    return OVERVIEW_TABS.filter((t) => t.id !== "lineup" || data.show_lineup);
+  }, [data]);
 
   useEffect(() => {
     if (!data?.is_various_artists) return;
@@ -562,8 +627,10 @@ export default function ArtistPage({
 
   useEffect(() => {
     lineupImportStarted.current = false;
-    setData(null);
-    load();
+    const cached = getCachedOverview(bandId, cardOrientation);
+    setData(cached);
+    setLoading(!cached);
+    load({ silent: Boolean(cached) });
   }, [bandId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -1318,20 +1385,30 @@ export default function ArtistPage({
           </div>
         </header>
 
-        <nav className="artist-page__sections">
-          {visibleSections.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className={section === s.id ? "active" : ""}
-              onClick={() => onNavigate(s.id, overviewTab)}
-            >
-              <span>{s.label}</span>
-            </button>
-          ))}
-        </nav>
+        <FirstLoadNavSlot
+          open={sectionsReveal.show && visibleSections.length > 0}
+          intro={sectionsReveal.intro}
+        >
+          <nav className="artist-page__sections">
+            {visibleSections.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={section === s.id ? "active" : ""}
+                onClick={() => onNavigate(s.id, overviewTab)}
+              >
+                <span>{s.label}</span>
+              </button>
+            ))}
+          </nav>
+        </FirstLoadNavSlot>
 
-        {section === "overview" && (
+        <FirstLoadNavSlot
+          open={
+            overviewTabsReveal.show && visibleOverviewTabs.length > 0
+          }
+          intro={overviewTabsReveal.intro}
+        >
           <nav className="artist-page__subtabs">
             {visibleOverviewTabs.map((t) => (
               <button
@@ -1344,22 +1421,25 @@ export default function ArtistPage({
               </button>
             ))}
           </nav>
-        )}
+        </FirstLoadNavSlot>
 
-        {section === "quiz" && data && (
+        <FirstLoadNavSlot
+          open={quizTabsReveal.show && availableQuizModes.length > 0}
+          intro={quizTabsReveal.intro}
+        >
           <nav className="artist-page__subtabs artist-page__quiz-subtabs">
             {availableQuizModes.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  className={quizMode === m.id ? "active" : ""}
-                  onClick={() => setQuizMode(m.id)}
-                >
-                  <span>{m.label}</span>
-                </button>
-              ))}
+              <button
+                key={m.id}
+                type="button"
+                className={quizMode === m.id ? "active" : ""}
+                onClick={() => setQuizMode(m.id)}
+              >
+                <span>{m.label}</span>
+              </button>
+            ))}
           </nav>
-        )}
+        </FirstLoadNavSlot>
 
         {section === "overview" && overviewTab === "lineup" && data?.show_lineup && (
           <nav className="artist-page__subtabs artist-page__lineup-subtabs">
@@ -1763,7 +1843,7 @@ export default function ArtistPage({
           />
         )}
 
-        {section === "audio" && (data?.media?.has_audio || cachedAudio) && (
+        {section === "audio" && audioEnabled && (
           <ArtistAudio
             state={audioState}
             bandId={bandId}

@@ -3,6 +3,7 @@ import { isAdultGenreName } from "../../adultContent";
 import { getStoredProfile } from "../../auth";
 import { formatTrackDate } from "../../formatDate";
 import type { SeriesOverview, SeriesSubseriesCard } from "../../types";
+import { useFirstLoadIntro } from "../../useFirstLoadIntro";
 import {
   filterByOfficial,
   hasUnofficialItems,
@@ -312,6 +313,10 @@ export default function SeriesAbout({
   const genres = (data.genres || []).filter(
     (g) => nsfwUnlocked || !isAdultGenreName(g?.name)
   );
+  const genresReveal = useFirstLoadIntro(
+    genres.length > 0,
+    `series-genres:${data.id}`
+  );
   const publishers = data.publishers || [];
   const hasSubseriesCarousel = visibleSubseries.length > 6;
 
@@ -583,7 +588,11 @@ export default function SeriesAbout({
               {genres.length > 0 && (
                 <div className="artist-about__meta-row">
                   <dt>Genres</dt>
-                  <dd>
+                  <dd
+                    className={
+                      genresReveal.intro ? "ms-pill-strip--intro" : undefined
+                    }
+                  >
                     {genres.map((g) => (
                       <MetaValue
                         key={String(g.id)}

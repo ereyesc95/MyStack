@@ -29,6 +29,7 @@ ARTIST_FOLDERS = (
     "Albums",
     "Extended Plays",
     "Compilations",
+    "Remixes",
     "Demos",
     "Live Albums",
     "Soundtracks",
@@ -51,7 +52,9 @@ CATEGORY_ORDER = (
 )
 
 DISC_LOOKUP_CATEGORIES = frozenset({"Albums", "Compilations", "Live Albums"})
-SKIPPED_SECONDARY_TYPES = frozenset(
+DISC_LOOKUP_CATEGORIES = frozenset(
+    {"Albums", "Compilations", "Remixes", "Live Albums"}
+)
     {"demo", "broadcast", "interview", "audiobook", "spokenword", "dj-mix", "mixtape/street"}
 )
 
@@ -268,7 +271,9 @@ def _release_category(group: dict) -> str | None:
     if "live" in secondary:
         return "Live Albums"
     if secondary & {"compilation", "remix"}:
-        return "Compilations"
+    if "remix" in secondary:
+        return "Remixes"
+    if "compilation" in secondary:
     if primary == "album":
         return "Albums"
     if primary == "ep":
@@ -379,7 +384,14 @@ def _create_artist_tree(
         if g.get("id")
         and g.get("_category")
         in {"Albums", "Extended Plays", "Soundtracks", "Live Albums", "Compilations"}
-    }
+        in {
+            "Albums",
+            "Extended Plays",
+            "Soundtracks",
+            "Live Albums",
+            "Compilations",
+            "Remixes",
+        }
 
     used_paths: dict[str, str] = {}
     releases_created = 0

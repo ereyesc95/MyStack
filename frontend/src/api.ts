@@ -89,7 +89,12 @@ async function request<T>(
     res = await fetch(url, { ...init, headers, signal: controller.signal });
   } catch (e) {
     if (e instanceof Error && e.name === "AbortError") {
+      // Caller cancelled (navigation) — let them ignore without a scary toast.
       if (!timedOut && externalSignal?.aborted) throw e;
+      if (timedOut) {
+        throw new Error("Request timed out. Check and try again");
+      }
+      // Browser/proxy aborted without our timeout — usually a dead backend.
       throw new Error("Application not running. Check and try again");
     }
     if (e instanceof TypeError) {
@@ -1491,6 +1496,14 @@ export async function fetchTrackVersions(
   );
 }
 
+export type TrackVisualizerExtras = {
+  subject_artist?: string | null;
+  era_icon_url?: string | null;
+  era_logo_url?: string | null;
+  era_photos_landscape?: string[];
+  era_photos_portrait?: string[];
+};
+
 export async function fetchTrackSourceArt(
   bandId: number,
   releaseId: string,
@@ -1500,6 +1513,7 @@ export async function fetchTrackSourceArt(
   playback: import("./types").ReleasePlaybackArt;
   artwork: import("./types").ReleaseGalleryItem[];
   photocards?: import("./types").ReleaseOverview["photocards"] | null;
+  visualizer?: TrackVisualizerExtras | null;
 }> {
   const q = new URLSearchParams({ play_path: playPath });
   return request(

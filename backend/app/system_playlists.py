@@ -33,7 +33,8 @@ COVER_CATEGORY_PRIORITY: dict[str, int] = {
     "compilations": 3,
     "singles": 4,
     "live_albums": 5,
-    "demos": 6,
+    "remixes": 6,
+    "demos": 7,
 }
 
 

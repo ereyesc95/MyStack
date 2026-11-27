@@ -23,8 +23,12 @@ import {
   searchArtistReleases,
 } from "../../../api";
 import {
+  clearReleaseNavStack,
   clearReleaseReferrer,
   getReleaseReferrer,
+  popReleaseNavStack,
+  pushReleaseNavStack,
+  releaseNavStackDepth,
   pushArtistRoute,
   type ReleaseTab,
 } from "../../../musicRoute";
@@ -80,9 +84,11 @@ import { isReleaseId, slugMatch } from "../../../routeSlug";
 import { rememberReleaseSlug, releaseIdFromSlug } from "../../../routeEntityCache";
 import AppMenu from "../../AppMenu";
 import ConfirmDialog from "../../ConfirmDialog";
+import FirstLoadNavSlot from "../../FirstLoadNavSlot";
 import MsDisclosure from "../../MsDisclosure";
 import TopBarTitle from "../../TopBarTitle";
-import { IconZoom } from "../../MenuIcons";
+import { useFirstLoadIntro } from "../../../useFirstLoadIntro";
+import { IconPanelArt, IconVisualizer, IconZoom } from "../../MenuIcons";
 import MediaInlineSearch from "../MediaInlineSearch";
 import ArtistMemberModal from "../artist/ArtistMemberModal";
 import NotInLibraryDialog from "../artist/NotInLibraryDialog";
@@ -96,12 +102,14 @@ import ReleaseVideoFetchModal, {
   type YoutubeFetchItem,
 } from "./ReleaseVideoFetchModal";
 import { warmMusicStreamForPath } from "../../../musicStreamUrl";
+import { preloadImages } from "../../../preloadMedia";
 import {
   getGlobalMusicAudioElement,
   getGlobalMusicSnapshot,
   globalMusicPause,
   globalMusicPlayFrom,
   globalMusicToggle,
+  globalMusicToggleVisualizer,
   subscribeGlobalMusic,
   type GlobalMusicTrack,
 } from "../../../globalMusicPlayer";
@@ -193,7 +201,11 @@ type Props = {
     category: string,
     options?: { compilationBoxSetsOnly?: boolean }
   ) => void;
-  onOpenRelease: (bandId: number, releaseId: string) => void;
+  onOpenRelease: (
+    bandId: number,
+    releaseId: string,
+    tab?: "overview" | "tracklist" | "gallery"
+  ) => void;
   onOpenCatalogProducer?: (producerName: string) => void;
   onOpenCatalogLabel?: (labelName: string) => void;
   onOpenCatalogSubgenre?: (subgenreId: number, subgenreName?: string) => void;
@@ -508,6 +520,9 @@ export default function ReleasePage({
   const [coverFailed, setCoverFailed] = useState(false);
   const [panelBgRevealed, setPanelBgRevealed] = useState(false);
   const [panelRevealLinger, setPanelRevealLinger] = useState(false);
+  /** Ignore panel :hover peek until pointer leaves after enabling reveal. */
+  const [panelRevealHoverSuppressed, setPanelRevealHoverSuppressed] =
+    useState(false);
   const panelRevealLingerTimer = useRef<number | null>(null);
   const [coverFadeFrom, setCoverFadeFrom] = useState<{
     url: string;
@@ -791,7 +806,7 @@ export default function ReleasePage({
         "landscape",
         neighborBandId
       )
-        .then((payload) => {
+        .then(async (payload) => {
           if (seq !== loadSeq.current) return;
           setCachedReleaseOverview(
             bandId,
@@ -803,10 +818,17 @@ export default function ReleasePage({
           if (payload.title?.trim()) {
             rememberReleaseSlug(bandId, payload.title, resolvedReleaseId);
           }
+          await preloadImages([
+            payload.cover_url,
+            ...(payload.background_layers || []),
+            payload.logo_url,
+          ]);
+          if (seq !== loadSeq.current) return;
           setData(payload);
         })
         .catch((e) => {
           if (seq !== loadSeq.current) return;
+          if (e instanceof Error && e.name === "AbortError") return;
           if (!silent) {
             setError(e instanceof Error ? e.message : String(e));
           }
@@ -834,12 +856,15 @@ export default function ReleasePage({
     const cached = isReleaseId(resolvedReleaseId)
       ? getCachedReleaseOverview(bandId, resolvedReleaseId)
       : null;
-    setData(cached);
     setError(null);
-    const url =
-      cached?.background_layers?.[0] ?? cached?.cover_url ?? undefined;
-    prevBgRef.current = url;
-    setBgLayers(url ? { current: url } : {});
+    if (cached) {
+      setData(cached);
+      const url =
+        cached.background_layers?.[0] ?? cached.cover_url ?? undefined;
+      prevBgRef.current = url;
+      setBgLayers(url ? { current: url } : {});
+    }
+    // Uncached neighbor: keep prior chrome until preload+swap in load().
     if (isReleaseId(resolvedReleaseId)) {
       void prefetchReleaseTracklist(bandId, resolvedReleaseId);
       load({ silent: Boolean(cached) });
@@ -1280,51 +1305,73 @@ export default function ReleasePage({
           : moduleHomeReferrer?.source === "games"
             ? "GAMES"
             : null;
-  const backLabel = homeReferrer
-    ? "HOME"
-    : moduleHomeBackLabel
-      ? moduleHomeBackLabel
-    : collectionReferrer
-      ? "COLLECTION"
-      : catalogReferrer
-      ? "CATALOG"
-      : artistReferrer
-        ? (artistReferrer.artistName ??
-            referrerOverview?.name ??
-            data?.artist_name ??
-            "Artist")
-      : franchiseReferrer
-      ? bannerLayout
-        ? seriesBackUsesIcon
-          ? null
-          : "Back"
-        : franchiseBackLabel
-      : releaseReferrer && releaseReferrer.bandId !== bandId
-        ? (releaseReferrer.artistName ??
-            referrerOverview?.name ??
-            "Artist")
-        : (data?.artist_name ?? "Artist");
-  const backAriaLabel = homeReferrer
-    ? "Back to Home"
-    : moduleHomeBackLabel
-      ? `Back to ${moduleHomeBackLabel}`
-    : collectionReferrer
-      ? "Back to Collection"
-      : catalogReferrer
-      ? "Back to Catalog"
-      : artistReferrer
-        ? `Back to ${backLabel ?? "Artist"}`
-      : franchiseReferrer
-      ? `Back to ${franchiseBackLabel}`
-      : `Back to ${backLabel ?? "Artist"}`;
+  const stackedReleaseBack = releaseNavStackDepth() > 0;
+  const shortBackLabel = (label: string | null | undefined, max = 18) => {
+    const t = (label || "").trim();
+    if (!t) return "Back";
+    return t.length > max ? "Back" : t;
+  };
+  const artistBackRaw =
+    artistReferrer?.artistName ??
+    referrerOverview?.name ??
+    data?.artist_name ??
+    "Artist";
+  const crossArtistBackRaw =
+    releaseReferrer?.artistName ?? referrerOverview?.name ?? "Artist";
+  const backLabel = stackedReleaseBack
+    ? "Back"
+    : homeReferrer
+      ? "HOME"
+      : moduleHomeBackLabel
+        ? moduleHomeBackLabel
+        : collectionReferrer
+          ? "COLLECTION"
+          : catalogReferrer
+            ? "CATALOG"
+            : artistReferrer
+              ? shortBackLabel(artistBackRaw)
+              : franchiseReferrer
+                ? bannerLayout
+                  ? seriesBackUsesIcon
+                    ? null
+                    : "Back"
+                  : shortBackLabel(franchiseBackLabel)
+                : releaseReferrer && releaseReferrer.bandId !== bandId
+                  ? shortBackLabel(crossArtistBackRaw)
+                  : shortBackLabel(data?.artist_name ?? "Artist");
+  const backAriaLabel = stackedReleaseBack
+    ? "Back to previous release"
+    : homeReferrer
+      ? "Back to Home"
+      : moduleHomeBackLabel
+        ? `Back to ${moduleHomeBackLabel}`
+        : collectionReferrer
+          ? "Back to Collection"
+          : catalogReferrer
+            ? "Back to Catalog"
+            : artistReferrer
+              ? `Back to ${artistBackRaw}`
+              : franchiseReferrer
+                ? `Back to ${franchiseBackLabel}`
+                : `Back to ${
+                    releaseReferrer && releaseReferrer.bandId !== bandId
+                      ? crossArtistBackRaw
+                      : data?.artist_name ?? "Artist"
+                  }`;
 
   const handleBack = () => {
     clearReleasePlayerActionActive();
+    const prior = popReleaseNavStack();
+    if (prior) {
+      onOpenRelease(prior.bandId, prior.releaseId, prior.tab ?? "tracklist");
+      return;
+    }
     const ref = getReleaseReferrer();
     const fromCollection =
       ref?.source === "collection" ||
       getArtistEntryReferrer()?.backLabel === "COLLECTION";
     clearReleaseReferrer();
+    clearReleaseNavStack();
     if (ref?.source === "playlist") {
       onBack();
       return;
@@ -1817,6 +1864,10 @@ export default function ReleasePage({
   );
   /* Parent leaf page hosts the tab bar when embedded. */
   const showPageTabBar = !embedded && pageTabs.length > 1;
+  const releaseTabsReveal = useFirstLoadIntro(
+    showPageTabBar,
+    `release-tabs:${bandId}:${resolvedReleaseId}`
+  );
 
   const handleRefreshMetadata = async () => {
     setBusy("Refreshing metadata…");
@@ -2079,6 +2130,7 @@ export default function ReleasePage({
     if (!canRevealPanelBg) {
       setPanelBgRevealed(false);
       setPanelRevealLinger(false);
+      setPanelRevealHoverSuppressed(false);
     }
   }, [canRevealPanelBg]);
 
@@ -2105,7 +2157,38 @@ export default function ReleasePage({
     }
     // Hide as soon as the pointer leaves the panel (no linger).
     setPanelRevealLinger(false);
+    setPanelRevealHoverSuppressed(false);
   };
+
+  const togglePanelBgReveal = () => {
+    setPanelBgRevealed((v) => {
+      const next = !v;
+      // When hiding chrome, ignore hover peek until the pointer leaves.
+      setPanelRevealHoverSuppressed(next);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (!canRevealPanelBg) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "h" || e.key === "H") {
+        e.preventDefault();
+        togglePanelBgReveal();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [canRevealPanelBg]);
 
   const trackPanelReleaseDate =
     versionSource?.display_date ??
@@ -2173,13 +2256,57 @@ export default function ReleasePage({
     releaseTitle: data?.title ?? cachedTracklist?.title ?? "",
   };
 
+  const panelTools =
+    canRevealPanelBg || globalMusic.hasTrack ? (
+      <div className="release-page__panel-tools">
+        {globalMusic.hasTrack ? (
+          <button
+            type="button"
+            className={`release-page__panel-viz${
+              globalMusic.visualizerOpen ? " is-active" : ""
+            }${panelRevealLinger ? " is-lingering" : ""}`}
+            aria-label={
+              globalMusic.visualizerOpen
+                ? "Exit visualizer"
+                : "Open visualizer"
+            }
+            aria-pressed={globalMusic.visualizerOpen}
+            title={
+              globalMusic.visualizerOpen
+                ? "Exit visualizer (V)"
+                : "Visualizer (V)"
+            }
+            onClick={() => globalMusicToggleVisualizer()}
+          >
+            <IconVisualizer className="release-page__panel-viz-icon" />
+          </button>
+        ) : null}
+        {canRevealPanelBg ? (
+          <button
+            type="button"
+            className={`release-page__panel-reveal${
+              panelBgRevealed ? " is-active" : ""
+            }${panelRevealLinger ? " is-lingering" : ""}`}
+            aria-label={panelBgRevealed ? "View details" : "View background"}
+            aria-pressed={panelBgRevealed}
+            title={panelBgRevealed ? "View details" : "View background"}
+            onClick={togglePanelBgReveal}
+          >
+            <IconPanelArt className="release-page__panel-reveal-icon" />
+          </button>
+        ) : null}
+      </div>
+    ) : null;
+
   const panelAside = data ? (
     <aside
       className={`release-page__panel${showTrackPanel ? " release-page__panel--track" : ""}${
         showPanelCanvas && !pageCanvasActive ? " release-page__panel--canvas" : ""
       }${bannerLayout ? " release-page__panel--banner" : ""}${
         showMobilePlayerMeta ? " release-page__panel--mobile-player" : ""
-      }${panelBgRevealed && canRevealPanelBg ? " is-bg-revealed" : ""}`}
+      }${panelBgRevealed && canRevealPanelBg ? " is-bg-revealed" : ""}${
+        panelRevealHoverSuppressed ? " is-reveal-hover-suppressed" : ""
+      }`}
       style={
         showTrackPanel && panelFadedCover
           ? ({ ["--panel-fade" as string]: `url("${panelFadedCover}")` } as CSSProperties)
@@ -2203,25 +2330,6 @@ export default function ReleasePage({
           <div className="release-page__panel-canvas-shade" />
         </div>
       )}
-      {canRevealPanelBg ? (
-        <button
-          type="button"
-          className={`release-page__panel-reveal${
-            panelBgRevealed ? " is-active" : ""
-          }${panelRevealLinger ? " is-lingering" : ""}`}
-          aria-label={panelBgRevealed ? "View details" : "View background"}
-          aria-pressed={panelBgRevealed}
-          title={panelBgRevealed ? "View details" : "View background"}
-          onClick={() => setPanelBgRevealed((v) => !v)}
-        >
-          <svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden>
-            <path
-              fill="currentColor"
-              d="M12 5c-5 0-9.27 3.11-11 7 1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"
-            />
-          </svg>
-        </button>
-      ) : null}
       <div className="release-page__panel-content">
       <div className="release-page__art">
         <div className={`release-page__art-stage${
@@ -2808,6 +2916,7 @@ export default function ReleasePage({
           )}
 
           <div className="release-page__panel-footer">
+          {panelTools}
           {data.prev || data.next ? (
             <div className="release-page__panel-bottom-bar">
               {data.prev ? (
@@ -2887,6 +2996,7 @@ export default function ReleasePage({
       {bannerLayout ? (
         <div className="release-page__panel-dock" ref={panelBottomRef}>
             <div className="release-page__panel-footer">
+            {panelTools}
             {data.prev || data.next ? (
               <div className="release-page__panel-bottom-bar">
                 {data.prev ? (
@@ -3062,7 +3172,10 @@ export default function ReleasePage({
             </div>
           </header>
 
-          {showPageTabBar ? (
+          <FirstLoadNavSlot
+            open={releaseTabsReveal.show}
+            intro={releaseTabsReveal.intro}
+          >
             <nav className="release-page__tabs">
               {pageTabs.map((t) => (
                 <button
@@ -3075,7 +3188,7 @@ export default function ReleasePage({
                 </button>
               ))}
             </nav>
-          ) : null}
+          </FirstLoadNavSlot>
 
           {stacked && tab === "tracklist" && !bannerLayout && (
             <nav className="release-page__subtabs" aria-label="Tracklist views">
@@ -3529,6 +3642,18 @@ export default function ReleasePage({
                   isAdmin={isAdmin}
                   onOpenLyricsSet={isAdmin ? () => setLyricsSetOpen(true) : undefined}
                   onPausePlayback={() => globalMusicPause()}
+                  onOpenRelease={(bid, rid) => {
+                    const currentId =
+                      data?.navigate_release_id?.trim() || releaseId;
+                    if (currentId && (bid !== bandId || rid !== currentId)) {
+                      pushReleaseNavStack({
+                        bandId,
+                        releaseId: currentId,
+                        tab,
+                      });
+                    }
+                    onOpenRelease(bid, rid);
+                  }}
                 />
               </div>
             )}

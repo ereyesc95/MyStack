@@ -16,7 +16,7 @@ export type TrackPanelMeta = {
   lines: TrackPanelLine[];
 };
 
-const VERSION_ONLY = /^(acoustic|remix|live|remastered)$/i;
+const VERSION_ONLY = /^(acoustic|remix|mix|live|remastered|demo)$/i;
 
 const LANGUAGE_NAMES = new Set([
   "spanish",
@@ -51,6 +51,7 @@ type VersionToken =
   | { kind: "remastered"; detail?: string }
   | { kind: "live"; detail?: string }
   | { kind: "acoustic" }
+  | { kind: "demo" }
   | { kind: "remix"; detail?: string }
   | { kind: "mix"; detail?: string }
   | { kind: "edit"; detail?: string };
@@ -116,8 +117,9 @@ function parseVersionToken(part: string): VersionToken | null {
     if (low === "remastered") return { kind: "remastered" };
     if (low === "live") return { kind: "live" };
     if (low === "acoustic") return { kind: "acoustic" };
+    if (low === "demo") return { kind: "demo" };
     if (low === "remix") return { kind: "remix" };
-    return null;
+    if (low === "mix") return { kind: "mix" };
   }
 
   const remastered = low.match(/^remastered(?:\s+version|\s+(\d{4}))?$/i);
@@ -135,6 +137,10 @@ function parseVersionToken(part: string): VersionToken | null {
 
   if (/^acoustic(?:\s+version)?$/i.test(norm)) {
     return { kind: "acoustic" };
+  }
+
+  if (/^demo(?:\s+version)?$/i.test(norm)) {
+    return { kind: "demo" };
   }
 
   const remix = norm.match(/^(.+?)\s+remix$/i);
@@ -213,6 +219,9 @@ function combineVersionTokens(tokens: VersionToken[]): string | null {
         break;
       case "acoustic":
         chunks.push("Acoustic");
+        break;
+      case "demo":
+        chunks.push("Demo");
         break;
       case "remix":
         chunks.push(token.detail ? `${titleCaseWords(token.detail)} Remix` : "Remix");

@@ -519,6 +519,10 @@ export function clearMediaTheme(userId?: number) {
   clearMediaCss();
   applyTheme(restore, userId);
   if (keepPlaybackCover && lastPlaybackCoverUrl) {
+    // Pause-on-home must restore the menu theme, not leaf Adaptive colors
+    // captured when playback started on a release/artist page.
+    themeBeforePlayback = restore;
+    colorsBeforePlayback = readLiveThemeColors();
     applyPlaybackThemeFromCover(lastPlaybackCoverUrl, userId);
   }
 }

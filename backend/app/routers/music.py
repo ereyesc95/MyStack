@@ -823,6 +823,7 @@ def release_track_source_art(
     from app.release_playback_art import (
         artwork_gallery_for_play_path,
         playback_art_for_play_path,
+        visualizer_extras_for_play_path,
     )
     from app.release_photocards import photocards_for_play_path
 
@@ -854,6 +855,19 @@ def release_track_source_art(
     playback = playback_art_for_play_path(media_root, play_path, ctx=ctx)
     if not playback:
         raise HTTPException(404, "Track not found")
+    extras = visualizer_extras_for_play_path(
+        media_root,
+        play_path,
+        ctx=ctx,
+        is_various_artists=is_va,
+        release_date_iso=card.get("date_iso"),
+        release_title=card.get("title"),
+    )
+    # Era branding for the visualizer subject (VA featured / album artist).
+    if extras.get("era_icon_url"):
+        playback["icon_url"] = extras["era_icon_url"]
+    if extras.get("era_logo_url"):
+        playback["logo_url"] = extras["era_logo_url"]
     return {
         "play_path": play_path,
         "playback": playback,
@@ -861,6 +875,7 @@ def release_track_source_art(
         "photocards": photocards_for_play_path(
             media_root, play_path, ctx=ctx, is_various_artists=is_va
         ),
+        "visualizer": extras,
     }
 
 

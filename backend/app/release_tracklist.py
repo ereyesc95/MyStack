@@ -79,6 +79,7 @@ LNK_LOOKUP_CATEGORIES = (
     "extended_plays",
     "singles",
     "compilations",
+    "remixes",
     "demos",
     "live_albums",
 )
@@ -1590,6 +1591,131 @@ def _edition_date_iso(edition_dir: Path, fallback_dir: Path) -> str | None:
     return _parse_folder_date(edition_dir.name) or _parse_folder_date(fallback_dir.name)
 
 
+def _strip_folder_date_prefix(label: str) -> str:
+    text = (label or "").strip()
+    m = DATE_PREFIX_RE.match(text)
+    if m:
+        text = text[m.end() :].lstrip(". ").strip()
+    return text
+
+
+def _edition_from_display(edition: str) -> str:
+    """Drop the word Edition from From labels (`Deluxe Edition` → `Deluxe`)."""
+    text = re.sub(r"\bedition\b", "", edition or "", flags=re.I)
+    return re.sub(r"\s{2,}", " ", text).strip(" ·-")
+
+
+def _from_label(release_title: str, edition_title: str | None) -> str:
+    """Compact From cell: `Release` or `Release · Deluxe` (skip Standard)."""
+    base = (release_title or "").strip()
+    edition = _strip_folder_date_prefix(edition_title or "").strip()
+    if not base:
+        return _edition_from_display(edition)
+    if (
+        not edition
+        or _is_standard_edition_label(edition)
+        or edition.casefold() == base.casefold()
+    ):
+        return base
+    short = _edition_from_display(edition)
+    if not short or short.casefold() == base.casefold():
+        return base
+    return f"{base} · {short}"
+
+
+def _bracket_parts_from_title(title: str) -> list[str]:
+    match = BRACKET_SUFFIX_RE.search((title or "").strip())
+    if not match:
+        return []
+    parts: list[str] = []
+    for chunk in re.split(r"[;:]+", match.group(1)):
+        piece = chunk.strip()
+        if piece:
+            parts.append(piece)
+    return parts
+
+
+def _typed_section_key(parts: list[str]) -> str | None:
+    """Exclusive bucket: remix/mix > demo > acoustic > live."""
+    has_remix = False
+    has_demo = False
+    has_acoustic = False
+    has_live = False
+    for part in parts:
+        low = part.casefold().strip()
+        if not low:
+            continue
+        if "remix" in low or low == "mix" or low.endswith(" mix") or " mix " in f" {low} ":
+            has_remix = True
+        if "demo" in low:
+            has_demo = True
+        if "acoustic" in low:
+            has_acoustic = True
+        if re.search(r"\blive\b", low):
+            has_live = True
+    if has_remix:
+        return "remixes"
+    if has_demo:
+        return "demos"
+    if has_acoustic:
+        return "acoustic"
+    if has_live:
+        return "live"
+    return None
+
+
+TYPED_SECTION_META: tuple[tuple[str, str], ...] = (
+    ("demos", "Demos"),
+    ("remixes", "Remixes"),
+    ("acoustic", "Acoustic"),
+    ("live", "Live"),
+)
+
+
+def _flatten_related_edition(edition: dict) -> None:
+    """Collapse nested single/edition groups into one flat track list with from_label."""
+    groups = edition.get("groups") or []
+    if not groups:
+        return
+    flat_tracks: list[dict] = []
+    number = 0
+    for group in groups:
+        single_title = (group.get("single_title") or "").strip()
+        raw_label = (group.get("label") or "").strip()
+        edition_core = _strip_folder_date_prefix(raw_label)
+        if not single_title:
+            # Folder-style B-sides under the release itself
+            single_title = edition_core or (edition.get("label") or "B-sides")
+            edition_core = ""
+        elif edition_core.casefold() == single_title.casefold():
+            edition_core = ""
+        from_label = _from_label(single_title, edition_core or None)
+        nav_id = (group.get("navigate_release_id") or "").strip() or None
+        source_title = (group.get("source_single_title") or "").strip() or from_label
+        date_iso = group.get("date_iso")
+        display_date = group.get("display_date")
+        for track in group.get("tracks") or []:
+            number += 1
+            track["number"] = number
+            track["from_label"] = from_label
+            if nav_id:
+                track["navigate_release_id"] = nav_id
+            track["source_album_title"] = source_title
+            if date_iso:
+                track["source_date_iso"] = date_iso
+            if display_date:
+                track["source_display_date"] = display_date
+            flat_tracks.append(track)
+    edition["groups"] = [
+        {
+            "id": f"{edition.get('id') or 'related'}:flat",
+            "kind": "flat",
+            "label": None,
+            "tracks": flat_tracks,
+        }
+    ]
+
+
 def _append_bside_groups(
     db: Session,
     band,
@@ -1735,19 +1861,246 @@ def _append_bside_groups(
             )
             if u
         ]
+        edition = {
+            "id": _edition_id(f"bsides:{safe_relative(parent, media_root) or parent.name}"),
+            "label": "B-sides",
+            "kind": "bside",
+            "date_iso": None,
+            "cover_url": bside_urls.get("cover_front_url"),
+            "cover_back_url": bside_urls.get("cover_back_url"),
+            "cover_animation_url": bside_urls.get("cover_animation_url"),
+            "canvas_url": bside_urls.get("canvas_url"),
+            "disc_url": bside_urls.get("disc_url"),
+            "background_layers": bg_layers,
+            "groups": bside_groups,
+        }
+        _flatten_related_edition(edition)
+        editions_out.append(edition)
+
+
+def _seed_titles_from_editions(editions_out: list[dict]) -> list[str]:
+    titles: list[str] = []
+    for edition in editions_out:
+        kind = (edition.get("kind") or "edition").casefold()
+        if kind in {"bside", "demos", "remixes", "acoustic", "live"}:
+            continue
+        for group in edition.get("groups") or []:
+            for track in group.get("tracks") or []:
+                title = (track.get("title") or "").strip()
+                if title:
+                    titles.append(title)
+        for version in edition.get("versions") or []:
+            for group in version.get("groups") or []:
+                for track in group.get("tracks") or []:
+                    title = (track.get("title") or "").strip()
+                    if title:
+                        titles.append(title)
+    return titles
+
+
+# In-process cache: artist path → (mtime_ns, typed candidates). Avoids re-walking
+# the whole artist tree on every release tracklist first paint.
+_TYPED_CANDIDATE_CACHE: dict[str, tuple[int, list[tuple]]] = {}
+
+
+def _typed_candidates_for_artist(artist_dir: Path) -> list[tuple]:
+    """Bracketed Demo/Remix/Acoustic/Live audio only — skip clean studio files.
+
+    Walks Audio category folders only (not Gallery/Video/Library) and caches
+    by a cheap fingerprint so first paint after process start is the only
+    full scan for that artist.
+    """
+    from app.band_library import AUDIO_CATEGORIES, AUDIO_EXTS, _audio_root
+    from app.gallery import _resolve_child_dir
+    from app.release_track_extras import _normalize_title as _xt_normalize_title
+    from app.release_track_extras import _of_title_from_parts, _split_bracket_parts
+
+    audio_root = _audio_root(artist_dir)
+    # Fingerprint category folder mtimes (nested file adds update parent dirs
+    # inconsistently; stamp each category root + artist root).
+    stamp = 0
+    cat_dirs: list[Path] = []
+    for folder_name in AUDIO_CATEGORIES.values():
+        cat_dir = _resolve_child_dir(audio_root, folder_name)
+        if not cat_dir.is_dir():
+            continue
+        cat_dirs.append(cat_dir)
+        try:
+            stamp ^= cat_dir.stat().st_mtime_ns
+        except OSError:
+            pass
+    try:
+        stamp ^= artist_dir.stat().st_mtime_ns
+    except OSError:
+        pass
+
+    cache_key = str(artist_dir.resolve()) if artist_dir.exists() else str(artist_dir)
+    cached = _TYPED_CANDIDATE_CACHE.get(cache_key)
+    if cached and cached[0] == stamp:
+        return cached[1]
+
+    out: list[tuple] = []
+    for cat_dir in cat_dirs:
+        try:
+            walker = cat_dir.rglob("*")
+        except OSError:
+            continue
+        for audio_file in walker:
+            # Fast rejects before any stat / title parsing.
+            if "[" not in audio_file.name:
+                continue
+            if audio_file.suffix.lower() not in AUDIO_EXTS:
+                continue
+            try:
+                if not audio_file.is_file():
+                    continue
+            except OSError:
+                continue
+            file_title = _track_title_from_filename(audio_file)
+            _, parts = _split_bracket_parts(file_title)
+            if not parts:
+                continue
+            section = _typed_section_key(parts)
+            if not section:
+                continue
+            out.append(
+                (
+                    audio_file,
+                    file_title,
+                    _xt_normalize_title(file_title),
+                    _of_title_from_parts(parts),
+                    section,
+                )
+            )
+    _TYPED_CANDIDATE_CACHE[cache_key] = (stamp, out)
+    if len(_TYPED_CANDIDATE_CACHE) > 64:
+        # Drop an arbitrary old entry to bound memory.
+        _TYPED_CANDIDATE_CACHE.pop(next(iter(_TYPED_CANDIDATE_CACHE)), None)
+    return out
+
+
+def _append_typed_version_sections(
+    db: Session,
+    band,
+    media_root: Path,
+    *,
+    db_durations: dict[str, float],
+    editions_out: list[dict],
+) -> None:
+    """Empty-hidden Demos / Remixes / Acoustic / Live indexes for songs on this release.
+
+    Optimized for first paint: only scans bracket-tagged files, skips mutagen /
+    full playback-art resolution, and skips whole-DB title-alias adjacency.
+    """
+    from app.gallery import _artist_dir
+    from app.release_track_extras import (
+        _normalize_title as _xt_normalize_title,
+        _version_source_context,
+    )
+
+    seed_titles = _seed_titles_from_editions(editions_out)
+    if not seed_titles:
+        return
+    artist_dir = _artist_dir(media_root, band.bnd_name)
+    if not artist_dir:
+        return
+
+    candidates = _typed_candidates_for_artist(artist_dir)
+    if not candidates:
+        return
+
+    seed_keys = {_xt_normalize_title(t) for t in seed_titles if _xt_normalize_title(t)}
+    if not seed_keys:
+        return
+
+    # Light work-key expansion via [of …] links among candidates only (no DB scan).
+    work_keys = set(seed_keys)
+    changed = True
+    while changed:
+        changed = False
+        for _path, _title, norm, of_norm, _section in candidates:
+            if norm in work_keys and of_norm and of_norm not in work_keys:
+                work_keys.add(of_norm)
+                changed = True
+            if of_norm and of_norm in work_keys and norm not in work_keys:
+                work_keys.add(norm)
+                changed = True
+
+    buckets: dict[str, list[dict]] = {key: [] for key, _ in TYPED_SECTION_META}
+    seen_in_bucket: dict[str, set[str]] = {key: set() for key, _ in TYPED_SECTION_META}
+
+    for audio_file, file_title, norm, of_norm, section in candidates:
+        if norm not in work_keys and (not of_norm or of_norm not in work_keys):
+            continue
+        play_path = safe_relative(audio_file, media_root)
+        if not play_path or play_path in seen_in_bucket[section]:
+            continue
+        seen_in_bucket[section].add(play_path)
+
+        # Cheap track payload — db duration only (no mutagen); cover from source ctx.
+        duration_sec = db_durations.get(norm)
+        album_title, edition_title, album_path, cover_url, date_iso = _version_source_context(
+            audio_file, media_root
+        )
+        release_title = (album_title or "").strip()
+        from_label = _from_label(release_title, edition_title)
+        navigate_id = release_id_from_path(album_path) if album_path else None
+        track = {
+            "id": _track_id(play_path),
+            "number": len(buckets[section]) + 1,
+            "title": display_track_title_from_path(audio_file) or file_title,
+            "play_path": play_path,
+            "duration_sec": duration_sec,
+            "duration": _format_duration(duration_sec),
+            "has_lrc": False,
+            "has_synced_lrc": False,
+            "is_link": False,
+            "is_exclusive": False,
+            "cover_url": cover_url,
+            "from_label": from_label,
+            "source_album_title": (
+                f"{release_title}: {edition_title}"
+                if release_title
+                and edition_title
+                and not _is_standard_edition_label(edition_title)
+                and edition_title.casefold() != release_title.casefold()
+                else release_title or from_label
+            ),
+            "navigate_release_id": navigate_id,
+            "navigate_band_id": band.bnd_id,
+            "source_date_iso": date_iso,
+            "source_display_date": format_display_date(date_iso),
+            "background_layers": [cover_url] if cover_url else [],
+        }
+        buckets[section].append(track)
+
+    for key, label in TYPED_SECTION_META:
+        tracks = buckets[key]
+        if not tracks:
+            continue
+        for i, track in enumerate(tracks, 1):
+            track["number"] = i
+        cover = tracks[0].get("cover_url")
         editions_out.append(
             {
-                "id": _edition_id(f"bsides:{safe_relative(parent, media_root) or parent.name}"),
-                "label": "B-sides",
-                "kind": "bside",
+                "id": _edition_id(f"typed:{key}:{band.bnd_id}"),
+                "label": label,
+                "kind": key,
                 "date_iso": None,
-                "cover_url": bside_urls.get("cover_front_url"),
-                "cover_back_url": bside_urls.get("cover_back_url"),
-                "cover_animation_url": bside_urls.get("cover_animation_url"),
-                "canvas_url": bside_urls.get("canvas_url"),
-                "disc_url": bside_urls.get("disc_url"),
-                "background_layers": bg_layers,
-                "groups": bside_groups,
+                "cover_url": cover,
+                "cover_back_url": None,
+                "cover_animation_url": None,
+                "canvas_url": None,
+                "disc_url": None,
+                "background_layers": tracks[0].get("background_layers") or [],
+                "groups": [
+                    {
+                        "id": _edition_id(f"typed:{key}:flat"),
+                        "kind": "flat",
+                        "label": None,
+                        "tracks": tracks,
+                    }
+                ],
             }
         )
 
@@ -1988,6 +2341,13 @@ def build_release_tracklist(
         media_root,
         db_durations=db_durations,
         release_title=release_title,
+        editions_out=editions_out,
+    )
+    _append_typed_version_sections(
+        db,
+        band,
+        media_root,
+        db_durations=db_durations,
         editions_out=editions_out,
     )
 

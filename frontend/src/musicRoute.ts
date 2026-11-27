@@ -157,6 +157,73 @@ export function clearReleaseReferrer() {
   }
 }
 
+const RELEASE_NAV_STACK_KEY = "mystack_release_nav_stack";
+
+export type ReleaseNavStackEntry = {
+  bandId: number;
+  releaseId: string;
+  tab?: ReleaseTab;
+};
+
+function readReleaseNavStack(): ReleaseNavStackEntry[] {
+  try {
+    const raw = sessionStorage.getItem(RELEASE_NAV_STACK_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ReleaseNavStackEntry[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeReleaseNavStack(stack: ReleaseNavStackEntry[]) {
+  try {
+    if (!stack.length) {
+      sessionStorage.removeItem(RELEASE_NAV_STACK_KEY);
+      return;
+    }
+    sessionStorage.setItem(RELEASE_NAV_STACK_KEY, JSON.stringify(stack));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Push the current release before jumping to another (B-sides From, etc.). */
+export function pushReleaseNavStack(entry: ReleaseNavStackEntry) {
+  const stack = readReleaseNavStack();
+  const last = stack[stack.length - 1];
+  if (
+    last &&
+    last.bandId === entry.bandId &&
+    last.releaseId === entry.releaseId
+  ) {
+    return;
+  }
+  stack.push(entry);
+  writeReleaseNavStack(stack);
+}
+
+export function popReleaseNavStack(): ReleaseNavStackEntry | null {
+  const stack = readReleaseNavStack();
+  if (!stack.length) return null;
+  const entry = stack.pop() ?? null;
+  writeReleaseNavStack(stack);
+  return entry;
+}
+
+export function peekReleaseNavStack(): ReleaseNavStackEntry | null {
+  const stack = readReleaseNavStack();
+  return stack.length ? stack[stack.length - 1]! : null;
+}
+
+export function releaseNavStackDepth(): number {
+  return readReleaseNavStack().length;
+}
+
+export function clearReleaseNavStack() {
+  writeReleaseNavStack([]);
+}
+
 export function savePendingAudioCategory(
   bandId: number,
   category: string,

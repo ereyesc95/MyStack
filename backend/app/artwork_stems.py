@@ -192,6 +192,15 @@ def find_track_canvas_file(artwork: Path | None, track_title: str) -> Path | Non
     )
 
 
+def find_track_visualizer_file(artwork: Path | None, track_title: str) -> Path | None:
+    """Track-specific ``Visualizer - {title}`` video in [Artwork]."""
+    if not artwork or not artwork.is_dir():
+        return None
+    return _media_file_in_artwork(
+        artwork, track_stem("Visualizer", track_title), allow_video=True
+    )
+
+
 def track_cover_url(
     artwork: Path | None, track_title: str, media_root: Path
 ) -> str | None:
@@ -210,4 +219,11 @@ def track_canvas_url(
     artwork: Path | None, track_title: str, media_root: Path
 ) -> str | None:
     path = find_track_canvas_file(artwork, track_title)
+    return _media_url(path, media_root) if path else None
+
+
+def track_visualizer_url(
+    artwork: Path | None, track_title: str, media_root: Path
+) -> str | None:
+    path = find_track_visualizer_file(artwork, track_title)
     return _media_url(path, media_root) if path else None

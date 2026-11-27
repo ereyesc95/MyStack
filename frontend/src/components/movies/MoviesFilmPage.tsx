@@ -10,7 +10,9 @@ import type {
 } from "../../types";
 import type { MoviesOverviewTab } from "../../moviesRoute";
 import { usePhoneLayout } from "../../usePhoneLayout";
+import { useFirstLoadIntro } from "../../useFirstLoadIntro";
 import AppMenu from "../AppMenu";
+import FirstLoadNavSlot from "../FirstLoadNavSlot";
 import TopBarTitle from "../TopBarTitle";
 import PlaylistBoot from "../PlaylistBoot";
 import SeriesAbout from "../series/SeriesAbout";
@@ -107,6 +109,15 @@ export default function MoviesFilmPage({
       ? [{ id: "gallery", label: "GALLERY" }]
       : []),
   ];
+  const filmTabsReady = Boolean(data) && !loading;
+  const filmTabsReveal = useFirstLoadIntro(
+    filmTabsReady,
+    `film-tabs:${filmId}`
+  );
+  const filmOverviewReveal = useFirstLoadIntro(
+    filmTabsReady && section === "overview",
+    `film-overview-tabs:${filmId}`
+  );
 
   if (loading && !data) {
     return <PlaylistBoot label="Loading film…" />;
@@ -185,20 +196,28 @@ export default function MoviesFilmPage({
         </div>
       </div>
 
-      <nav className="artist-page__sections">
-        {sections.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            className={section === s.id ? "active" : ""}
-            onClick={() => onNavigate?.({ section: s.id, overviewTab })}
-          >
-            <span>{s.label}</span>
-          </button>
-        ))}
-      </nav>
+      <FirstLoadNavSlot
+        open={filmTabsReveal.show}
+        intro={filmTabsReveal.intro}
+      >
+        <nav className="artist-page__sections">
+          {sections.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className={section === s.id ? "active" : ""}
+              onClick={() => onNavigate?.({ section: s.id, overviewTab })}
+            >
+              <span>{s.label}</span>
+            </button>
+          ))}
+        </nav>
+      </FirstLoadNavSlot>
 
-      {section === "overview" ? (
+      <FirstLoadNavSlot
+        open={filmOverviewReveal.show}
+        intro={filmOverviewReveal.intro}
+      >
         <nav className="artist-page__subtabs" aria-label="Overview">
           {OVERVIEW_TABS.map((t) => (
             <button
@@ -213,7 +232,7 @@ export default function MoviesFilmPage({
             </button>
           ))}
         </nav>
-      ) : null}
+      </FirstLoadNavSlot>
 
       {section === "overview" && overviewTab === "cast" ? (
         <nav className="artist-page__subtabs artist-page__lineup-subtabs">

@@ -24,10 +24,12 @@ import {
   globalMusicPlayFrom,
   globalMusicSeekRatio,
   globalMusicToggle,
+  globalMusicToggleVisualizer,
   subscribeGlobalMusic,
   type GlobalMusicTrack,
 } from "../../../globalMusicPlayer";
 import { getCachedOverview, prefetchBandOverview } from "../../../overviewCache";
+import { preloadImages } from "../../../preloadMedia";
 import {
   getCachedArtistPlaylistDetail,
   prefetchArtistPlaylistDetail,
@@ -127,6 +129,8 @@ import {
   IconMediaMovies,
   IconMediaMusic,
   IconMediaSeries,
+  IconPanelArt,
+  IconVisualizer,
 } from "../../MenuIcons";
 
 const WRAPPED_MODULE_META: Record<
@@ -435,6 +439,8 @@ export default function SystemPlaylistPage({
   const [coverFailed, setCoverFailed] = useState(false);
   const [panelBgRevealed, setPanelBgRevealed] = useState(false);
   const [panelRevealLinger, setPanelRevealLinger] = useState(false);
+  const [panelRevealHoverSuppressed, setPanelRevealHoverSuppressed] =
+    useState(false);
   const panelRevealLingerTimer = useRef<number | null>(null);
 
   const tracklistRef = useRef<SystemPlaylistTracklistHandle>(null);
@@ -550,12 +556,18 @@ export default function SystemPlaylistPage({
           const d = await prefetchUserPlaylistDetail(userPlaylistId, {
             force: true,
           });
+          if (cancelled) return;
+          await preloadImages([d.cover_url]);
           if (!cancelled) setDetail(d);
           lastError = null;
           break;
         } catch (e) {
           lastError = e;
           const msg = e instanceof Error ? e.message : String(e);
+          if (e instanceof Error && e.name === "AbortError") {
+            lastError = null;
+            break;
+          }
           if (attempt === 0 && isTimeoutError(msg) && !cancelled) {
             continue;
           }
@@ -589,12 +601,18 @@ export default function SystemPlaylistPage({
           const d = await prefetchArtistPlaylistDetail(bandId, slug, {
             force: true,
           });
+          if (cancelled) return;
+          await preloadImages([d.cover_url]);
           if (!cancelled) setDetail(d);
           lastError = null;
           break;
         } catch (e) {
           lastError = e;
           const msg = e instanceof Error ? e.message : String(e);
+          if (e instanceof Error && e.name === "AbortError") {
+            lastError = null;
+            break;
+          }
           if (attempt === 0 && isTimeoutError(msg) && !cancelled) {
             continue;
           }
@@ -632,9 +650,11 @@ export default function SystemPlaylistPage({
       setLoading(true);
       try {
         const d = await fetchGlobalLiveShowsDetail();
+        if (cancelled) return;
+        await preloadImages([d.cover_url]);
         if (!cancelled) setDetail(d);
       } catch (e) {
-        if (!cancelled) {
+        if (!cancelled && !(e instanceof Error && e.name === "AbortError")) {
           setError(parseApiError(e instanceof Error ? e.message : String(e)));
         }
       } finally {
@@ -973,43 +993,25 @@ export default function SystemPlaylistPage({
       globalMusic.playing &&
       globalMusic.current?.path === playingPath
   );
-  // Panel art/meta while this playlist's track is current (playing or paused).
+  // Panel meta only when THIS page started / owns playback — not merely because
+  // the global queue happens to include a track from this playlist.
   const hasActiveTrack = Boolean(
     playingPath &&
       globalMusic.hasTrack &&
       globalMusic.current?.path === playingPath
   );
   const showTrackPanel = Boolean(hasActiveTrack && nowPlayingTitle);
-  // Idle / playlist-head mode: always show the playlist cover beside the disc.
-  const usePlaylistCoverArt = isUserPlaylist && !showTrackPanel;
+  // Playlist chrome always stays on the playlist's own cover/disc/bg/theme.
+  const usePlaylistCoverArt = true;
 
-  const activeTrackCover = playingPath
-    ? tracks.find((track) => track.play_path === playingPath)?.cover_url ?? null
-    : null;
-  const displayCover = usePlaylistCoverArt
-    ? coverUrl
-    : hasActiveTrack
-      ? (playbackArt?.cover_url ?? activeTrackCover ?? coverUrl)
-      : coverUrl;
-  const displayAnim = isPlaying && !usePlaylistCoverArt
-    ? (playbackArt?.cover_animation_url ?? null)
-    : null;
-  const displayCanvas = isPlaying && !usePlaylistCoverArt
-    ? (playbackArt?.canvas_url ?? null)
-    : null;
-  const displayDisc = usePlaylistCoverArt
-    ? DEFAULT_DISC_URL
-    : hasActiveTrack
-      ? (playbackArt?.disc_url ?? activePlaylistTrack?.disc_url ?? DEFAULT_DISC_URL)
-      : DEFAULT_DISC_URL;
-  const showPanelCanvas = Boolean(displayCanvas) && isVideoMedia(displayCanvas);
+  const displayCover = coverUrl;
+  const displayAnim = null;
+  const displayCanvas = null;
+  const displayDisc = DEFAULT_DISC_URL;
+  const showPanelCanvas = false;
   const panelCoverSrc = (() => {
-    // Idle playlist without a real uploaded cover → disc only (centered).
-    if (usePlaylistCoverArt && isUserPlaylist && !hasCustomCover) return "";
-    if (usePlaylistCoverArt) return coverUrl;
-    if (hasActiveTrack) {
-      return displayAnim && isVideoMedia(displayAnim) ? displayAnim : displayCover;
-    }
+    // User playlist without a real uploaded cover → disc only (centered).
+    if (isUserPlaylist && !hasCustomCover) return "";
     return coverUrl;
   })();
   const showPanelCover = Boolean(
@@ -1018,17 +1020,17 @@ export default function SystemPlaylistPage({
   /** Music Videos playlist: cover only (no disc peeking out), all breakpoints. */
   const hidePlaylistDisc = !isUserPlaylist && slug === "music-videos";
   const panelDiscSrc = hidePlaylistDisc ? "" : displayDisc;
-  const panelGroupKind = usePlaylistCoverArt ? "disc" : (playbackArt?.group_kind ?? "disc");
-  const isVinylPlayback = panelGroupKind === "side" || panelGroupKind === "vinyl";
+  const panelGroupKind = "disc";
+  const isVinylPlayback = false;
 
-  const bgUrl = usePlaylistCoverArt
-    ? coverUrl
-    : hasActiveTrack
-      ? (playbackArt?.background_layers?.[0] ??
-        playbackArt?.cover_url ??
-        displayCover ??
-        coverUrl)
-      : coverUrl;
+  const bgUrl = coverUrl;
+  // Row highlight can follow the global queue without adopting panel chrome.
+  const rowPlayingPath =
+    playingPath ||
+    (globalMusic.current?.path &&
+    tracks.some((t) => t.play_path === globalMusic.current?.path)
+      ? globalMusic.current.path
+      : null);
 
   useEffect(() => {
     if (!bgUrl) return;
@@ -1233,28 +1235,17 @@ export default function SystemPlaylistPage({
     ]
   );
 
-  // When global queue advances, keep playlist panel art/title in sync.
+  // Follow queue advances only after this page already owns playback.
+  // Do not adopt panel state just because the global track is in the list.
   useEffect(() => {
     const cur = globalMusic.current;
-    if (!cur?.path) return;
+    if (!cur?.path || !playingPath) return;
     const inList = tracks.some((t) => t.play_path === cur.path);
     if (!inList) return;
     if (playingPath === cur.path && nowPlayingTitle === cur.title) return;
     setPlayingPath(cur.path);
     setNowPlayingTitle(cur.title);
-    const source = tracks.find((t) => t.play_path === cur.path);
-    if (source) {
-      const cached = sourceArtCacheRef.current.get(cur.path);
-      if (cached) setPlaybackArt(cached);
-      else setPlaybackArt(trackFallbackArt(source));
-    }
-  }, [
-    globalMusic.current,
-    nowPlayingTitle,
-    playingPath,
-    trackFallbackArt,
-    tracks,
-  ]);
+  }, [globalMusic.current, nowPlayingTitle, playingPath, tracks]);
 
   useEffect(() => {
     if (!playingPath) return;
@@ -1732,6 +1723,7 @@ export default function SystemPlaylistPage({
     if (!canRevealPanelBg) {
       setPanelBgRevealed(false);
       setPanelRevealLinger(false);
+      setPanelRevealHoverSuppressed(false);
     }
   }, [canRevealPanelBg]);
 
@@ -1757,7 +1749,77 @@ export default function SystemPlaylistPage({
     }
     // Hide as soon as the pointer leaves the panel (no linger).
     setPanelRevealLinger(false);
+    setPanelRevealHoverSuppressed(false);
   };
+
+  const togglePanelBgReveal = () => {
+    setPanelBgRevealed((v) => {
+      const next = !v;
+      setPanelRevealHoverSuppressed(next);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (!canRevealPanelBg) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === "h" || e.key === "H") {
+        e.preventDefault();
+        togglePanelBgReveal();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [canRevealPanelBg]);
+
+  const panelTools =
+    canRevealPanelBg || globalMusic.hasTrack ? (
+    <div className="release-page__panel-tools">
+      {globalMusic.hasTrack ? (
+        <button
+          type="button"
+          className={`release-page__panel-viz${
+            globalMusic.visualizerOpen ? " is-active" : ""
+          }${panelRevealLinger ? " is-lingering" : ""}`}
+          aria-label={
+            globalMusic.visualizerOpen ? "Exit visualizer" : "Open visualizer"
+          }
+          aria-pressed={globalMusic.visualizerOpen}
+          title={
+            globalMusic.visualizerOpen
+              ? "Exit visualizer (V)"
+              : "Visualizer (V)"
+          }
+          onClick={() => globalMusicToggleVisualizer()}
+        >
+          <IconVisualizer className="release-page__panel-viz-icon" />
+        </button>
+      ) : null}
+      {canRevealPanelBg ? (
+        <button
+          type="button"
+          className={`release-page__panel-reveal${
+            panelBgRevealed ? " is-active" : ""
+          }${panelRevealLinger ? " is-lingering" : ""}`}
+          aria-label={panelBgRevealed ? "View details" : "View background"}
+          aria-pressed={panelBgRevealed}
+          title={panelBgRevealed ? "View details" : "View background"}
+          onClick={togglePanelBgReveal}
+        >
+          <IconPanelArt className="release-page__panel-reveal-icon" />
+        </button>
+      ) : null}
+    </div>
+  ) : null;
 
   if (loading && !detail) {
     return <PlaylistBoot label="Loading playlist…" />;
@@ -2030,7 +2092,7 @@ export default function SystemPlaylistPage({
             showPanelCanvas && !pageCanvasActive ? " release-page__panel--canvas" : ""
           }${bannerLayout ? " release-page__panel--banner" : ""}${
             panelBgRevealed && canRevealPanelBg ? " is-bg-revealed" : ""
-          }`}
+          }${panelRevealHoverSuppressed ? " is-reveal-hover-suppressed" : ""}`}
           style={
             showTrackPanel && panelFadedCover
               ? ({ ["--panel-fade" as string]: `url("${panelFadedCover}")` } as CSSProperties)
@@ -2054,25 +2116,6 @@ export default function SystemPlaylistPage({
               <div className="release-page__panel-canvas-shade" />
             </div>
           )}
-          {canRevealPanelBg ? (
-            <button
-              type="button"
-              className={`release-page__panel-reveal${
-                panelBgRevealed ? " is-active" : ""
-              }${panelRevealLinger ? " is-lingering" : ""}`}
-              aria-label={panelBgRevealed ? "View details" : "View background"}
-              aria-pressed={panelBgRevealed}
-              title={panelBgRevealed ? "View details" : "View background"}
-              onClick={() => setPanelBgRevealed((v) => !v)}
-            >
-              <svg viewBox="0 0 24 24" width="1em" height="1em" aria-hidden>
-                <path
-                  fill="currentColor"
-                  d="M12 5c-5 0-9.27 3.11-11 7 1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"
-                />
-              </svg>
-            </button>
-          ) : null}
           <div className="release-page__panel-content">
             <div className="release-page__art">
               <div
@@ -2590,6 +2633,7 @@ export default function SystemPlaylistPage({
                 )}
 
                 <div className="release-page__panel-footer">
+                  {panelTools}
                   {detail.prev || detail.next ? (
                     <div className="release-page__panel-bottom-bar">
                       {detail.prev ? (
@@ -2627,6 +2671,7 @@ export default function SystemPlaylistPage({
             {bannerLayout ? (
               <div className="release-page__panel-dock">
                 <div className="release-page__panel-footer">
+                  {panelTools}
                   {detail.prev || detail.next ? (
                     <div className="release-page__panel-bottom-bar">
                       {detail.prev ? (
@@ -2668,7 +2713,7 @@ export default function SystemPlaylistPage({
                 ref={setlistRef}
                 bandId={bandId!}
                 years={detail.years ?? []}
-                playingPath={playingPath}
+                playingPath={rowPlayingPath}
                 onPlay={(path, title, playbackKey, track) => {
                   void handlePlayTrack(
                     path,
@@ -2749,9 +2794,12 @@ export default function SystemPlaylistPage({
                 subgenreNames={subgenreNames}
                 stacked={stacked}
                 compactLyricsHead={stacked || tabletPortrait}
-                playingPath={playingPath}
+                playingPath={rowPlayingPath}
                 playbackProgress={
-                  hasActiveTrack ? globalMusic.progress : 0
+                  rowPlayingPath &&
+                  globalMusic.current?.path === rowPlayingPath
+                    ? globalMusic.progress
+                    : 0
                 }
                 mobileView={mobileTrackView}
                 mobileBackdropUrl={displayCover}

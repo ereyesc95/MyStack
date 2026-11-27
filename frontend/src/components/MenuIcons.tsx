@@ -1012,6 +1012,30 @@ export function IconZoom({ className }: IconProps) {
   );
 }
 
+/** Reveal panel artwork / hide chrome — frame / expand corners. */
+export function IconPanelArt({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="16" height="16" aria-hidden>
+      <path
+        fill="currentColor"
+        d="M5 5h4.2V3.4H3.4V9.2H5V5zm9.8-1.6V5H19v4.2h1.6V3.4H14.8zM5 14.8H3.4v5.8H9.2V19H5v-4.2zm14 0V19h-4.2v1.6h5.8v-5.8H19z"
+      />
+    </svg>
+  );
+}
+
+/** Enter fullscreen now-playing / visualizer mode — soft waveform. */
+export function IconVisualizer({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="16" height="16" aria-hidden>
+      <path
+        fill="currentColor"
+        d="M4.2 9.2h1.8v5.6H4.2V9.2zm3.5-3.4h1.8v12.4H7.7V5.8zm3.5 1.8h1.8v8.8h-1.8V7.6zm3.5-2.6h1.8v14h-1.8v-14zm3.5 4.2h1.8v5.6h-1.8V11.8z"
+      />
+    </svg>
+  );
+}
+
 export function IconTabHome({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" width="18" height="18" aria-hidden>

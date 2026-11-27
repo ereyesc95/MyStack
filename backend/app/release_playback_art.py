@@ -10,6 +10,7 @@ from app.artwork_stems import (
     track_animation_url,
     track_canvas_url,
     track_cover_url,
+    track_visualizer_url,
 )
 from app.band_library import (
     _find_artwork_subdir,
@@ -354,11 +355,12 @@ def apply_track_artwork_overrides(
     track_title: str,
     media_root: Path,
 ) -> dict[str, str | None]:
-    """Prefer track-specific Cover / Animation / Canvas.
+    """Prefer track-specific Cover / Animation / Canvas / Visualizer.
 
     ``Cover - {title}`` (still) takes priority over album ``Cover - Animation`` /
     ``Cover - Canvas`` — same as a linked single's ``Cover - Front``.
-    Track ``Animation - {title}`` / ``Canvas - {title}`` override when present.
+    Track ``Animation - {title}`` / ``Canvas - {title}`` / ``Visualizer - {title}``
+    override when present.
     """
     if not album_artwork or not album_artwork.is_dir():
         return urls
@@ -366,6 +368,7 @@ def apply_track_artwork_overrides(
     track_cover = track_cover_url(album_artwork, track_title, media_root)
     track_animation = track_animation_url(album_artwork, track_title, media_root)
     track_canvas = track_canvas_url(album_artwork, track_title, media_root)
+    track_visualizer = track_visualizer_url(album_artwork, track_title, media_root)
 
     if track_cover:
         out["cover_front_url"] = track_cover
@@ -378,6 +381,8 @@ def apply_track_artwork_overrides(
         out["canvas_url"] = track_canvas
     elif track_cover:
         out["canvas_url"] = None
+    if track_visualizer:
+        out["visualizer_url"] = track_visualizer
     return out
 
 
@@ -582,6 +587,32 @@ def playback_art_for_audio_file(
     artwork = _standard_artwork_dir(edition_folder)
     urls = _artwork_urls(artwork, media_root)
 
+    # Edition [Artwork] first; fill missing visualizer/canvas/landscape from
+    # the release's standard edition (locked visualizer ladder fallback).
+    if ctx and ctx.release_content:
+        standard_artwork = _standard_artwork_dir(
+            _resolve_standard_edition(ctx.release_content)
+        )
+        if (
+            standard_artwork
+            and artwork
+            and standard_artwork.resolve() != artwork.resolve()
+        ):
+            std_urls = _artwork_urls(standard_artwork, media_root)
+            for key in (
+                "visualizer_url",
+                "canvas_url",
+                "cover_landscape_url",
+                "cover_portrait_url",
+                "cover_banner_url",
+                "cover_animation_url",
+                "cover_front_url",
+                "icon_url",
+                "logo_url",
+            ):
+                if not urls.get(key) and std_urls.get(key):
+                    urls[key] = std_urls[key]
+
     full_single_swap = bool(
         single_edition
         and _resolve_standard_edition(edition_folder).resolve()
@@ -624,15 +655,55 @@ def playback_art_for_audio_file(
         release_content=ctx.release_content if ctx else None,
     )
 
+    photo_landscape_url: str | None = None
+    photo_portrait_url: str | None = None
+    try:
+        from app.release_photo_art import (
+            ORIENTATION_FALLBACK_CHAIN,
+            resolve_photo_in_single_edition,
+            resolve_standard_photo,
+        )
+
+        release_dir = (
+            ctx.release_content
+            if ctx and ctx.release_content
+            else _edition_folder_for_audio(audio_file)
+        )
+        for ori in ("landscape", "portrait"):
+            hit = resolve_photo_in_single_edition(
+                release_dir,
+                edition_folder,
+                ORIENTATION_FALLBACK_CHAIN[ori],
+            )
+            if not hit:
+                hit = resolve_standard_photo(release_dir, ori)
+            if hit:
+                url = _media_url(hit.path, media_root)
+                if ori == "landscape":
+                    photo_landscape_url = url
+                else:
+                    photo_portrait_url = url
+    except Exception:
+        pass
+
     return {
         "cover_url": urls.get("cover_front_url"),
         "cover_back_url": urls.get("cover_back_url"),
         "cover_animation_url": urls.get("cover_animation_url"),
         "canvas_url": urls.get("canvas_url"),
+        "visualizer_url": urls.get("visualizer_url"),
+        "cover_landscape_url": urls.get("cover_landscape_url"),
+        "cover_portrait_url": urls.get("cover_portrait_url"),
+        "cover_banner_url": urls.get("cover_banner_url"),
+        "photo_landscape_url": photo_landscape_url,
+        "photo_portrait_url": photo_portrait_url,
+        "icon_url": urls.get("icon_url"),
         "disc_url": disc_url,
         "logo_url": logo_url,
         "group_kind": _playback_group_kind(group_label),
         "background_layers": bg_layers,
+        "is_single": bool(single_edition)
+        or bool(_single_root_for_audio(audio_file, media_root)),
     }
 
 
@@ -672,5 +743,197 @@ def artwork_gallery_for_play_path(
         stem = path.stem.casefold()
         if _is_photocard_stem(stem) or _is_excluded_artwork(stem):
             continue
+        # Never surface Exclusive / NSFW dumps into visualizer pools.
+        if "exclusive" in stem or "/exclusive/" in path.as_posix().casefold():
+            continue
         items.append(_scan_artwork_file(path, media_root))
     return items
+
+
+def _subject_artist_for_visualizer(
+    audio_file: Path,
+    *,
+    band_name: str | None,
+    is_various_artists: bool,
+) -> str | None:
+    """Album artist normally; for VA prefer By / source_artist / first feat."""
+    from app.media_index import parse_bracket_tags
+    from app.release_tag_sync import _parse_featuring, _performer_from_stem
+
+    stem = audio_file.stem
+    if is_various_artists:
+        by_name = _performer_from_stem(stem)
+        if by_name:
+            return by_name
+        _clean, tags = parse_bracket_tags(stem)
+        source = (tags.get("source_artist") or "").strip()
+        if source:
+            return source
+    # Featuring guest (first credit) — useful when VA By is missing.
+    bracket = re.search(r"\[([^\]]+)\]\s*$", stem)
+    if bracket:
+        for part in re.split(r"[;:]+", bracket.group(1)):
+            feat = _parse_featuring(part.strip())
+            if feat:
+                return feat[0]
+    return band_name
+
+
+def _artist_era_photo_urls(
+    artist_name: str,
+    media_root: Path,
+    *,
+    year: int | None,
+    release_title: str | None,
+    orientation: str,
+    limit: int = 8,
+) -> list[str]:
+    """Era-scoped dump photos for an artist. Never includes Exclusive."""
+    from app.gallery import (
+        _artist_dir,
+        _gallery_subdir,
+        _list_photos,
+        _media_url,
+    )
+    from app.release_gallery import _era_gallery_photos
+
+    artist_dir = _artist_dir(media_root, artist_name)
+    if not artist_dir:
+        return []
+    photos: list = []
+    for folder_name in ("Miscellaneous", "Misc", "Gallery", "Photos"):
+        d = _gallery_subdir(artist_dir, folder_name)
+        if not d or not d.is_dir():
+            continue
+        # Skip Exclusive even if nested under a misnamed dump.
+        if "exclusive" in d.as_posix().casefold():
+            continue
+        photos.extend(_list_photos(d))
+    if not photos:
+        return []
+    era = _era_gallery_photos(photos, year, release_title) if year else photos
+    want = (orientation or "landscape").casefold()
+    ordered = [p for p in era if (p.orientation or "").casefold() == want]
+    if not ordered:
+        ordered = list(era)
+    urls: list[str] = []
+    for photo in ordered:
+        if "exclusive" in photo.path.as_posix().casefold():
+            continue
+        url = _media_url(photo.path, media_root)
+        if url and url not in urls:
+            urls.append(url)
+        if len(urls) >= limit:
+            break
+    return urls
+
+
+def _artist_era_branding(
+    artist_name: str,
+    media_root: Path,
+    *,
+    year: int | None,
+) -> tuple[str | None, str | None]:
+    from app.band_overview import _pick_brand_for_year_deterministic
+    from app.gallery import (
+        _artist_dir,
+        _gallery_subdir,
+        _list_era_brands,
+        _media_url,
+    )
+    from app.release_overview import _nearest_brand
+
+    if not year:
+        return None, None
+    artist_dir = _artist_dir(media_root, artist_name)
+    if not artist_dir:
+        return None, None
+    brands = _list_era_brands(_gallery_subdir(artist_dir, "Branding"))
+    if not brands:
+        return None, None
+    icon = _pick_brand_for_year_deterministic(brands, year, "icon")
+    logo = _pick_brand_for_year_deterministic(brands, year, "logo")
+    if icon and not logo:
+        logo = _nearest_brand(brands, year, "logo")
+    if logo and not icon:
+        icon = _nearest_brand(brands, year, "icon")
+    return (
+        _media_url(icon.path, media_root) if icon else None,
+        _media_url(logo.path, media_root) if logo else None,
+    )
+
+
+def visualizer_extras_for_play_path(
+    media_root: Path,
+    play_path: str,
+    *,
+    ctx: PlaybackArtContext | None = None,
+    is_various_artists: bool = False,
+    release_date_iso: str | None = None,
+    release_title: str | None = None,
+) -> dict:
+    """Era photos + subject branding for the visualizer overlay.
+
+    Exclusive / NSFW galleries are never included — even when NSFW is unlocked.
+    """
+    empty = {
+        "subject_artist": None,
+        "era_icon_url": None,
+        "era_logo_url": None,
+        "era_photos_landscape": [],
+        "era_photos_portrait": [],
+    }
+    if not play_path:
+        return empty
+    audio_file = media_root / Path(play_path)
+    if not audio_file.is_file():
+        return empty
+
+    from app.release_overview import _release_year
+
+    year = _release_year(release_date_iso)
+    if year is None and ctx and ctx.release_content:
+        from app.band_library import _parse_folder_date
+
+        year = _release_year(_parse_folder_date(ctx.release_content.name))
+
+    subject = _subject_artist_for_visualizer(
+        audio_file,
+        band_name=ctx.band_name if ctx else None,
+        is_various_artists=is_various_artists,
+    )
+    title = release_title or (ctx.release_title if ctx else None)
+    icon_url, logo_url = (
+        _artist_era_branding(subject, media_root, year=year)
+        if subject
+        else (None, None)
+    )
+    landscape = (
+        _artist_era_photo_urls(
+            subject,
+            media_root,
+            year=year,
+            release_title=title,
+            orientation="landscape",
+        )
+        if subject
+        else []
+    )
+    portrait = (
+        _artist_era_photo_urls(
+            subject,
+            media_root,
+            year=year,
+            release_title=title,
+            orientation="portrait",
+        )
+        if subject
+        else []
+    )
+    return {
+        "subject_artist": subject,
+        "era_icon_url": icon_url,
+        "era_logo_url": logo_url,
+        "era_photos_landscape": landscape,
+        "era_photos_portrait": portrait,
+    }

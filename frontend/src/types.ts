@@ -1277,6 +1277,8 @@ export type ReleaseTrackItem = {
   youtube_url?: string | null;
   youtube_videos?: TrackYoutubeVideo[];
   source_album_title?: string | null;
+  /** Compact From cell for B-sides / typed sections (`Release · Edition`). */
+  from_label?: string | null;
   navigate_release_id?: string | null;
   navigate_band_id?: number | null;
   source_date_iso?: string | null;
@@ -1363,7 +1365,15 @@ export type ReleaseVersion = {
 export type ReleaseEdition = {
   id: string;
   label: string;
-  kind?: "edition" | "single" | "bside" | "link";
+  kind?:
+    | "edition"
+    | "single"
+    | "bside"
+    | "link"
+    | "demos"
+    | "remixes"
+    | "acoustic"
+    | "live";
   date_iso: string | null;
   display_date?: string | null;
   folder_path?: string | null;
@@ -1555,10 +1565,18 @@ export type ReleasePlaybackArt = {
   cover_back_url?: string | null;
   cover_animation_url?: string | null;
   canvas_url?: string | null;
+  visualizer_url?: string | null;
+  cover_landscape_url?: string | null;
+  cover_portrait_url?: string | null;
+  cover_banner_url?: string | null;
+  photo_landscape_url?: string | null;
+  photo_portrait_url?: string | null;
+  icon_url?: string | null;
   disc_url?: string | null;
   logo_url?: string | null;
   group_kind?: string | null;
   background_layers?: string[];
+  is_single?: boolean | null;
 };
 
 export type ReleaseGalleryItem = {
